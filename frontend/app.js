@@ -197,7 +197,6 @@ function initializeTeamSelection() {
             html += `
                 <div class="team-item ${team.colorClass}" data-team-id="${team.id}">
                     <span class="team-name">${team.name}</span>
-                    <span class="team-check">✓</span>
                 </div>
             `;
         });
@@ -324,11 +323,24 @@ function startTerminalAnimation() {
     const opponentName = getTeamName(selectedTeam);
     const location = homeAway === 'vs' ? 'Home' : 'Away';
 
-    // Generate mock projection values
-    const mean = Math.floor(Math.random() * 30) + 10;
-    const p10 = Math.floor(mean * 0.6);
-    const p50 = Math.floor(mean * 0.85);
-    const p90 = Math.floor(mean * 1.4);
+    // Position-based stat definitions (from README)
+    const positionStats = {
+        'QB': ['PYD', 'PTD', 'RYD', 'RTD', 'P Attempts', 'R Attempts', 'Completions'],
+        'RB': ['RUYD', 'RECYD', 'TOTTD', 'Carries'],
+        'WR': ['Receptions', 'RECYD', 'RECTD'],
+        'TE': ['Receptions', 'RECYD', 'RECTD'],
+        'OL': [], // No returned stats
+        'DT': ['Tackles', 'Sacks', 'FF'],
+        'DE': ['Tackles', 'Sacks', 'FF'],
+        'S': ['Sacks', 'Tackles', 'Interceptions', 'Passes Defended'],
+        'CB': ['Sacks', 'Tackles', 'Interceptions', 'Passes Defended'],
+        'LB': ['Sacks', 'Tackles', 'FF'],
+        'K': ['FG Made', 'FG Attempts', '# PAT'],
+        'P': ['# Punts', 'Punts within 10/20 yards']
+    };
+
+    // Get stats for this position
+    const stats = positionStats[playerPos] || ['PPR Fantasy']; // Default to fantasy if position not found
 
     const terminalLines = [
         { text: 'READ THE FIELD - MODELING ENGINE v2.1.4', delay: 0, class: 'highlight' },
@@ -378,17 +390,9 @@ function startTerminalAnimation() {
         { text: '', delay: 9200, class: 'info' },
         { text: 'PROJECTION SUMMARY', delay: 9400, class: 'highlight' },
         { text: '==================', delay: 9600, class: 'info' },
-        { text: `    Mean projected fantasy points: ${mean}.0`, delay: 9800, class: 'success' },
-        { text: '', delay: 10000, class: 'info' },
-        { text: 'PERCENTILE OUTCOMES', delay: 10200, class: 'highlight' },
-        { text: '==================', delay: 10400, class: 'info' },
-        { text: `    P10: ${p10} fantasy points`, delay: 10600, class: 'info' },
-        { text: `    P50: ${p50} fantasy points`, delay: 10800, class: 'info' },
-        { text: `    P90: ${p90} fantasy points`, delay: 11000, class: 'info' },
-        { text: '', delay: 11200, class: 'info' },
-        { text: '', delay: 11400, class: 'info' },
-        { text: '> Simulation complete.', delay: 11600, class: 'prompt' },
-        { text: '', delay: 11800, class: 'info' }
+        { text: '', delay: 9800, class: 'info' },
+        { text: '> Simulation complete.', delay: 10000, class: 'prompt' },
+        { text: '', delay: 10200, class: 'info' }
     ];
 
     let currentLineIndex = 0;
@@ -461,14 +465,74 @@ function startTerminalAnimation() {
             terminalCursor.style.display = 'none';
         }
 
-        // Show results panel
+        // Show results panel with position-based stats
         const resultsPanel = document.getElementById('results-panel');
-        if (resultsPanel) {
+        const resultsContent = document.getElementById('results-content');
+        if (resultsPanel && resultsContent) {
             resultsPanel.style.display = 'block';
-            document.getElementById('result-mean').textContent = `${mean}.0`;
-            document.getElementById('result-p10').textContent = `${p10}`;
-            document.getElementById('result-p50').textContent = `${p50}`;
-            document.getElementById('result-p90').textContent = `${p90}`;
+            
+            // Clear previous results
+            resultsContent.innerHTML = '';
+            
+            // Generate mock predicted values for each stat
+            const generatePredictedValue = (statName) => {
+                // Generate realistic mock values based on stat type
+                if (statName.includes('YD') || statName === 'PYD' || statName === 'RYD' || statName === 'RECYD' || statName === 'RUYD') {
+                    return Math.floor(Math.random() * 150) + 20; // Yards: 20-170
+                } else if (statName.includes('TD') || statName === 'PTD' || statName === 'RTD' || statName === 'RECTD' || statName === 'TOTTD') {
+                    return Math.floor(Math.random() * 3); // Touchdowns: 0-2
+                } else if (statName === 'Receptions') {
+                    return Math.floor(Math.random() * 10) + 2; // Receptions: 2-11
+                } else if (statName === 'Carries' || statName === 'P Attempts' || statName === 'R Attempts') {
+                    return Math.floor(Math.random() * 25) + 5; // Attempts: 5-29
+                } else if (statName === 'Completions') {
+                    return Math.floor(Math.random() * 20) + 10; // Completions: 10-29
+                } else if (statName === 'Tackles') {
+                    return Math.floor(Math.random() * 12) + 3; // Tackles: 3-14
+                } else if (statName === 'Sacks') {
+                    return Math.floor(Math.random() * 2); // Sacks: 0-1
+                } else if (statName === 'FF') {
+                    return Math.floor(Math.random() * 2); // Forced Fumbles: 0-1
+                } else if (statName === 'Interceptions') {
+                    return Math.floor(Math.random() * 2); // Interceptions: 0-1
+                } else if (statName === 'Passes Defended') {
+                    return Math.floor(Math.random() * 4); // Passes Defended: 0-3
+                } else if (statName === 'FG Made') {
+                    return Math.floor(Math.random() * 3) + 1; // FG Made: 1-3
+                } else if (statName === 'FG Attempts') {
+                    return Math.floor(Math.random() * 3) + 2; // FG Attempts: 2-4
+                } else if (statName === '# PAT') {
+                    return Math.floor(Math.random() * 5) + 2; // PAT: 2-6
+                } else if (statName === '# Punts') {
+                    return Math.floor(Math.random() * 6) + 2; // Punts: 2-7
+                } else if (statName === 'Punts within 10/20 yards') {
+                    return Math.floor(Math.random() * 3); // Punts within 10/20: 0-2
+                } else {
+                    return Math.floor(Math.random() * 20) + 5; // Default: 5-24
+                }
+            };
+            
+            // Create result items for each stat
+            stats.forEach(stat => {
+                const predictedValue = generatePredictedValue(stat);
+                const resultItem = document.createElement('div');
+                resultItem.className = 'result-item';
+                resultItem.innerHTML = `
+                    <div class="result-label">${stat}</div>
+                    <div class="result-value">${predictedValue}</div>
+                `;
+                resultsContent.appendChild(resultItem);
+            });
+            
+            // If no stats for position, show default message
+            if (stats.length === 0) {
+                resultsContent.innerHTML = `
+                    <div class="result-item" style="grid-column: 1 / -1;">
+                        <div class="result-label">NO STATS AVAILABLE</div>
+                        <div class="result-value">--</div>
+                    </div>
+                `;
+            }
         }
     }
 
