@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Read the Field</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="main-header">
+        <h1 class="project-title">READ THE FIELD</h1>
+    </header>
+
+    <main class="main-content">
+        <section class="home-section">
+            <!-- Information Box -->
+            <div class="info-box">
+                <div class="info-content">
+                    <p>Read the Field generates probabilistic player projections using advanced analytics and predictive modeling. Our system simulates thousands of potential outcomes to produce full probability distributions rather than single point predictions.</p>
+                    <p>Each projection includes uncertainty quantification through percentile outcomes (10th, 50th, and 90th percentiles), allowing you to understand the range of possible results and make informed decisions under uncertainty.</p>
+                    <p class="info-disclaimer">* THIS IS NOT FINANCIAL ADVICE AND SHOULD NOT BE USED FOR SPORTS BETTING.</p>
+                </div>
+            </div>
+
+            <!-- Matchup Setup -->
+            <div class="matchup-setup">
+                <!-- Player Selection -->
+                <div class="player-selection">
+                    <h2 class="section-title">SELECT PLAYER</h2>
+                    <div class="search-container">
+                        <input 
+                            type="text" 
+                            id="player-search" 
+                            class="search-input" 
+                            placeholder="SEARCH FOR A PLAYER..."
+                            autocomplete="off"
+                        />
+                        <div id="autocomplete-results" class="autocomplete-results"></div>
+                    </div>
+                    <div id="selected-player" class="selected-player"></div>
+                </div>
+
+                <!-- Team Selection -->
+                <div class="team-selection">
+                    <h2 class="section-title">SELECT OPPONENT</h2>
+                    <div class="home-away-toggle">
+                        <button id="toggle-vs" class="toggle-option active" data-value="vs">VS</button>
+                        <button id="toggle-away" class="toggle-option" data-value="away">@</button>
+                    </div>
+                    <div id="team-selection"></div>
+                </div>
+            </div>
+
+            <!-- Calculate Button -->
+            <div class="simulation-button-container">
+                <button id="simulation-button" class="btn-primary simulation-button" disabled>
+                    CALCULATE
+                </button>
+            </div>
+
+            <!-- Terminal Container (hidden until CALCULATE is pressed) -->
+            <div id="terminal-container" class="embedded-terminal-container" style="display: none;">
+                <div class="terminal-output" id="terminalOutput">
+                    <div class="terminal-line-wrapper">
+                        <span class="terminal-cursor" id="terminalCursor">_</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Panel (hidden until terminal finishes) -->
+            <div id="results-panel" class="results-panel" style="display: none;">
+                <h2 class="section-title">PROJECTION RESULTS</h2>
+                <div class="results-content">
+                    <div class="result-item">
+                        <div class="result-label">MEAN PROJECTION</div>
+                        <div class="result-value" id="result-mean">--</div>
+                    </div>
+                    <div class="result-item">
+                        <div class="result-label">10TH PERCENTILE</div>
+                        <div class="result-value" id="result-p10">--</div>
+                    </div>
+                    <div class="result-item">
+                        <div class="result-label">50TH PERCENTILE</div>
+                        <div class="result-value" id="result-p50">--</div>
+                    </div>
+                    <div class="result-item">
+                        <div class="result-label">90TH PERCENTILE</div>
+                        <div class="result-value" id="result-p90">--</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="main-footer">
+        <nav class="footer-nav">
+            <a href="index.html" class="footer-link active">HOME</a>
+            <a href="about.html" class="footer-link">ABOUT</a>
+            <a href="recent-predictions.html" class="footer-link">RECENT RUNS</a>
+            <a href="mailto:vinaysgovindaraju@gmail.com" class="footer-link">CONTACT THE MAKER</a>
+            <a href="#" class="footer-link">GITHUB</a>
+        </nav>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

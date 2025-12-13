@@ -1,0 +1,1038 @@
+/* Cartridge Football Theme - Read the Field */
+
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+@import url('design-system.css');
+
+:root {
+    /* Cartridge Football Theme Colors */
+    --primary-green: #0d4f3c;
+    --secondary-green: #1a7a5e;
+    --accent-gold: #d4af37;
+    --dark-bg: #0a0f0d;
+    --card-bg: #141a17;
+    --text-primary: #ffffff;
+    --text-secondary: #b8c5c0;
+    --border-color: #2a3a32;
+    --hover-bg: #1f2e26;
+    
+    /* Team Colors - NFL */
+    --team-buffalo: #00338d;
+    --team-miami: #008e97;
+    --team-new-england: #002244;
+    --team-ny-jets: #125740;
+    --team-baltimore: #241773;
+    --team-cincinnati: #fb4f14;
+    --team-cleveland: #311d00;
+    --team-pittsburgh: #ffb612;
+    --team-houston: #03202f;
+    --team-indianapolis: #002c5f;
+    --team-jacksonville: #006778;
+    --team-tennessee: #0c2340;
+    --team-denver: #fb4f14;
+    --team-kansas-city: #e31837;
+    --team-las-vegas: #000000;
+    --team-la-chargers: #0080c6;
+    --team-dallas: #003594;
+    --team-ny-giants: #0b2265;
+    --team-philadelphia: #004c54;
+    --team-washington: #5a1414;
+    --team-chicago: #0b162a;
+    --team-detroit: #0076b6;
+    --team-green-bay: #203731;
+    --team-minnesota: #4f2683;
+    --team-atlanta: #a71930;
+    --team-carolina: #0085ca;
+    --team-new-orleans: #d3bc8d;
+    --team-tampa-bay: #d50a0a;
+    --team-arizona: #97233f;
+    --team-la-rams: #003594;
+    --team-san-francisco: #aa0000;
+    --team-seattle: #002244;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Press Start 2P', monospace;
+    background: var(--dark-bg);
+    color: var(--text-primary);
+    min-height: 100vh;
+    line-height: 1.6;
+}
+
+.main-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--card-bg);
+    border-bottom: 3px solid var(--border-color);
+    padding: 1.5rem 2rem;
+    text-align: center;
+}
+
+.project-title {
+    font-size: 1.5rem;
+    font-weight: normal;
+    letter-spacing: 0.05em;
+    color: var(--accent-gold);
+    text-transform: uppercase;
+}
+
+.main-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 3rem 2rem;
+}
+
+.main-content.calculations-main {
+    max-width: 100%;
+    padding: 0;
+    margin: 0;
+}
+
+/* Home Section */
+.home-section {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+/* Information Box */
+.info-box {
+    background: var(--dark-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 2rem;
+    margin-bottom: 1rem;
+}
+
+.info-content {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.625rem;
+    line-height: 1.8;
+    color: var(--text-primary);
+}
+
+.info-content p {
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+}
+
+.info-content p:last-of-type {
+    margin-bottom: 0;
+}
+
+.info-disclaimer {
+    color: var(--accent-gold) !important;
+    margin-top: 1.5rem !important;
+    font-size: 0.625rem;
+}
+
+.hero-section {
+    text-align: center;
+    padding: 2rem 0;
+}
+
+.hero-title {
+    font-size: 2rem;
+    font-weight: normal;
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+    letter-spacing: 0.05em;
+}
+
+.hero-tagline {
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    font-weight: normal;
+    font-family: 'Press Start 2P', monospace;
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.8;
+}
+
+/* Matchup Setup Container */
+.matchup-setup {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    margin-bottom: 2rem;
+}
+
+@media (max-width: 968px) {
+    .matchup-setup {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Player Selection */
+.player-selection {
+    background: var(--card-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 2rem;
+}
+
+.section-title {
+    font-size: 0.875rem;
+    font-weight: normal;
+    margin-bottom: 1.5rem;
+    color: var(--accent-gold);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.search-container {
+    position: relative;
+    margin-bottom: 1rem;
+}
+
+.search-input {
+    width: 100%;
+    padding: 1rem 1.25rem;
+    background: var(--dark-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    font-family: 'Press Start 2P', monospace;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: var(--secondary-green);
+}
+
+.search-input::placeholder {
+    color: var(--text-secondary);
+}
+
+.autocomplete-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--card-bg);
+    border: 3px solid var(--border-color);
+    border-top: none;
+    border-radius: 0;
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 100;
+    display: none;
+}
+
+.autocomplete-results.active {
+    display: block;
+}
+
+.autocomplete-item {
+    padding: 1rem 1.25rem;
+    cursor: pointer;
+    border-bottom: 3px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.autocomplete-item:hover {
+    background: var(--hover-bg);
+}
+
+.autocomplete-item:last-child {
+    border-bottom: none;
+}
+
+.player-headshot {
+    width: 48px;
+    height: 48px;
+    border-radius: 0;
+    background: var(--secondary-green);
+    border: 3px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    font-weight: normal;
+    font-size: 0.625rem;
+    flex-shrink: 0;
+}
+
+.player-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.player-name {
+    font-weight: normal;
+    font-size: 0.75rem;
+    margin-bottom: 0.25rem;
+    color: var(--text-primary);
+    font-family: 'Press Start 2P', monospace;
+}
+
+.player-details {
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    font-family: 'Press Start 2P', monospace;
+}
+
+.selected-player {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: var(--hover-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    display: none;
+}
+
+.selected-player.active {
+    display: block;
+}
+
+/* Team Selection */
+.team-selection {
+    background: var(--card-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 2rem;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.home-away-toggle {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 3px solid var(--border-color);
+}
+
+.toggle-option {
+    padding: 0.75rem 1.5rem;
+    background: var(--dark-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    color: var(--text-secondary);
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: none;
+}
+
+.toggle-option:hover {
+    border-color: var(--secondary-green);
+    color: var(--text-primary);
+}
+
+.toggle-option.active {
+    background: var(--card-bg);
+    border-color: var(--accent-gold);
+    color: var(--accent-gold);
+}
+
+.toggle-option:active {
+    transform: translateY(1px);
+    box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.division-group {
+    margin-bottom: 2rem;
+}
+
+.division-group:last-child {
+    margin-bottom: 0;
+}
+
+.division-title {
+    font-size: 0.75rem;
+    font-weight: normal;
+    margin-bottom: 1rem;
+    color: var(--accent-gold);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding-bottom: 0.5rem;
+    border-bottom: 3px solid var(--border-color);
+}
+
+.team-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+@media (max-width: 968px) {
+    .team-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.team-item {
+    padding: 0.75rem 1rem;
+    border-radius: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 3px solid transparent;
+    position: relative;
+    min-height: 48px;
+}
+
+.team-item:hover {
+    border-color: var(--border-color);
+}
+
+.team-item.selected {
+    border-color: var(--accent-gold);
+}
+
+.team-name {
+    font-weight: normal;
+    font-size: 0.625rem;
+    color: var(--text-primary);
+    z-index: 1;
+    position: relative;
+    flex: 1;
+}
+
+.team-check {
+    opacity: 0;
+    color: var(--accent-gold);
+    font-weight: normal;
+    z-index: 1;
+    position: relative;
+    font-size: 0.75rem;
+}
+
+.team-item.selected .team-check {
+    opacity: 1;
+}
+
+/* Simulation Button */
+.simulation-button-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 1rem;
+    margin-bottom: 2rem;
+}
+
+.simulation-button {
+    padding: 1.25rem 3rem;
+    font-size: 0.75rem;
+    background: var(--secondary-green);
+    color: var(--text-primary);
+    border: 3px solid var(--border-color);
+    text-transform: uppercase;
+}
+
+.simulation-button:hover:not(:disabled) {
+    background: var(--primary-green);
+}
+
+.simulation-button:active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.simulation-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Button variants for dark theme */
+.btn-primary {
+    background: var(--secondary-green);
+    color: var(--text-primary);
+    border: 3px solid var(--border-color);
+}
+
+.btn-primary:hover {
+    background: var(--primary-green);
+}
+
+.btn-primary:active {
+    transform: translateY(1px);
+    box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.btn-secondary {
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border: 3px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+    background: var(--hover-bg);
+}
+
+.btn-secondary:active {
+    transform: translateY(1px);
+    box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.btn-nav {
+    background: var(--dark-bg);
+    color: var(--text-secondary);
+    border: 3px solid var(--border-color);
+}
+
+.btn-nav:hover {
+    color: var(--accent-gold);
+    border-color: var(--accent-gold);
+    background: var(--card-bg);
+}
+
+.btn-nav:active {
+    transform: translateY(1px);
+    box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.btn-nav.active {
+    color: var(--accent-gold);
+    border-color: var(--accent-gold);
+    background: var(--card-bg);
+    box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Footer */
+.main-footer {
+    background: var(--card-bg);
+    border-top: 3px solid var(--border-color);
+    padding: 2rem;
+    margin-top: 4rem;
+}
+
+.footer-nav {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    flex-wrap: wrap;
+}
+
+.footer-link {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-weight: normal;
+    font-family: 'Press Start 2P', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.75rem 1.5rem;
+    border: 3px solid var(--border-color);
+    background: var(--dark-bg);
+    display: inline-block;
+    position: relative;
+    cursor: pointer;
+    font-size: 0.625rem;
+    border-radius: 0;
+}
+
+.footer-link:hover {
+    color: var(--accent-gold);
+    border-color: var(--accent-gold);
+    background: var(--card-bg);
+}
+
+.footer-link:active {
+    transform: translateY(1px);
+    box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.footer-link.active {
+    color: var(--accent-gold);
+    border-color: var(--accent-gold);
+    background: var(--card-bg);
+    box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Pixel-style selection indicator */
+.footer-link.active::before {
+    content: '▶';
+    position: absolute;
+    left: 0.5rem;
+    color: var(--accent-gold);
+}
+
+/* Page Section Styles */
+.page-section h2 {
+    margin-bottom: 1.5rem;
+    color: var(--accent-gold);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 3px solid var(--border-color);
+    padding-bottom: 0.5rem;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.875rem;
+    font-weight: normal;
+}
+
+.page-section p {
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+    line-height: 1.8;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.625rem;
+}
+
+/* Email Link Style */
+.email-link {
+    color: var(--accent-gold);
+    text-decoration: none;
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    border: 3px solid var(--accent-gold);
+    border-radius: 0;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.625rem;
+    text-transform: uppercase;
+}
+
+.email-link:hover {
+    color: var(--text-primary);
+    background: var(--card-bg);
+}
+
+.email-link:active {
+    transform: translateY(1px);
+    box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--dark-bg);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--secondary-green);
+}
+
+/* Team Color Classes */
+.team-buffalo { background-color: var(--team-buffalo); }
+.team-miami { background-color: var(--team-miami); }
+.team-new-england { background-color: var(--team-new-england); }
+.team-ny-jets { background-color: var(--team-ny-jets); }
+.team-baltimore { background-color: var(--team-baltimore); }
+.team-cincinnati { background-color: var(--team-cincinnati); }
+.team-cleveland { background-color: var(--team-cleveland); }
+.team-pittsburgh { background-color: var(--team-pittsburgh); color: var(--dark-bg); }
+.team-houston { background-color: var(--team-houston); }
+.team-indianapolis { background-color: var(--team-indianapolis); }
+.team-jacksonville { background-color: var(--team-jacksonville); }
+.team-tennessee { background-color: var(--team-tennessee); }
+.team-denver { background-color: var(--team-denver); }
+.team-kansas-city { background-color: var(--team-kansas-city); }
+.team-las-vegas { background-color: var(--team-las-vegas); }
+.team-la-chargers { background-color: var(--team-la-chargers); }
+.team-dallas { background-color: var(--team-dallas); }
+.team-ny-giants { background-color: var(--team-ny-giants); }
+.team-philadelphia { background-color: var(--team-philadelphia); }
+.team-washington { background-color: var(--team-washington); }
+.team-chicago { background-color: var(--team-chicago); }
+.team-detroit { background-color: var(--team-detroit); }
+.team-green-bay { background-color: var(--team-green-bay); }
+.team-minnesota { background-color: var(--team-minnesota); }
+.team-atlanta { background-color: var(--team-atlanta); }
+.team-carolina { background-color: var(--team-carolina); }
+.team-new-orleans { background-color: var(--team-new-orleans); color: var(--dark-bg); }
+.team-tampa-bay { background-color: var(--team-tampa-bay); }
+.team-arizona { background-color: var(--team-arizona); }
+.team-la-rams { background-color: var(--team-la-rams); }
+.team-san-francisco { background-color: var(--team-san-francisco); }
+.team-seattle { background-color: var(--team-seattle); }
+
+/* Terminal Page Styles */
+.calculations-main {
+    padding: 0;
+    max-width: 100%;
+    margin: 0;
+}
+
+.terminal-container {
+    width: 100%;
+    min-height: calc(100vh - 200px);
+    background: #000000;
+    padding: 2rem;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.625rem;
+    line-height: 1.8;
+    color: #a8b8a8;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+/* Embedded Terminal Container */
+.embedded-terminal-container {
+    width: 100%;
+    background: #000000;
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 2rem;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.625rem;
+    line-height: 1.8;
+    color: #a8b8a8;
+    margin-top: 2rem;
+    margin-bottom: 2rem;
+    min-height: 400px;
+    max-height: 600px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+.terminal-output {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 1rem;
+}
+
+.embedded-terminal-container .terminal-output {
+    max-height: 500px;
+}
+
+.terminal-output::-webkit-scrollbar {
+    width: 0;
+    background: transparent;
+}
+
+.terminal-output::-webkit-scrollbar-thumb {
+    background: transparent;
+}
+
+.terminal-line-wrapper {
+    display: inline;
+}
+
+.terminal-line {
+    margin: 0;
+    padding: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: #a8b8a8;
+    min-height: 1.6em;
+    display: block;
+}
+
+.terminal-line.prompt {
+    color: #7cb342;
+}
+
+.terminal-line.info {
+    color: #a8b8a8;
+}
+
+.terminal-line.success {
+    color: #8bc34a;
+}
+
+.terminal-line.warning {
+    color: #ffc107;
+}
+
+.terminal-line.error {
+    color: #f44336;
+}
+
+.terminal-line.highlight {
+    color: #ffffff;
+    font-weight: normal;
+}
+
+.terminal-line.highlight,
+.terminal-line.success {
+    color: #7cb342;
+}
+
+.terminal-cursor {
+    display: inline-block;
+    color: #7cb342;
+    animation: blink 1s infinite;
+    font-weight: bold;
+}
+
+@keyframes blink {
+    0%, 49% {
+        opacity: 1;
+    }
+    50%, 100% {
+        opacity: 0;
+    }
+}
+
+@media (max-width: 768px) {
+    .terminal-container {
+        padding: 1rem;
+        font-size: 0.5rem;
+    }
+}
+
+/* Recent Predictions Page Styles */
+.predictions-section {
+    background: var(--card-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 2rem;
+}
+
+.predictions-title {
+    font-size: 1.25rem;
+    font-weight: normal;
+    margin-bottom: 0.5rem;
+    color: var(--accent-gold);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 3px solid var(--border-color);
+    padding-bottom: 1rem;
+}
+
+.predictions-subtitle {
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    margin-bottom: 2rem;
+    font-family: 'Press Start 2P', monospace;
+    text-transform: uppercase;
+}
+
+.predictions-controls {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 3px solid var(--border-color);
+}
+
+@media (max-width: 968px) {
+    .predictions-controls {
+        grid-template-columns: 1fr;
+    }
+}
+
+.search-control {
+    display: flex;
+    flex-direction: column;
+}
+
+.filter-control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.sort-control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.filter-label {
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    font-family: 'Press Start 2P', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.date-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: var(--dark-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    color: var(--text-primary);
+    font-size: 0.625rem;
+    font-family: 'Press Start 2P', monospace;
+    cursor: pointer;
+}
+
+.date-input:focus {
+    outline: none;
+    border-color: var(--secondary-green);
+}
+
+.sort-select {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: var(--dark-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    color: var(--text-primary);
+    font-size: 0.625rem;
+    font-family: 'Press Start 2P', monospace;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23d4af37' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    padding-right: 2.5rem;
+}
+
+.sort-select:focus {
+    outline: none;
+    border-color: var(--secondary-green);
+}
+
+.sort-select option {
+    background: var(--dark-bg);
+    color: var(--text-primary);
+    padding: 0.5rem;
+}
+
+.predictions-table-container {
+    overflow-x: auto;
+    border: 3px solid var(--border-color);
+    background: var(--dark-bg);
+}
+
+.predictions-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.625rem;
+    color: var(--text-primary);
+}
+
+.predictions-table thead {
+    background: var(--card-bg);
+    border-bottom: 3px solid var(--border-color);
+}
+
+.predictions-table th {
+    padding: 1rem 0.75rem;
+    text-align: left;
+    text-transform: uppercase;
+    color: var(--accent-gold);
+    font-weight: normal;
+    letter-spacing: 0.05em;
+    border-right: 3px solid var(--border-color);
+    white-space: nowrap;
+}
+
+.predictions-table th:last-child {
+    border-right: none;
+}
+
+.predictions-table tbody tr {
+    border-bottom: 3px solid var(--border-color);
+    background: var(--dark-bg);
+}
+
+.predictions-table tbody tr:hover {
+    background: var(--hover-bg);
+}
+
+.predictions-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.predictions-table td {
+    padding: 1rem 0.75rem;
+    border-right: 3px solid var(--border-color);
+    color: var(--text-primary);
+    vertical-align: top;
+}
+
+.predictions-table td:last-child {
+    border-right: none;
+}
+
+.no-results {
+    padding: 3rem 2rem;
+    text-align: center;
+    color: var(--text-secondary);
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    border: 3px solid var(--border-color);
+    background: var(--dark-bg);
+}
+
+@media (max-width: 768px) {
+    .predictions-table {
+        font-size: 0.5rem;
+    }
+    
+    .predictions-table th,
+    .predictions-table td {
+        padding: 0.75rem 0.5rem;
+    }
+    
+    .predictions-section {
+        padding: 1rem;
+    }
+}
+
+/* Results Panel */
+.results-panel {
+    background: var(--card-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 2rem;
+    margin-top: 2rem;
+}
+
+.results-content {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2rem;
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 968px) {
+    .results-content {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 568px) {
+    .results-content {
+        grid-template-columns: 1fr;
+    }
+}
+
+.result-item {
+    text-align: center;
+    padding: 1.5rem;
+    background: var(--dark-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+}
+
+.result-label {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+}
+
+.result-value {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 1.25rem;
+    color: var(--accent-gold);
+    font-weight: normal;
+}

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recent Predictions - Read the Field</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="main-header">
+        <h1 class="project-title">READ THE FIELD</h1>
+    </header>
+
+    <main class="main-content">
+        <section class="predictions-section">
+            <h2 class="section-title predictions-title">RECENT PREDICTIONS</h2>
+            <p class="predictions-subtitle">Simulation runs from the last 14 days</p>
+
+            <!-- Filters and Search -->
+            <div class="predictions-controls">
+                <div class="search-control">
+                    <input 
+                        type="text" 
+                        id="player-search-input" 
+                        class="search-input" 
+                        placeholder="SEARCH BY PLAYER NAME..."
+                        autocomplete="off"
+                    />
+                </div>
+                <div class="filter-control">
+                    <label for="date-filter" class="filter-label">FILTER BY DATE:</label>
+                    <input 
+                        type="date" 
+                        id="date-filter" 
+                        class="date-input"
+                    />
+                </div>
+                <div class="sort-control">
+                    <label for="sort-select" class="filter-label">SORT BY:</label>
+                    <select id="sort-select" class="sort-select">
+                        <option value="date-desc">DATE (NEWEST)</option>
+                        <option value="date-asc">DATE (OLDEST)</option>
+                        <option value="mean-desc">MEAN PROJECTION (HIGH)</option>
+                        <option value="mean-asc">MEAN PROJECTION (LOW)</option>
+                        <option value="p10-desc">10TH PERCENTILE (HIGH)</option>
+                        <option value="p10-asc">10TH PERCENTILE (LOW)</option>
+                        <option value="p50-desc">50TH PERCENTILE (HIGH)</option>
+                        <option value="p50-asc">50TH PERCENTILE (LOW)</option>
+                        <option value="p90-desc">90TH PERCENTILE (HIGH)</option>
+                        <option value="p90-asc">90TH PERCENTILE (LOW)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Predictions Table -->
+            <div class="predictions-table-container">
+                <table class="predictions-table" id="predictions-table">
+                    <thead>
+                        <tr>
+                            <th>PLAYER</th>
+                            <th>POS</th>
+                            <th>OPPONENT</th>
+                            <th>RUN DATE</th>
+                            <th>MEAN</th>
+                            <th>P10</th>
+                            <th>P50</th>
+                            <th>P90</th>
+                            <th>DATA SNAPSHOT</th>
+                        </tr>
+                    </thead>
+                    <tbody id="predictions-tbody">
+                        <!-- Predictions will be inserted here -->
+                    </tbody>
+                </table>
+                <div id="no-results" class="no-results" style="display: none;">
+                    <p>NO PREDICTIONS FOUND</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="main-footer">
+        <nav class="footer-nav">
+            <a href="index.html" class="footer-link">HOME</a>
+            <a href="about.html" class="footer-link">ABOUT</a>
+            <a href="recent-predictions.html" class="footer-link active">RECENT RUNS</a>
+            <a href="mailto:vinaysgovindaraju@gmail.com" class="footer-link">CONTACT THE MAKER</a>
+            <a href="#" class="footer-link">GITHUB</a>
+        </nav>
+    </footer>
+
+    <script src="app.js"></script>
+    <script src="recent-predictions.js"></script>
+</body>
+</html>
+
