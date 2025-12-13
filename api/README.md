@@ -1,0 +1,3 @@
+# API
+
+This directory will contain the API implementation for serving model predictions and analytics results to external consumers. The API will provide RESTful endpoints for accessing trained models, generating predictions for specific matchups, and retrieving simulation results. It will consume model artifacts from the saved_models directory and prediction outputs without requiring direct access to the modeling codebase. The API serves as the deployment interface that enables integration with external systems and applications. This separation ensures that the modeling pipeline remains independent from deployment concerns while providing programmatic access to model capabilities.

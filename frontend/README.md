@@ -1,0 +1,3 @@
+# Frontend
+
+This directory will contain the frontend implementation for visualizing analytics results, model predictions, and simulation outputs. The frontend will provide interactive dashboards and visualizations that enable users to explore predictions, compare model performance, and analyze simulation results. It will consume data from the API layer and model artifacts to generate visual representations without requiring direct access to the modeling codebase. The frontend serves as the user-facing interface for interacting with the analytics system. This separation ensures that the modeling pipeline remains independent from presentation concerns while providing intuitive access to model insights.

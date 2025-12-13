@@ -1,0 +1,7 @@
+# Git ignore file for read-the-field analytics repository
+
+# This file specifies patterns for files and directories that should be excluded from version control.
+# It prevents committing sensitive data, temporary files, R workspace artifacts, and large binary files.
+# Common patterns include R workspace files, cache directories, log files, and environment-specific configurations.
+# Data files in raw and processed directories are typically excluded to keep repository size manageable.
+# Model artifacts and prediction outputs may be excluded or selectively committed based on project needs.
