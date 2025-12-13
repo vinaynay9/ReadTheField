@@ -417,6 +417,128 @@ These columns contain the actual outcomes from the game. They are **never** used
 
 ---
 
+## Prediction Dependency Graphs
+
+The following diagrams illustrate the hierarchical dependencies between predicted statistics for each position. These dependencies guide model training order and ensure that volume statistics (attempts, targets, carries) are predicted before efficiency statistics (yards, touchdowns) that depend on them.
+
+### QB Prediction Dependencies
+
+```mermaid
+graph TD
+    A[pass_attempts] --> B[pass_yards]
+    A --> C[pass_tds]
+    A --> D[interceptions]
+    E[rush_attempts] --> F[rush_yards]
+    E --> G[rush_tds]
+    
+    style A fill:#d4af37
+    style E fill:#d4af37
+    style B fill:#1a7a5e
+    style C fill:#1a7a5e
+    style D fill:#1a7a5e
+    style F fill:#1a7a5e
+    style G fill:#1a7a5e
+```
+
+**Dependencies:**
+- `pass_yards`, `pass_tds`, and `interceptions` depend on `pass_attempts`
+- `rush_yards` and `rush_tds` depend on `rush_attempts`
+- Passing and rushing paths are independent
+
+### RB Prediction Dependencies
+
+```mermaid
+graph TD
+    A[carries] --> B[rush_yards]
+    B --> C[rush_tds]
+    D[targets] --> E[receptions]
+    E --> F[rec_yards]
+    F --> G[rec_tds]
+    
+    style A fill:#d4af37
+    style D fill:#d4af37
+    style B fill:#1a7a5e
+    style C fill:#1a7a5e
+    style E fill:#1a7a5e
+    style F fill:#1a7a5e
+    style G fill:#1a7a5e
+```
+
+**Dependencies:**
+- `rush_yards` depends on `carries`
+- `rush_tds` depends on `rush_yards` (scoring opportunity increases with yardage)
+- `receptions` depends on `targets`
+- `rec_yards` depends on `receptions`
+- `rec_tds` depends on `rec_yards` (red-zone opportunity increases with yardage)
+- Rushing and receiving paths are independent
+
+### WR Prediction Dependencies
+
+```mermaid
+graph TD
+    A[targets] --> B[receptions]
+    B --> C[rec_yards]
+    C --> D[rec_tds]
+    
+    style A fill:#d4af37
+    style B fill:#1a7a5e
+    style C fill:#1a7a5e
+    style D fill:#1a7a5e
+```
+
+**Dependencies:**
+- `receptions` depends on `targets`
+- `rec_yards` depends on `receptions`
+- `rec_tds` depends on `rec_yards` (red-zone opportunity increases with yardage)
+
+### TE Prediction Dependencies
+
+```mermaid
+graph TD
+    A[targets] --> B[receptions]
+    B --> C[rec_yards]
+    C --> D[rec_tds]
+    
+    style A fill:#d4af37
+    style B fill:#1a7a5e
+    style C fill:#1a7a5e
+    style D fill:#1a7a5e
+```
+
+**Dependencies:**
+- Same structure as WR, but with different model parameters
+- `receptions` depends on `targets`
+- `rec_yards` depends on `receptions`
+- `rec_tds` depends on `rec_yards` (red-zone opportunity increases with yardage)
+- **Note**: TE models are trained separately from WR models despite identical dependency structure
+
+### K Prediction Dependencies
+
+```mermaid
+graph TD
+    A[fg_attempts] --> B[fg_made]
+    C[xp_attempts] --> D[xp_made]
+    
+    style A fill:#d4af37
+    style C fill:#d4af37
+    style B fill:#1a7a5e
+    style D fill:#1a7a5e
+```
+
+**Dependencies:**
+- `fg_made` depends on `fg_attempts`
+- `xp_made` depends on `xp_attempts`
+- Field goal and extra point paths are independent
+
+### Implementation Notes
+
+1. **Volume First**: Always predict volume statistics (attempts, targets, carries) before dependent statistics
+2. **Conditional Modeling**: Efficiency statistics (yards, TDs) can be modeled conditionally on volume
+3. **Independent Paths**: Separate prediction paths (e.g., passing vs. rushing for QBs) can be modeled independently
+4. **Position Separation**: WR and TE share dependency structure but use separate models with different parameters
+
+---
+
 ## Future Extensions (Out of Scope for v1)
 
 - Defensive player features
