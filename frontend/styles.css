@@ -1019,44 +1019,220 @@ body {
 }
 
 .results-content {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    display: flex;
+    flex-direction: column;
     gap: 1.5rem;
     margin-top: 1.5rem;
 }
 
+/* Primary Projection Panel */
+.projection-primary {
+    background: var(--dark-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 2rem;
+}
+
+.projection-header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 3px solid var(--border-color);
+}
+
+.projection-title {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.875rem;
+    font-weight: normal;
+    color: var(--accent-gold);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+.projection-matchup {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.5rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.projection-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1.5rem;
+}
+
 @media (max-width: 968px) {
-    .results-content {
+    .projection-stats {
         grid-template-columns: repeat(2, 1fr);
     }
 }
 
 @media (max-width: 568px) {
-    .results-content {
+    .projection-stats {
         grid-template-columns: 1fr;
     }
 }
 
-.result-item {
+.projection-stat-item {
     text-align: center;
-    padding: 1.5rem;
-    background: var(--dark-bg);
+    padding: 1.25rem;
+    background: var(--card-bg);
     border: 3px solid var(--border-color);
     border-radius: 0;
 }
 
-.result-label {
+.projection-stat-label {
     font-family: 'Press Start 2P', monospace;
-    font-size: 0.625rem;
+    font-size: 0.5rem;
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
 }
 
-.result-value {
+.projection-stat-value {
     font-family: 'Press Start 2P', monospace;
-    font-size: 1.25rem;
+    font-size: 1.5rem;
     color: var(--accent-gold);
     font-weight: normal;
+}
+
+/* Distribution Toggle Button */
+.distribution-toggle {
+    padding: 1rem 2rem;
+    background: var(--card-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    color: var(--text-primary);
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: none;
+    align-self: center;
+    width: auto;
+    min-width: 250px;
+}
+
+.distribution-toggle:hover {
+    border-color: var(--accent-gold);
+    color: var(--accent-gold);
+    background: var(--hover-bg);
+}
+
+.distribution-toggle:active {
+    transform: translateY(1px);
+    box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Secondary Distribution Panel */
+.projection-distribution {
+    background: var(--dark-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 2rem;
+    margin-top: 0;
+}
+
+.percentile-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.625rem;
+    color: var(--text-primary);
+}
+
+.percentile-table thead {
+    background: var(--card-bg);
+    border-bottom: 3px solid var(--border-color);
+}
+
+.percentile-table th {
+    padding: 1rem 0.75rem;
+    text-align: left;
+    text-transform: uppercase;
+    color: var(--accent-gold);
+    font-weight: normal;
+    letter-spacing: 0.05em;
+    border-right: 3px solid var(--border-color);
+}
+
+.percentile-table th:last-child {
+    border-right: none;
+}
+
+.percentile-table tbody tr {
+    border-bottom: 3px solid var(--border-color);
+    background: var(--dark-bg);
+}
+
+.percentile-table tbody tr:hover {
+    background: var(--hover-bg);
+}
+
+.percentile-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.percentile-table td {
+    padding: 1rem 0.75rem;
+    border-right: 3px solid var(--border-color);
+    color: var(--text-primary);
+    vertical-align: middle;
+}
+
+.percentile-table td:last-child {
+    border-right: none;
+}
+
+.percentile-stat-name {
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: 0.5rem;
+}
+
+.percentile-median {
+    color: var(--accent-gold);
+    font-weight: normal;
+    font-size: 0.75rem;
+}
+
+@media (max-width: 768px) {
+    .percentile-table {
+        font-size: 0.5rem;
+    }
+    
+    .percentile-table th,
+    .percentile-table td {
+        padding: 0.75rem 0.5rem;
+    }
+    
+    .percentile-stat-name {
+        font-size: 0.4375rem;
+    }
+    
+    .percentile-median {
+        font-size: 0.625rem;
+    }
+    
+    .projection-primary {
+        padding: 1.5rem;
+    }
+    
+    .projection-title {
+        font-size: 0.75rem;
+    }
+    
+    .projection-stat-value {
+        font-size: 1.25rem;
+    }
+    
+    .distribution-toggle {
+        font-size: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        min-width: 200px;
+    }
 }

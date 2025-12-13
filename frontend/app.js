@@ -492,65 +492,205 @@ function startTerminalAnimation() {
             // Clear previous results
             resultsContent.innerHTML = '';
             
-            // Generate mock predicted values for each stat
-            const generatePredictedValue = (statName) => {
+            // Generate mock predicted values and percentiles for each stat
+            const generateStatData = (statName) => {
+                let median, p10, p25, p75, p90;
+                
                 // Generate realistic mock values based on stat type
                 if (statName.includes('YD') || statName === 'PYD' || statName === 'RYD' || statName === 'RECYD' || statName === 'RUYD') {
-                    return Math.floor(Math.random() * 150) + 20; // Yards: 20-170
+                    median = Math.floor(Math.random() * 150) + 20; // Yards: 20-170
+                    p10 = Math.max(0, Math.floor(median * 0.6));
+                    p25 = Math.floor(median * 0.75);
+                    p75 = Math.floor(median * 1.25);
+                    p90 = Math.floor(median * 1.5);
                 } else if (statName.includes('TD') || statName === 'PTD' || statName === 'RTD' || statName === 'RECTD' || statName === 'TOTTD') {
-                    return Math.floor(Math.random() * 3); // Touchdowns: 0-2
+                    median = Math.floor(Math.random() * 3); // Touchdowns: 0-2
+                    p10 = Math.max(0, median - 1);
+                    p25 = Math.max(0, median - 1);
+                    p75 = median + 1;
+                    p90 = median + 2;
                 } else if (statName === 'Receptions') {
-                    return Math.floor(Math.random() * 10) + 2; // Receptions: 2-11
+                    median = Math.floor(Math.random() * 10) + 2; // Receptions: 2-11
+                    p10 = Math.max(0, Math.floor(median * 0.6));
+                    p25 = Math.floor(median * 0.8);
+                    p75 = Math.floor(median * 1.3);
+                    p90 = Math.floor(median * 1.6);
                 } else if (statName === 'Carries' || statName === 'P Attempts' || statName === 'R Attempts') {
-                    return Math.floor(Math.random() * 25) + 5; // Attempts: 5-29
+                    median = Math.floor(Math.random() * 25) + 5; // Attempts: 5-29
+                    p10 = Math.max(0, Math.floor(median * 0.65));
+                    p25 = Math.floor(median * 0.8);
+                    p75 = Math.floor(median * 1.25);
+                    p90 = Math.floor(median * 1.5);
                 } else if (statName === 'Completions') {
-                    return Math.floor(Math.random() * 20) + 10; // Completions: 10-29
+                    median = Math.floor(Math.random() * 20) + 10; // Completions: 10-29
+                    p10 = Math.max(0, Math.floor(median * 0.7));
+                    p25 = Math.floor(median * 0.85);
+                    p75 = Math.floor(median * 1.2);
+                    p90 = Math.floor(median * 1.4);
                 } else if (statName === 'Tackles') {
-                    return Math.floor(Math.random() * 12) + 3; // Tackles: 3-14
+                    median = Math.floor(Math.random() * 12) + 3; // Tackles: 3-14
+                    p10 = Math.max(0, Math.floor(median * 0.6));
+                    p25 = Math.floor(median * 0.75);
+                    p75 = Math.floor(median * 1.3);
+                    p90 = Math.floor(median * 1.6);
                 } else if (statName === 'Sacks') {
-                    return Math.floor(Math.random() * 2); // Sacks: 0-1
+                    median = Math.floor(Math.random() * 2); // Sacks: 0-1
+                    p10 = 0;
+                    p25 = 0;
+                    p75 = median + 1;
+                    p90 = median + 2;
                 } else if (statName === 'FF') {
-                    return Math.floor(Math.random() * 2); // Forced Fumbles: 0-1
+                    median = Math.floor(Math.random() * 2); // Forced Fumbles: 0-1
+                    p10 = 0;
+                    p25 = 0;
+                    p75 = median + 1;
+                    p90 = median + 1;
                 } else if (statName === 'Interceptions') {
-                    return Math.floor(Math.random() * 2); // Interceptions: 0-1
+                    median = Math.floor(Math.random() * 2); // Interceptions: 0-1
+                    p10 = 0;
+                    p25 = 0;
+                    p75 = median + 1;
+                    p90 = median + 2;
                 } else if (statName === 'Passes Defended') {
-                    return Math.floor(Math.random() * 4); // Passes Defended: 0-3
+                    median = Math.floor(Math.random() * 4); // Passes Defended: 0-3
+                    p10 = 0;
+                    p25 = Math.max(0, median - 1);
+                    p75 = median + 1;
+                    p90 = median + 2;
                 } else if (statName === 'FG Made') {
-                    return Math.floor(Math.random() * 3) + 1; // FG Made: 1-3
+                    median = Math.floor(Math.random() * 3) + 1; // FG Made: 1-3
+                    p10 = Math.max(0, median - 1);
+                    p25 = Math.max(1, median - 1);
+                    p75 = median + 1;
+                    p90 = median + 2;
                 } else if (statName === 'FG Attempts') {
-                    return Math.floor(Math.random() * 3) + 2; // FG Attempts: 2-4
+                    median = Math.floor(Math.random() * 3) + 2; // FG Attempts: 2-4
+                    p10 = Math.max(1, median - 1);
+                    p25 = Math.max(1, median - 1);
+                    p75 = median + 1;
+                    p90 = median + 2;
                 } else if (statName === '# PAT') {
-                    return Math.floor(Math.random() * 5) + 2; // PAT: 2-6
+                    median = Math.floor(Math.random() * 5) + 2; // PAT: 2-6
+                    p10 = Math.max(1, median - 2);
+                    p25 = Math.max(1, median - 1);
+                    p75 = median + 2;
+                    p90 = median + 3;
                 } else if (statName === '# Punts') {
-                    return Math.floor(Math.random() * 6) + 2; // Punts: 2-7
+                    median = Math.floor(Math.random() * 6) + 2; // Punts: 2-7
+                    p10 = Math.max(1, median - 2);
+                    p25 = Math.max(1, median - 1);
+                    p75 = median + 2;
+                    p90 = median + 3;
                 } else if (statName === 'Punts within 10/20 yards') {
-                    return Math.floor(Math.random() * 3); // Punts within 10/20: 0-2
+                    median = Math.floor(Math.random() * 3); // Punts within 10/20: 0-2
+                    p10 = 0;
+                    p25 = 0;
+                    p75 = median + 1;
+                    p90 = median + 2;
                 } else {
-                    return Math.floor(Math.random() * 20) + 5; // Default: 5-24
+                    median = Math.floor(Math.random() * 20) + 5; // Default: 5-24
+                    p10 = Math.max(0, Math.floor(median * 0.6));
+                    p25 = Math.floor(median * 0.75);
+                    p75 = Math.floor(median * 1.3);
+                    p90 = Math.floor(median * 1.6);
                 }
+                
+                return { median, p10, p25, p75, p90 };
             };
-            
-            // Create result items for each stat
-            stats.forEach(stat => {
-                const predictedValue = generatePredictedValue(stat);
-                const resultItem = document.createElement('div');
-                resultItem.className = 'result-item';
-                resultItem.innerHTML = `
-                    <div class="result-label">${stat}</div>
-                    <div class="result-value">${predictedValue}</div>
-                `;
-                resultsContent.appendChild(resultItem);
-            });
             
             // If no stats for position, show default message
             if (stats.length === 0) {
                 resultsContent.innerHTML = `
-                    <div class="result-item" style="grid-column: 1 / -1;">
-                        <div class="result-label">NO STATS AVAILABLE</div>
-                        <div class="result-value">--</div>
+                    <div class="projection-primary">
+                        <div class="projection-header">
+                            <h3 class="projection-title">NO STATS AVAILABLE</h3>
+                        </div>
+                        <div class="projection-stats">
+                            <div class="projection-stat-item">
+                                <div class="projection-stat-label">--</div>
+                                <div class="projection-stat-value">--</div>
+                            </div>
+                        </div>
                     </div>
                 `;
+                return;
             }
+            
+            // Generate stat data for all stats
+            const statData = stats.map(stat => ({
+                name: stat,
+                ...generateStatData(stat)
+            }));
+            
+            // Build primary panel (median projections only)
+            const primaryPanel = document.createElement('div');
+            primaryPanel.className = 'projection-primary';
+            primaryPanel.innerHTML = `
+                <div class="projection-header">
+                    <h3 class="projection-title">What will ${playerName} do?</h3>
+                    <div class="projection-matchup">${playerPos} • ${location === 'Home' ? 'vs' : '@'} ${opponentName}</div>
+                </div>
+                <div class="projection-stats">
+                    ${statData.map(stat => `
+                        <div class="projection-stat-item">
+                            <div class="projection-stat-label">${stat.name}</div>
+                            <div class="projection-stat-value">${stat.median}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            resultsContent.appendChild(primaryPanel);
+            
+            // Build distribution toggle button
+            const toggleButton = document.createElement('button');
+            toggleButton.className = 'distribution-toggle';
+            toggleButton.innerHTML = 'VIEW DISTRIBUTION';
+            toggleButton.setAttribute('aria-expanded', 'false');
+            resultsContent.appendChild(toggleButton);
+            
+            // Build secondary panel (percentiles and charts)
+            const secondaryPanel = document.createElement('div');
+            secondaryPanel.className = 'projection-distribution';
+            secondaryPanel.style.display = 'none';
+            
+            // Create percentile table
+            const percentileTable = document.createElement('table');
+            percentileTable.className = 'percentile-table';
+            percentileTable.innerHTML = `
+                <thead>
+                    <tr>
+                        <th>Stat</th>
+                        <th>P10</th>
+                        <th>P25</th>
+                        <th>P50</th>
+                        <th>P75</th>
+                        <th>P90</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${statData.map(stat => `
+                        <tr>
+                            <td class="percentile-stat-name">${stat.name}</td>
+                            <td>${stat.p10}</td>
+                            <td>${stat.p25}</td>
+                            <td class="percentile-median">${stat.median}</td>
+                            <td>${stat.p75}</td>
+                            <td>${stat.p90}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            `;
+            
+            secondaryPanel.appendChild(percentileTable);
+            resultsContent.appendChild(secondaryPanel);
+            
+            // Toggle functionality
+            toggleButton.addEventListener('click', () => {
+                const isExpanded = secondaryPanel.style.display !== 'none';
+                secondaryPanel.style.display = isExpanded ? 'none' : 'block';
+                toggleButton.setAttribute('aria-expanded', !isExpanded);
+                toggleButton.textContent = isExpanded ? 'VIEW DISTRIBUTION' : 'HIDE DISTRIBUTION';
+            });
         }
     }
 
