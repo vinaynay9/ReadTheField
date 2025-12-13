@@ -125,12 +125,32 @@ fit_rb_models <- function(training_data, min_rows = 50) {
   })
   
   # 3. Fit rush yards model (Gaussian conditional on carries)
+  # Include defensive features: opp_rush_yards_allowed_roll5, opp_tfl_roll5, opp_sacks_roll5
   message("Fitting rush yards model...")
   result$rush_yards_model <- tryCatch({
-    lm(
-      target_rush_yards ~ target_carries + yards_per_carry_roll5 + is_home,
-      data = train_df
-    )
+    # Build formula with defensive features if available
+    def_features <- c("opp_rush_yards_allowed_roll5", "opp_tfl_roll5", "opp_sacks_roll5")
+    available_def <- intersect(def_features, names(train_df))
+    
+    if (length(available_def) > 0) {
+      # Filter to rows where defensive features are not all NA
+      def_complete <- !apply(train_df[, available_def, drop = FALSE], 1, function(x) all(is.na(x)))
+      train_df_rush <- train_df[def_complete, ]
+      
+      if (nrow(train_df_rush) >= min_rows) {
+        # Build formula with available defensive features
+        def_formula <- paste(available_def, collapse = " + ")
+        formula_str <- paste("target_rush_yards ~ target_carries + yards_per_carry_roll5 + is_home +", def_formula)
+        lm(as.formula(formula_str), data = train_df_rush)
+      } else {
+        # Fallback: use model without defensive features
+        warning("Insufficient data with defensive features for rush yards model. Using model without defensive features.")
+        lm(target_rush_yards ~ target_carries + yards_per_carry_roll5 + is_home, data = train_df)
+      }
+    } else {
+      # No defensive features available
+      lm(target_rush_yards ~ target_carries + yards_per_carry_roll5 + is_home, data = train_df)
+    }
   }, error = function(e) {
     warning(paste("Failed to fit rush yards model:", e$message))
     NULL
@@ -149,13 +169,38 @@ fit_rb_models <- function(training_data, min_rows = 50) {
   })
   
   # 5. Fit rush TDs model (Poisson)
+  # Include defensive features: opp_points_allowed_roll5 (proxy for rush TDs allowed)
   message("Fitting rush TDs model...")
   result$rush_tds_model <- tryCatch({
-    glm(
-      target_rush_tds ~ target_carries + rush_tds_roll5 + is_home,
-      data = train_df,
-      family = poisson(link = "log")
-    )
+    # Try to use opp_points_allowed_roll5 as proxy for rush TDs allowed
+    if ("opp_points_allowed_roll5" %in% names(train_df)) {
+      # Filter to rows where defensive feature is not NA
+      def_complete <- !is.na(train_df$opp_points_allowed_roll5)
+      train_df_td <- train_df[def_complete, ]
+      
+      if (nrow(train_df_td) >= min_rows) {
+        glm(
+          target_rush_tds ~ target_carries + rush_tds_roll5 + is_home + opp_points_allowed_roll5,
+          data = train_df_td,
+          family = poisson(link = "log")
+        )
+      } else {
+        # Fallback: use model without defensive features
+        warning("Insufficient data with defensive features for rush TDs model. Using model without defensive features.")
+        glm(
+          target_rush_tds ~ target_carries + rush_tds_roll5 + is_home,
+          data = train_df,
+          family = poisson(link = "log")
+        )
+      }
+    } else {
+      # No defensive features available
+      glm(
+        target_rush_tds ~ target_carries + rush_tds_roll5 + is_home,
+        data = train_df,
+        family = poisson(link = "log")
+      )
+    }
   }, error = function(e) {
     warning(paste("Failed to fit rush TDs model:", e$message))
     NULL

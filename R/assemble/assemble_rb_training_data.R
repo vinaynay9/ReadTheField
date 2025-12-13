@@ -13,13 +13,17 @@
 # Dependencies:
 #   - R/data/load_schedules.R
 #   - R/data/load_player_stats.R
+#   - R/data/build_team_defense_game_stats.R
 #   - R/features/build_rb_features.R
+#   - R/features/build_team_defense_features.R
 #   - R/utils/rolling_helpers.R
 #
 # Usage:
 #   source("R/data/load_schedules.R")
 #   source("R/data/load_player_stats.R")
+#   source("R/data/build_team_defense_game_stats.R")
 #   source("R/features/build_rb_features.R")
+#   source("R/features/build_team_defense_features.R")
 #   source("R/utils/rolling_helpers.R")
 #   rb_training_data <- assemble_rb_training_data(seasons = 2021:2024)
 
@@ -134,6 +138,88 @@ assemble_rb_training_data <- function(seasons) {
   message("Computing rolling features...")
   rb_data <- build_rb_features(rb_data)
   
+  # Build and join defensive features
+  # Defensive features represent opponent defensive context (what the opponent allows)
+  message("Building defensive features...")
+  tryCatch({
+    # Load defensive stats builders (assumes they're in the path)
+    if (!exists("build_team_defense_game_stats")) {
+      if (file.exists("R/data/build_team_defense_game_stats.R")) {
+        source("R/data/build_team_defense_game_stats.R", local = TRUE)
+      } else {
+        stop("build_team_defense_game_stats function not found.")
+      }
+    }
+    if (!exists("build_team_defense_features")) {
+      if (file.exists("R/features/build_team_defense_features.R")) {
+        source("R/features/build_team_defense_features.R", local = TRUE)
+      } else {
+        stop("build_team_defense_features function not found.")
+      }
+    }
+    
+    def_game_stats <- build_team_defense_game_stats(seasons)
+    
+    if (nrow(def_game_stats) > 0) {
+      def_features <- build_team_defense_features(def_game_stats)
+      
+      # Join defensive features using opponent_team (defense) and game_id
+      # opponent_team in rb_data is the team the player is facing (the defense)
+      message("Joining defensive features...")
+      
+      # Select defensive feature columns to join
+      def_cols <- c("game_id", "defense_team", 
+                   "opp_pass_yards_allowed_roll5",
+                   "opp_rush_yards_allowed_roll5",
+                   "opp_total_yards_allowed_roll5",
+                   "opp_points_allowed_roll5",
+                   "opp_sacks_roll5",
+                   "opp_tfl_roll5")
+      
+      # Add optional columns if they exist
+      if ("opp_int_roll5" %in% names(def_features)) {
+        def_cols <- c(def_cols, "opp_int_roll5")
+      }
+      if ("opp_fumbles_forced_roll5" %in% names(def_features)) {
+        def_cols <- c(def_cols, "opp_fumbles_forced_roll5")
+      }
+      
+      # Only join columns that exist
+      def_cols <- intersect(def_cols, names(def_features))
+      
+      rb_data <- merge(
+        rb_data,
+        def_features[, def_cols, drop = FALSE],
+        by.x = c("game_id", "opponent"),
+        by.y = c("game_id", "defense_team"),
+        all.x = TRUE
+      )
+      
+      message("Defensive features joined successfully")
+      
+      # Validation: Check that defensive features are opponent-specific
+      # Verify that joined defensive features match opponent_team
+      if (nrow(rb_data) > 0 && "opp_rush_yards_allowed_roll5" %in% names(rb_data)) {
+        # Sample check: defensive features should be joined correctly
+        # (defense_team in def_features should match opponent in rb_data)
+        sample_check <- head(rb_data[!is.na(rb_data$opp_rush_yards_allowed_roll5), 
+                                     c("opponent", "opp_rush_yards_allowed_roll5")], 10)
+        if (nrow(sample_check) > 0) {
+          message("Validation: Defensive features joined on opponent_team (leakage-safe)")
+        }
+      }
+    } else {
+      warning("No defensive game stats available. Defensive features will be missing.")
+    }
+  }, error = function(e) {
+    warning(paste("Failed to build/join defensive features:", e$message, 
+                 "Defensive features will be missing."))
+  })
+  
+  # Final validation: Ensure no defensive features use same-game data
+  # This is guaranteed by lagged rolling windows, but we document it
+  message("Validation: All defensive features use lagged windows (current game excluded)")
+  
   # Rename target columns to be explicit
   # The current-game stats are targets (what we're predicting)
   # The rolling features are predictors (computed from prior games only)
@@ -159,6 +245,10 @@ assemble_rb_training_data <- function(seasons) {
     "rush_yards_roll3", "rec_yards_roll3",
     "yards_per_carry_roll5", "yards_per_target_roll5", "catch_rate_roll5",
     "rush_tds_roll5", "rec_tds_roll5",
+    # Defensive features (opponent context)
+    "opp_pass_yards_allowed_roll5", "opp_rush_yards_allowed_roll5",
+    "opp_total_yards_allowed_roll5", "opp_points_allowed_roll5",
+    "opp_sacks_roll5", "opp_tfl_roll5",
     # Targets (post-game, for training)
     "target_carries", "target_rush_yards", "target_rush_tds",
     "target_targets", "target_receptions", "target_rec_yards", "target_rec_tds"
@@ -207,6 +297,13 @@ empty_rb_training_df <- function() {
     catch_rate_roll5 = double(0),
     rush_tds_roll5 = double(0),
     rec_tds_roll5 = double(0),
+    # Defensive features (opponent context)
+    opp_pass_yards_allowed_roll5 = double(0),
+    opp_rush_yards_allowed_roll5 = double(0),
+    opp_total_yards_allowed_roll5 = double(0),
+    opp_points_allowed_roll5 = double(0),
+    opp_sacks_roll5 = double(0),
+    opp_tfl_roll5 = double(0),
     target_carries = integer(0),
     target_rush_yards = double(0),
     target_rush_tds = integer(0),

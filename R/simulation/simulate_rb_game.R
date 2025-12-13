@@ -75,6 +75,14 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   # Need to handle potential NA values in features
   pred_data <- prepare_prediction_data(feature_row)
   
+  # Check for defensive features and warn if missing
+  def_features <- c("opp_rush_yards_allowed_roll5", "opp_tfl_roll5", "opp_sacks_roll5", 
+                    "opp_points_allowed_roll5")
+  missing_def <- setdiff(def_features, names(pred_data))
+  if (length(missing_def) > 0) {
+    warning("WARNING: Defensive opponent features missing; efficiency may be overstated")
+  }
+  
   # Initialize simulation storage
   sim_carries <- numeric(n_sims)
   sim_rush_yards <- numeric(n_sims)

@@ -13,18 +13,35 @@
 
     <main class="main-content">
         <section class="home-section">
-            <!-- Information Box -->
-            <div class="info-box">
-                <div class="info-content">
-                    <p>Read the Field generates probabilistic player projections using advanced analytics and predictive modeling. Our system simulates thousands of potential outcomes to produce full probability distributions rather than single point predictions.</p>
-                    <p>Each projection includes uncertainty quantification through percentile outcomes (10th, 50th, and 90th percentiles), allowing you to understand the range of possible results and make informed decisions under uncertainty.</p>
-                    <p class="info-disclaimer">* THIS IS NOT FINANCIAL ADVICE AND SHOULD NOT BE USED FOR SPORTS BETTING.</p>
+            <!-- Simulation Mode Header -->
+            <div class="simulation-header">
+                <h1 class="simulation-title">SIMULATION MODE</h1>
+                <p class="simulation-subtitle" id="mode-subtitle">Select a mode to begin</p>
+            </div>
+
+            <!-- Mode Toggle -->
+            <div class="mode-toggle-container">
+                <div class="mode-toggle">
+                    <button class="mode-toggle-btn active" data-mode="historical" id="mode-historical">
+                        <span class="mode-toggle-label">HISTORICAL REPLAY</span>
+                    </button>
+                    <button class="mode-toggle-btn" data-mode="this-week" id="mode-this-week">
+                        <span class="mode-toggle-label">THIS WEEK'S GAME</span>
+                    </button>
+                    <button class="mode-toggle-btn" data-mode="hypothetical" id="mode-hypothetical">
+                        <span class="mode-toggle-label">HYPOTHETICAL MATCHUP</span>
+                    </button>
                 </div>
+            </div>
+
+            <!-- Mode Helper Text -->
+            <div class="mode-helper-text" id="mode-helper-text">
+                <p>Re-simulate a past matchup using historical context.</p>
             </div>
 
             <!-- Matchup Setup -->
             <div class="matchup-setup">
-                <!-- Player Selection -->
+                <!-- Player Selection (Always Visible) -->
                 <div class="player-selection">
                     <h2 class="section-title">SELECT PLAYER</h2>
                     <div class="search-container">
@@ -40,21 +57,55 @@
                     <div id="selected-player" class="selected-player"></div>
                 </div>
 
-                <!-- Team Selection -->
-                <div class="team-selection">
-                    <h2 class="section-title">SELECT OPPONENT</h2>
-                    <div class="home-away-toggle">
-                        <button id="toggle-vs" class="toggle-option active" data-value="vs">VS</button>
-                        <button id="toggle-away" class="toggle-option" data-value="away">@</button>
+                <!-- Conditional Inputs Container -->
+                <div class="conditional-inputs">
+                    <!-- Historical Replay: Opponent + Date -->
+                    <div class="mode-inputs" id="inputs-historical">
+                        <div class="team-selection">
+                            <h2 class="section-title">SELECT OPPONENT</h2>
+                            <div id="team-selection-historical"></div>
+                        </div>
+                        <div class="date-selection">
+                            <h2 class="section-title">SELECT GAME DATE</h2>
+                            <select id="game-date-select" class="date-select">
+                                <option value="">-- SELECT DATE --</option>
+                            </select>
+                        </div>
                     </div>
-                    <div id="team-selection"></div>
+
+                    <!-- This Week's Game: Auto-filled Opponent -->
+                    <div class="mode-inputs" id="inputs-this-week" style="display: none;">
+                        <div class="auto-filled-info">
+                            <h2 class="section-title">THIS WEEK'S MATCHUP</h2>
+                            <div class="read-only-field">
+                                <div class="read-only-label">OPPONENT</div>
+                                <div class="read-only-value" id="auto-opponent">--</div>
+                            </div>
+                            <div class="read-only-field">
+                                <div class="read-only-label">LOCATION</div>
+                                <div class="read-only-value" id="auto-location">--</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hypothetical Matchup: Opponent + Home/Away -->
+                    <div class="mode-inputs" id="inputs-hypothetical" style="display: none;">
+                        <div class="team-selection">
+                            <h2 class="section-title">SELECT OPPONENT</h2>
+                            <div class="home-away-toggle">
+                                <button id="toggle-vs" class="toggle-option active" data-value="vs">VS</button>
+                                <button id="toggle-away" class="toggle-option" data-value="away">@</button>
+                            </div>
+                            <div id="team-selection-hypothetical"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Calculate Button -->
+            <!-- Run Simulation Button -->
             <div class="simulation-button-container">
                 <button id="simulation-button" class="btn-primary simulation-button" disabled>
-                    CALCULATE
+                    RUN SIMULATION
                 </button>
             </div>
 

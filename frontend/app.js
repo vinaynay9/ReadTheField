@@ -90,17 +90,81 @@ const mockTeams = {
 };
 
 // State
+let simulationMode = 'historical'; // 'historical', 'this-week', 'hypothetical'
 let selectedPlayer = null;
 let selectedTeam = null;
+let selectedDate = null;
 let homeAway = 'vs'; // 'vs' or 'away'
+
+// Mock Data - This Week's Schedule
+// TODO: Replace with real API call
+const mockThisWeekSchedule = {
+    // Bijan Robinson (from user requirements)
+    9: { opponent: 'TB', location: 'vs', opponentName: 'Tampa Bay Buccaneers' }, // Using Christian McCaffrey's ID for Bijan
+    // Tyreek Hill (from user requirements)
+    16: { opponent: 'NYJ', location: '@', opponentName: 'New York Jets' },
+    // Add more mock schedules as needed
+    1: { opponent: 'DEN', location: 'vs', opponentName: 'Denver Broncos' },
+    2: { opponent: 'KC', location: '@', opponentName: 'Kansas City Chiefs' },
+    3: { opponent: 'CLE', location: 'vs', opponentName: 'Cleveland Browns' },
+    4: { opponent: 'DAL', location: '@', opponentName: 'Dallas Cowboys' },
+    5: { opponent: 'PIT', location: 'vs', opponentName: 'Pittsburgh Steelers' },
+    6: { opponent: 'PHI', location: 'vs', opponentName: 'Philadelphia Eagles' },
+    7: { opponent: 'LV', location: '@', opponentName: 'Las Vegas Raiders' },
+    8: { opponent: 'IND', location: 'vs', opponentName: 'Indianapolis Colts' },
+    10: { opponent: 'SEA', location: '@', opponentName: 'Seattle Seahawks' },
+    11: { opponent: 'KC', location: 'vs', opponentName: 'Kansas City Chiefs' },
+    12: { opponent: 'WAS', location: '@', opponentName: 'Washington Commanders' },
+    13: { opponent: 'MIA', location: 'vs', opponentName: 'Miami Dolphins' },
+    14: { opponent: 'DET', location: '@', opponentName: 'Detroit Lions' },
+    15: { opponent: 'GB', location: 'vs', opponentName: 'Green Bay Packers' },
+    17: { opponent: 'BUF', location: '@', opponentName: 'Buffalo Bills' },
+    18: { opponent: 'NE', location: 'vs', opponentName: 'New England Patriots' },
+    19: { opponent: 'SF', location: '@', opponentName: 'San Francisco 49ers' },
+    20: { opponent: 'NYJ', location: 'vs', opponentName: 'New York Jets' },
+    21: { opponent: 'CHI', location: '@', opponentName: 'Chicago Bears' },
+    22: { opponent: 'DAL', location: 'vs', opponentName: 'Dallas Cowboys' },
+    23: { opponent: 'DEN', location: '@', opponentName: 'Denver Broncos' },
+    24: { opponent: 'CIN', location: 'vs', opponentName: 'Cincinnati Bengals' },
+    25: { opponent: 'MIN', location: '@', opponentName: 'Minnesota Vikings' },
+    26: { opponent: 'GB', location: 'vs', opponentName: 'Green Bay Packers' },
+    27: { opponent: 'LAC', location: '@', opponentName: 'Los Angeles Chargers' },
+    28: { opponent: 'KC', location: 'vs', opponentName: 'Kansas City Chiefs' },
+    29: { opponent: 'LV', location: '@', opponentName: 'Las Vegas Raiders' },
+    30: { opponent: 'BAL', location: 'vs', opponentName: 'Baltimore Ravens' }
+};
+
+// Mock Data - Historical Game Dates
+// TODO: Replace with real API call
+const mockHistoricalDates = {
+    // Format: playerId_opponentId: [array of dates]
+    '9_TB': ['2023-11-19', '2022-10-23', '2021-09-26'],
+    '9_PHI': ['2023-12-03', '2022-11-20'],
+    '9_DAL': ['2023-10-08', '2022-09-11'],
+    '9_SF': ['2023-01-15', '2022-12-18'],
+    '16_NYJ': ['2023-11-12', '2022-10-09', '2021-11-21'],
+    '16_BUF': ['2023-12-17', '2022-11-13'],
+    '16_NE': ['2023-10-29', '2022-09-18'],
+    '16_MIA': ['2023-09-24', '2022-10-30'],
+    // Add more combinations as needed - default fallback dates
+    'default': ['2023-11-26', '2023-10-15', '2023-09-10', '2022-12-11', '2022-11-06']
+};
+
+// Add Bijan Robinson to mock players (user requirement)
+// Note: Using ID 31 to avoid conflicts
+mockPlayers.push({ id: 31, name: 'Bijan Robinson', position: 'RB', team: 'Atlanta Falcons', initials: 'BR' });
+mockThisWeekSchedule[31] = { opponent: 'TB', location: 'vs', opponentName: 'Tampa Bay Buccaneers' };
 
 // Initialize on DOM load
 document.addEventListener('DOMContentLoaded', () => {
+    initializeModeToggle();
     initializePlayerSearch();
     initializeTeamSelection();
     initializeHomeAwayToggle();
+    initializeDateSelection();
     initializeSimulationButton();
     updateCalculateButton();
+    switchMode('historical'); // Set initial mode
 });
 
 // Player Search Functionality
@@ -195,12 +259,145 @@ function selectPlayer(playerId) {
         selectedPlayerDiv.classList.add('active');
     }
     
+    // Mode-specific updates
+    if (simulationMode === 'this-week') {
+        updateThisWeekMatchup();
+    } else if (simulationMode === 'historical') {
+        updateHistoricalDates();
+    }
+    
+    updateCalculateButton();
+}
+
+// Mode Toggle Functionality
+function initializeModeToggle() {
+    const modeButtons = document.querySelectorAll('.mode-toggle-btn');
+    
+    modeButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const mode = btn.dataset.mode;
+            switchMode(mode);
+        });
+    });
+}
+
+function switchMode(mode) {
+    simulationMode = mode;
+    
+    // Update toggle buttons
+    document.querySelectorAll('.mode-toggle-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    const modeButton = document.getElementById(`mode-${mode}`);
+    if (modeButton) {
+        modeButton.classList.add('active');
+    }
+    
+    // Update subtitle
+    const subtitle = document.getElementById('mode-subtitle');
+    const helperText = document.getElementById('mode-helper-text');
+    
+    switch(mode) {
+        case 'historical':
+            if (subtitle) subtitle.textContent = 'Re-simulate a past matchup using historical context.';
+            if (helperText) helperText.innerHTML = '<p>Re-simulate a past matchup using historical context.</p>';
+            break;
+        case 'this-week':
+            if (subtitle) subtitle.textContent = 'Project performance for this week\'s scheduled matchup.';
+            if (helperText) helperText.innerHTML = '<p>Opponent and location are locked to this week\'s schedule.</p>';
+            break;
+        case 'hypothetical':
+            if (subtitle) subtitle.textContent = 'Simulate a matchup that is not scheduled.';
+            if (helperText) helperText.innerHTML = '<p>Uses the player\'s current form and the opponent\'s current state.</p>';
+            break;
+    }
+    
+    // Show/hide input sections
+    document.querySelectorAll('.mode-inputs').forEach(section => {
+        section.style.display = 'none';
+    });
+    
+    const activeInputs = document.getElementById(`inputs-${mode}`);
+    if (activeInputs) {
+        activeInputs.style.display = 'flex';
+    }
+    
+    // Reset incompatible inputs
+    if (mode !== 'historical') {
+        selectedDate = null;
+        const dateSelect = document.getElementById('game-date-select');
+        if (dateSelect) {
+            dateSelect.value = '';
+            dateSelect.innerHTML = '<option value="">-- SELECT DATE --</option>';
+        }
+    }
+    
+    if (mode !== 'hypothetical') {
+        // Reset home/away for non-hypothetical modes
+        homeAway = 'vs';
+        const toggleVs = document.getElementById('toggle-vs');
+        const toggleAway = document.getElementById('toggle-away');
+        if (toggleVs) toggleVs.classList.add('active');
+        if (toggleAway) toggleAway.classList.remove('active');
+    }
+    
+    if (mode === 'this-week') {
+        // Auto-fill opponent and location for this week's game
+        updateThisWeekMatchup();
+    } else {
+        // Clear auto-filled fields
+        const autoOpponent = document.getElementById('auto-opponent');
+        const autoLocation = document.getElementById('auto-location');
+        if (autoOpponent) autoOpponent.textContent = '--';
+        if (autoLocation) autoLocation.textContent = '--';
+    }
+    
+    // Re-initialize team selection for the active mode
+    initializeTeamSelection();
+    
+    // If switching to historical mode and player/team already selected, populate dates
+    if (mode === 'historical' && selectedPlayer && selectedTeam) {
+        updateHistoricalDates();
+    }
+    
+    // Update button state
+    updateCalculateButton();
+}
+
+function updateThisWeekMatchup() {
+    if (!selectedPlayer) return;
+    
+    const schedule = mockThisWeekSchedule[selectedPlayer.id];
+    const autoOpponent = document.getElementById('auto-opponent');
+    const autoLocation = document.getElementById('auto-location');
+    
+    if (schedule && autoOpponent && autoLocation) {
+        autoOpponent.textContent = schedule.opponentName;
+        autoLocation.textContent = schedule.location === 'vs' ? 'VS (HOME)' : '@ (AWAY)';
+        selectedTeam = schedule.opponent;
+        homeAway = schedule.location;
+    } else {
+        if (autoOpponent) autoOpponent.textContent = '--';
+        if (autoLocation) autoLocation.textContent = '--';
+        selectedTeam = null;
+    }
+    
     updateCalculateButton();
 }
 
 // Team Selection Functionality
 function initializeTeamSelection() {
-    const teamSelectionDiv = document.getElementById('team-selection');
+    // Get the appropriate team selection container based on mode
+    let teamSelectionDiv;
+    if (simulationMode === 'historical') {
+        teamSelectionDiv = document.getElementById('team-selection-historical');
+    } else if (simulationMode === 'hypothetical') {
+        teamSelectionDiv = document.getElementById('team-selection-hypothetical');
+    } else {
+        // This week's game doesn't need team selection
+        return;
+    }
+    
     if (!teamSelectionDiv) return;
 
     let html = '';
@@ -230,21 +427,98 @@ function initializeTeamSelection() {
             selectTeam(teamId);
         });
     });
+    
+    // Restore selection if exists
+    if (selectedTeam) {
+        const selectedItem = teamSelectionDiv.querySelector(`[data-team-id="${selectedTeam}"]`);
+        if (selectedItem) {
+            selectedItem.classList.add('selected');
+        }
+    }
 }
 
 function selectTeam(teamId) {
-    // Remove previous selection
-    document.querySelectorAll('.team-item').forEach(item => {
-        item.classList.remove('selected');
-    });
+    // Remove previous selection (only in the active mode's container)
+    let activeContainer;
+    if (simulationMode === 'historical') {
+        activeContainer = document.getElementById('team-selection-historical');
+    } else if (simulationMode === 'hypothetical') {
+        activeContainer = document.getElementById('team-selection-hypothetical');
+    }
+    
+    if (activeContainer) {
+        activeContainer.querySelectorAll('.team-item').forEach(item => {
+            item.classList.remove('selected');
+        });
+    }
 
     // Add selection to clicked team
-    const selectedItem = document.querySelector(`[data-team-id="${teamId}"]`);
+    const selectedItem = activeContainer ? activeContainer.querySelector(`[data-team-id="${teamId}"]`) : null;
     if (selectedItem) {
         selectedItem.classList.add('selected');
         selectedTeam = teamId;
+        
+        // Update historical dates if in historical mode
+        if (simulationMode === 'historical' && selectedPlayer) {
+            updateHistoricalDates();
+        }
+        
         updateCalculateButton();
     }
+}
+
+// Date Selection Functionality
+function initializeDateSelection() {
+    const dateSelect = document.getElementById('game-date-select');
+    if (!dateSelect) return;
+    
+    dateSelect.addEventListener('change', (e) => {
+        selectedDate = e.target.value;
+        updateCalculateButton();
+    });
+}
+
+function updateHistoricalDates() {
+    if (!selectedPlayer || !selectedTeam) {
+        const dateSelect = document.getElementById('game-date-select');
+        if (dateSelect) {
+            dateSelect.innerHTML = '<option value="">-- SELECT DATE --</option>';
+            dateSelect.value = '';
+        }
+        selectedDate = null;
+        return;
+    }
+    
+    // Get historical dates for this player-opponent combination
+    const dateKey = `${selectedPlayer.id}_${selectedTeam}`;
+    let dates = mockHistoricalDates[dateKey];
+    
+    // Fallback to default dates if no specific match found
+    if (!dates || dates.length === 0) {
+        dates = mockHistoricalDates['default'];
+    }
+    
+    const dateSelect = document.getElementById('game-date-select');
+    if (!dateSelect) return;
+    
+    dateSelect.innerHTML = '<option value="">-- SELECT DATE --</option>';
+    dates.forEach(date => {
+        const option = document.createElement('option');
+        option.value = date;
+        // Format date for display (e.g., "Nov 19, 2023")
+        const dateObj = new Date(date);
+        const formattedDate = dateObj.toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'short', 
+            day: 'numeric' 
+        });
+        option.textContent = formattedDate;
+        dateSelect.appendChild(option);
+    });
+    
+    selectedDate = null;
+    dateSelect.value = '';
+    updateCalculateButton();
 }
 
 // Home/Away Toggle Functionality
@@ -258,12 +532,14 @@ function initializeHomeAwayToggle() {
         homeAway = 'vs';
         toggleVs.classList.add('active');
         toggleAway.classList.remove('active');
+        updateCalculateButton();
     });
 
     toggleAway.addEventListener('click', () => {
         homeAway = 'away';
         toggleAway.classList.add('active');
         toggleVs.classList.remove('active');
+        updateCalculateButton();
     });
 }
 
@@ -272,11 +548,21 @@ function updateCalculateButton() {
     const simulationButton = document.getElementById('simulation-button');
     if (!simulationButton) return;
 
-    if (selectedPlayer && selectedTeam) {
-        simulationButton.disabled = false;
-    } else {
-        simulationButton.disabled = true;
+    let isValid = false;
+    
+    switch(simulationMode) {
+        case 'historical':
+            isValid = selectedPlayer && selectedTeam && selectedDate;
+            break;
+        case 'this-week':
+            isValid = selectedPlayer && selectedTeam; // Team is auto-filled
+            break;
+        case 'hypothetical':
+            isValid = selectedPlayer && selectedTeam;
+            break;
     }
+    
+    simulationButton.disabled = !isValid;
 }
 
 // Simulation Button
@@ -285,7 +571,21 @@ function initializeSimulationButton() {
     if (!simulationButton) return;
 
     const handleActivate = () => {
-        if (!selectedPlayer || !selectedTeam) {
+        // Validate based on mode
+        let isValid = false;
+        switch(simulationMode) {
+            case 'historical':
+                isValid = selectedPlayer && selectedTeam && selectedDate;
+                break;
+            case 'this-week':
+                isValid = selectedPlayer && selectedTeam;
+                break;
+            case 'hypothetical':
+                isValid = selectedPlayer && selectedTeam;
+                break;
+        }
+        
+        if (!isValid) {
             return;
         }
 
@@ -341,6 +641,21 @@ function startTerminalAnimation() {
     const opponentName = getTeamName(selectedTeam);
     const location = homeAway === 'vs' ? 'Home' : 'Away';
 
+    // Determine game context based on mode
+    let gameContextText = 'Week 14, 2024'; // Default
+    if (simulationMode === 'historical' && selectedDate) {
+        const dateObj = new Date(selectedDate);
+        gameContextText = dateObj.toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+    } else if (simulationMode === 'this-week') {
+        gameContextText = 'This Week\'s Game';
+    } else if (simulationMode === 'hypothetical') {
+        gameContextText = 'Hypothetical Matchup';
+    }
+
     // Position-based stat definitions (from README)
     const positionStats = {
         'QB': ['PYD', 'PTD', 'RYD', 'RTD', 'P Attempts', 'R Attempts', 'Completions'],
@@ -377,7 +692,7 @@ function startTerminalAnimation() {
         { text: '[2/7] Identifying target player and matchup...', delay: 2600, class: 'info' },
         { text: `    Player: ${playerName} (${playerPos})`, delay: 2800, class: 'info' },
         { text: `    Opponent: ${opponentName} (${location})`, delay: 3000, class: 'info' },
-        { text: '    Game context: Week 14, 2024', delay: 3200, class: 'info' },
+        { text: `    Game context: ${gameContextText}`, delay: 3200, class: 'info' },
         { text: '', delay: 3400, class: 'info' },
         { text: '[3/7] Building feature set...', delay: 3600, class: 'info' },
         { text: '    Computing recent usage metrics (last 4 games)', delay: 3800, class: 'info' },

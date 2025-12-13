@@ -102,6 +102,222 @@ body {
     gap: 2rem;
 }
 
+/* Simulation Header */
+.simulation-header {
+    text-align: center;
+    padding: 2rem 0 1rem;
+    border-bottom: 3px solid var(--border-color);
+    margin-bottom: 1.5rem;
+}
+
+.simulation-title {
+    font-size: 1.75rem;
+    font-weight: normal;
+    color: var(--accent-gold);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.75rem;
+    font-family: 'Press Start 2P', monospace;
+}
+
+.simulation-subtitle {
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-family: 'Press Start 2P', monospace;
+    line-height: 1.6;
+}
+
+/* Mode Toggle */
+.mode-toggle-container {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+}
+
+.mode-toggle {
+    display: flex;
+    gap: 0;
+    background: var(--dark-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 0.25rem;
+}
+
+.mode-toggle-btn {
+    padding: 0.875rem 1.5rem;
+    background: var(--dark-bg);
+    border: none;
+    border-radius: 0;
+    color: var(--text-secondary);
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: none;
+    position: relative;
+    border-right: 3px solid var(--border-color);
+}
+
+.mode-toggle-btn:last-child {
+    border-right: none;
+}
+
+.mode-toggle-btn:hover {
+    color: var(--text-primary);
+    background: var(--hover-bg);
+}
+
+.mode-toggle-btn.active {
+    background: var(--card-bg);
+    color: var(--accent-gold);
+    border-color: var(--accent-gold);
+}
+
+.mode-toggle-btn.active::before {
+    content: '▶';
+    position: absolute;
+    left: 0.5rem;
+    color: var(--accent-gold);
+}
+
+.mode-toggle-label {
+    display: block;
+}
+
+@media (max-width: 768px) {
+    .mode-toggle {
+        flex-direction: column;
+    }
+    
+    .mode-toggle-btn {
+        border-right: none;
+        border-bottom: 3px solid var(--border-color);
+    }
+    
+    .mode-toggle-btn:last-child {
+        border-bottom: none;
+    }
+    
+    .mode-toggle-btn.active::before {
+        display: none;
+    }
+}
+
+/* Mode Helper Text */
+.mode-helper-text {
+    background: var(--card-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.mode-helper-text p {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.5rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Conditional Inputs */
+.conditional-inputs {
+    grid-column: 2;
+}
+
+@media (max-width: 968px) {
+    .conditional-inputs {
+        grid-column: 1;
+    }
+}
+
+.mode-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+/* Date Selection */
+.date-selection {
+    background: var(--card-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 1rem;
+}
+
+.date-select {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: var(--dark-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    color: var(--text-primary);
+    font-size: 0.625rem;
+    font-family: 'Press Start 2P', monospace;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23d4af37' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    padding-right: 2.5rem;
+}
+
+.date-select:focus {
+    outline: none;
+    border-color: var(--secondary-green);
+}
+
+.date-select option {
+    background: var(--dark-bg);
+    color: var(--text-primary);
+    padding: 0.5rem;
+}
+
+/* Auto-filled Info (This Week's Game) */
+.auto-filled-info {
+    background: var(--card-bg);
+    border: 3px solid var(--border-color);
+    border-radius: 0;
+    padding: 2rem;
+}
+
+.read-only-field {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 3px solid var(--border-color);
+}
+
+.read-only-field:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.read-only-label {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.5rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+.read-only-value {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.75rem;
+    color: var(--accent-gold);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
 /* Information Box */
 .info-box {
     background: var(--dark-bg);

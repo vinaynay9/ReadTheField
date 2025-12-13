@@ -127,21 +127,36 @@ Aggregated team-level offensive tendencies computed from prior games only.
 ### F. Opponent Defense Context (Pre-Game)
 
 Opponent defensive performance metrics computed from what they "allowed" in prior games.
+All features use strictly lagged rolling windows (last 5 games, excluding current game).
 
 | Column | Type | Role | Definition | Compute |
 |--------|------|------|------------|---------|
-| `opp_pass_yards_allowed_roll5` | double | feature | Mean pass yards allowed by opponent (last 5 games) | opponent defensive allowed totals, rolling mean |
-| `opp_rush_yards_allowed_roll5` | double | feature | Mean rush yards allowed (last 5) | rolling mean |
-| `opp_pass_tds_allowed_roll5` | double | feature | Mean pass TDs allowed (last 5) | rolling mean |
-| `opp_rush_tds_allowed_roll5` | double | feature | Mean rush TDs allowed (last 5) | rolling mean |
-| `opp_points_allowed_roll5` | double | feature | Mean points allowed (last 5) | rolling mean |
+| `opp_pass_yards_allowed_roll5` | double | feature | Mean pass yards allowed by opponent (last 5 games, excluding current) | opponent defensive allowed totals, lagged rolling mean (window=5) |
+| `opp_rush_yards_allowed_roll5` | double | feature | Mean rush yards allowed (last 5, excluding current) | lagged rolling mean (window=5) |
+| `opp_total_yards_allowed_roll5` | double | feature | Mean total yards allowed (last 5, excluding current) | lagged rolling mean (window=5) |
+| `opp_points_allowed_roll5` | double | feature | Mean points allowed (last 5, excluding current) | lagged rolling mean (window=5) |
+| `opp_sacks_roll5` | double | feature | Mean sacks by opponent defense (last 5, excluding current) | lagged rolling mean (window=5) |
+| `opp_tfl_roll5` | double | feature | Mean tackles for loss by opponent defense (last 5, excluding current) | lagged rolling mean (window=5) |
+| `opp_int_roll5` | double | feature | Mean interceptions by opponent defense (last 5, excluding current) | lagged rolling mean (window=5), optional if data available |
+| `opp_fumbles_forced_roll5` | double | feature | Mean fumbles forced by opponent defense (last 5, excluding current) | lagged rolling mean (window=5), optional if data available |
 
 **Purpose**: Captures opponent defensive strength/weakness:
 - **Matchup Quality**: Weak defenses create better opportunities for offensive players
 - **Positional Matchups**: Pass defense vs. rush defense informs QB/RB/WR/TE projections differently
-- **Touchdown Likelihood**: TD rates allowed correlate with scoring opportunities
+- **Touchdown Likelihood**: Points allowed correlates with scoring opportunities
+- **Defensive Pressure**: Sacks and TFL indicate defensive line strength and ability to disrupt plays
 
-**Computation**: For each game, compute what the opponent "allowed" by aggregating the opposing team's offensive stats. Then compute rolling means of these allowed metrics for the opponent team.
+**Computation**: 
+1. For each game, compute what the opponent "allowed" by aggregating the opposing team's offensive stats (yards, points)
+2. Aggregate player-level defensive stats (sacks, TFL, INT, FF) to team-game level
+3. Compute lagged rolling means (window=5, excluding current game) for each defensive metric
+4. Join to player-game rows using `opponent_team == defense_team` and `game_id`
+
+**Leakage-Safe Guarantee**: 
+- All rolling features use `lagged_roll_mean()` which excludes the current game
+- Rolling window includes only prior games (games with earlier `gameday`)
+- Early season games may have NA values (insufficient history), which is acceptable
+- No backfilling or same-game data is used
 
 ---
 
