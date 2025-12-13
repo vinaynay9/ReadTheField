@@ -20,6 +20,7 @@ const positionStats = {
 function generateMockPredictions() {
     const predictions = [];
     const now = new Date();
+    // Only offensive skilled positions: QB, RB, WR, TE, K
     const players = [
         // QBs
         { name: 'Patrick Mahomes', position: 'QB', opponent: 'Kansas City Chiefs' },
@@ -53,22 +54,11 @@ function generateMockPredictions() {
         { name: 'Mark Andrews', position: 'TE', opponent: 'Baltimore Ravens' },
         { name: 'T.J. Hockenson', position: 'TE', opponent: 'Minnesota Vikings' },
         { name: 'Sam LaPorta', position: 'TE', opponent: 'Detroit Lions' },
-        // Defense
-        { name: 'Aaron Donald', position: 'DT', opponent: 'Los Angeles Rams' },
-        { name: 'Chris Jones', position: 'DT', opponent: 'Kansas City Chiefs' },
-        { name: 'Myles Garrett', position: 'DE', opponent: 'Cleveland Browns' },
-        { name: 'T.J. Watt', position: 'DE', opponent: 'Pittsburgh Steelers' },
-        { name: 'Minkah Fitzpatrick', position: 'S', opponent: 'Pittsburgh Steelers' },
-        { name: 'Derwin James', position: 'S', opponent: 'Los Angeles Chargers' },
-        { name: 'Jalen Ramsey', position: 'CB', opponent: 'Miami Dolphins' },
-        { name: 'Patrick Surtain II', position: 'CB', opponent: 'Denver Broncos' },
-        { name: 'Roquan Smith', position: 'LB', opponent: 'Baltimore Ravens' },
-        { name: 'Fred Warner', position: 'LB', opponent: 'San Francisco 49ers' },
-        // Special Teams
+        // Kickers
         { name: 'Justin Tucker', position: 'K', opponent: 'Baltimore Ravens' },
         { name: 'Daniel Carlson', position: 'K', opponent: 'Las Vegas Raiders' },
-        { name: 'Bryan Anger', position: 'P', opponent: 'Dallas Cowboys' },
-        { name: 'Johnny Hekker', position: 'P', opponent: 'Carolina Panthers' },
+        { name: 'Harrison Butker', position: 'K', opponent: 'Kansas City Chiefs' },
+        { name: 'Evan McPherson', position: 'K', opponent: 'Cincinnati Bengals' },
     ];
 
     // Generate 30-40 random predictions from the last 14 days

@@ -1,6 +1,6 @@
 # Frontend - Read the Field
 
-This directory contains the frontend implementation for the Read the Field analytics visualization system.
+This directory contains the frontend implementation for Read the Field, a probabilistic NFL player projection system focused on offensive skill positions and kickers. The frontend visualizes the prediction process and resulting outcome distributions through a retro cartridge football aesthetic.
 
 ## Localhost Testing
 

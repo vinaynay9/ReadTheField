@@ -15,7 +15,11 @@
         <div class="content-container">
             <section class="page-section">
                 <h2>About</h2>
-                <p>This is a placeholder About page.</p>
+                <p>Read the Field is a probabilistic NFL player projection system focused on offensive skill positions and kickers. Rather than producing single point predictions, the system estimates distributions of possible outcomes for a given player matchup, explicitly modeling uncertainty and variance in player performance.</p>
+                <p>The project is built around the idea that NFL production is a conditional, noisy process. A player's stat line depends not only on their own historical usage and efficiency, but also on team context, opponent defensive tendencies, and game conditions. Read the Field encodes these factors as pre-game features and uses historical data to learn how player outcomes vary under similar conditions.</p>
+                <p>V1 uses publicly available NFL data to construct a leakage-safe modeling dataset at the player-game level. For each game, features are computed using only information available prior to kickoff, including recent usage trends, snap share, team offensive tendencies, opponent defensive aggregates, and basic player attributes.</p>
+                <p>Models are trained to predict key offensive statistics for quarterbacks, running backs, wide receivers, tight ends, and kickers. Instead of relying on a single deterministic model, Read the Field introduces stochasticity through resampling and ensemble methods. Multiple simulations are run for each matchup, producing a distribution of predicted outcomes rather than a single estimate.</p>
+                <p>V1 intentionally prioritizes correctness, transparency, and extensibility over breadth. Defensive player predictions and play-by-play micro-analysis are explicitly out of scope at this stage, as public data for those tasks is sparse and noisy. The current design provides a stable foundation that can be extended in future versions without rewriting the core system.</p>
             </section>
         </div>
     </main>

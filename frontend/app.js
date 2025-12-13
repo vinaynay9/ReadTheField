@@ -1,25 +1,40 @@
-// Mock Data - Players
+// Mock Data - Players (Offensive Skilled Positions Only: QB, RB, WR, TE, K)
 const mockPlayers = [
+    // QBs
     { id: 1, name: 'Patrick Mahomes', position: 'QB', team: 'Kansas City Chiefs', initials: 'PM' },
     { id: 2, name: 'Josh Allen', position: 'QB', team: 'Buffalo Bills', initials: 'JA' },
     { id: 3, name: 'Lamar Jackson', position: 'QB', team: 'Baltimore Ravens', initials: 'LJ' },
     { id: 4, name: 'Jalen Hurts', position: 'QB', team: 'Philadelphia Eagles', initials: 'JH' },
-    { id: 5, name: 'Justin Jefferson', position: 'WR', team: 'Minnesota Vikings', initials: 'JJ' },
-    { id: 6, name: 'Tyreek Hill', position: 'WR', team: 'Miami Dolphins', initials: 'TH' },
-    { id: 7, name: 'CeeDee Lamb', position: 'WR', team: 'Dallas Cowboys', initials: 'CL' },
-    { id: 8, name: 'Davante Adams', position: 'WR', team: 'Las Vegas Raiders', initials: 'DA' },
+    { id: 5, name: 'Joe Burrow', position: 'QB', team: 'Cincinnati Bengals', initials: 'JB' },
+    { id: 6, name: 'Dak Prescott', position: 'QB', team: 'Dallas Cowboys', initials: 'DP' },
+    { id: 7, name: 'Justin Herbert', position: 'QB', team: 'Los Angeles Chargers', initials: 'JH' },
+    { id: 8, name: 'C.J. Stroud', position: 'QB', team: 'Houston Texans', initials: 'CS' },
+    // RBs
     { id: 9, name: 'Christian McCaffrey', position: 'RB', team: 'San Francisco 49ers', initials: 'CM' },
     { id: 10, name: 'Derrick Henry', position: 'RB', team: 'Tennessee Titans', initials: 'DH' },
     { id: 11, name: 'Austin Ekeler', position: 'RB', team: 'Los Angeles Chargers', initials: 'AE' },
     { id: 12, name: 'Saquon Barkley', position: 'RB', team: 'New York Giants', initials: 'SB' },
-    { id: 13, name: 'Travis Kelce', position: 'TE', team: 'Kansas City Chiefs', initials: 'TK' },
-    { id: 14, name: 'Mark Andrews', position: 'TE', team: 'Baltimore Ravens', initials: 'MA' },
-    { id: 15, name: 'T.J. Hockenson', position: 'TE', team: 'Detroit Lions', initials: 'TH' },
-    { id: 16, name: 'Cooper Kupp', position: 'WR', team: 'Los Angeles Rams', initials: 'CK' },
-    { id: 17, name: 'Stefon Diggs', position: 'WR', team: 'Buffalo Bills', initials: 'SD' },
-    { id: 18, name: 'Amon-Ra St. Brown', position: 'WR', team: 'Detroit Lions', initials: 'AS' },
-    { id: 19, name: 'Joe Burrow', position: 'QB', team: 'Cincinnati Bengals', initials: 'JB' },
-    { id: 20, name: 'Dak Prescott', position: 'QB', team: 'Dallas Cowboys', initials: 'DP' }
+    { id: 13, name: 'Breece Hall', position: 'RB', team: 'New York Jets', initials: 'BH' },
+    { id: 14, name: 'Alvin Kamara', position: 'RB', team: 'New Orleans Saints', initials: 'AK' },
+    // WRs
+    { id: 15, name: 'Justin Jefferson', position: 'WR', team: 'Minnesota Vikings', initials: 'JJ' },
+    { id: 16, name: 'Tyreek Hill', position: 'WR', team: 'Miami Dolphins', initials: 'TH' },
+    { id: 17, name: 'CeeDee Lamb', position: 'WR', team: 'Dallas Cowboys', initials: 'CL' },
+    { id: 18, name: 'Davante Adams', position: 'WR', team: 'Las Vegas Raiders', initials: 'DA' },
+    { id: 19, name: 'Cooper Kupp', position: 'WR', team: 'Los Angeles Rams', initials: 'CK' },
+    { id: 20, name: 'Stefon Diggs', position: 'WR', team: 'Buffalo Bills', initials: 'SD' },
+    { id: 21, name: 'Amon-Ra St. Brown', position: 'WR', team: 'Detroit Lions', initials: 'AS' },
+    { id: 22, name: 'A.J. Brown', position: 'WR', team: 'Philadelphia Eagles', initials: 'AB' },
+    // TEs
+    { id: 23, name: 'Travis Kelce', position: 'TE', team: 'Kansas City Chiefs', initials: 'TK' },
+    { id: 24, name: 'Mark Andrews', position: 'TE', team: 'Baltimore Ravens', initials: 'MA' },
+    { id: 25, name: 'T.J. Hockenson', position: 'TE', team: 'Detroit Lions', initials: 'TH' },
+    { id: 26, name: 'Sam LaPorta', position: 'TE', team: 'Detroit Lions', initials: 'SL' },
+    // Kickers
+    { id: 27, name: 'Justin Tucker', position: 'K', team: 'Baltimore Ravens', initials: 'JT' },
+    { id: 28, name: 'Daniel Carlson', position: 'K', team: 'Las Vegas Raiders', initials: 'DC' },
+    { id: 29, name: 'Harrison Butker', position: 'K', team: 'Kansas City Chiefs', initials: 'HB' },
+    { id: 30, name: 'Evan McPherson', position: 'K', team: 'Cincinnati Bengals', initials: 'EM' }
 ];
 
 // Mock Data - Teams grouped by division
@@ -104,10 +119,13 @@ function initializePlayerSearch() {
             return;
         }
 
+        // Only show offensive skilled positions: QB, RB, WR, TE, K
+        const allowedPositions = ['QB', 'RB', 'WR', 'TE', 'K'];
         const filtered = mockPlayers.filter(player => 
-            player.name.toLowerCase().includes(query) ||
+            allowedPositions.includes(player.position) &&
+            (player.name.toLowerCase().includes(query) ||
             player.position.toLowerCase().includes(query) ||
-            player.team.toLowerCase().includes(query)
+            player.team.toLowerCase().includes(query))
         );
 
         displayAutocompleteResults(filtered);
@@ -166,9 +184,9 @@ function selectPlayer(playerId) {
     
     if (selectedPlayerDiv) {
         selectedPlayerDiv.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
                 <div class="player-headshot">${player.initials}</div>
-                <div>
+                <div style="flex: 1; min-width: 0;">
                     <div class="player-name">${player.name}</div>
                     <div class="player-details">${player.position} • ${player.team}</div>
                 </div>
