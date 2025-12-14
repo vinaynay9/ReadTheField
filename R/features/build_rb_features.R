@@ -53,10 +53,18 @@ build_rb_features <- function(rb_data) {
   n <- nrow(rb_data)
   rb_data$carries_roll3 <- NA_real_
   rb_data$carries_roll5 <- NA_real_
+  rb_data$carries_roll7 <- NA_real_
+  rb_data$carries_roll10 <- NA_real_
   rb_data$targets_roll3 <- NA_real_
   rb_data$targets_roll5 <- NA_real_
+  rb_data$targets_roll7 <- NA_real_
+  rb_data$targets_roll10 <- NA_real_
   rb_data$rush_yards_roll3 <- NA_real_
+  rb_data$rush_yards_roll7 <- NA_real_
+  rb_data$rush_yards_roll10 <- NA_real_
   rb_data$rec_yards_roll3 <- NA_real_
+  rb_data$rec_yards_roll7 <- NA_real_
+  rb_data$rec_yards_roll10 <- NA_real_
   rb_data$yards_per_carry_roll5 <- NA_real_
   rb_data$yards_per_target_roll5 <- NA_real_
   rb_data$catch_rate_roll5 <- NA_real_
@@ -85,13 +93,25 @@ build_rb_features <- function(rb_data) {
     rec_yards <- rb_data$rec_yards[idx]
     rec_tds <- rb_data$rec_tds[idx]
     
-    # Compute rolling means (lagged)
+    # Compute rolling means (lagged) - multiple windows for trend analysis
     rb_data$carries_roll3[idx] <- lagged_roll_mean(carries, window = 3, min_obs = 1)
     rb_data$carries_roll5[idx] <- lagged_roll_mean(carries, window = 5, min_obs = 1)
+    rb_data$carries_roll7[idx] <- lagged_roll_mean(carries, window = 7, min_obs = 1)
+    rb_data$carries_roll10[idx] <- lagged_roll_mean(carries, window = 10, min_obs = 1)
+    
     rb_data$targets_roll3[idx] <- lagged_roll_mean(targets, window = 3, min_obs = 1)
     rb_data$targets_roll5[idx] <- lagged_roll_mean(targets, window = 5, min_obs = 1)
+    rb_data$targets_roll7[idx] <- lagged_roll_mean(targets, window = 7, min_obs = 1)
+    rb_data$targets_roll10[idx] <- lagged_roll_mean(targets, window = 10, min_obs = 1)
+    
     rb_data$rush_yards_roll3[idx] <- lagged_roll_mean(rush_yards, window = 3, min_obs = 1)
+    rb_data$rush_yards_roll7[idx] <- lagged_roll_mean(rush_yards, window = 7, min_obs = 1)
+    rb_data$rush_yards_roll10[idx] <- lagged_roll_mean(rush_yards, window = 10, min_obs = 1)
+    
     rb_data$rec_yards_roll3[idx] <- lagged_roll_mean(rec_yards, window = 3, min_obs = 1)
+    rb_data$rec_yards_roll7[idx] <- lagged_roll_mean(rec_yards, window = 7, min_obs = 1)
+    rb_data$rec_yards_roll10[idx] <- lagged_roll_mean(rec_yards, window = 10, min_obs = 1)
+    
     rb_data$rush_tds_roll5[idx] <- lagged_roll_mean(rush_tds, window = 5, min_obs = 1)
     rb_data$rec_tds_roll5[idx] <- lagged_roll_mean(rec_tds, window = 5, min_obs = 1)
     
@@ -135,10 +155,18 @@ empty_rb_features_df <- function() {
     fumbles_lost = integer(0),
     carries_roll3 = double(0),
     carries_roll5 = double(0),
+    carries_roll7 = double(0),
+    carries_roll10 = double(0),
     targets_roll3 = double(0),
     targets_roll5 = double(0),
+    targets_roll7 = double(0),
+    targets_roll10 = double(0),
     rush_yards_roll3 = double(0),
+    rush_yards_roll7 = double(0),
+    rush_yards_roll10 = double(0),
     rec_yards_roll3 = double(0),
+    rec_yards_roll7 = double(0),
+    rec_yards_roll10 = double(0),
     yards_per_carry_roll5 = double(0),
     yards_per_target_roll5 = double(0),
     catch_rate_roll5 = double(0),

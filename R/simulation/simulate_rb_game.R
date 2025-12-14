@@ -35,11 +35,12 @@
 #'   - is_home
 #' @param rb_models List of fitted models from fit_rb_models()
 #' @param n_sims Integer, number of Monte Carlo simulations (default 5000)
+#' @param fumble_rate_per_carry Numeric, probability of fumble lost per carry (default 0.001 = 0.1%)
 #' @return List with:
 #'   - draws: data.frame with n_sims rows of simulated stat lines
 #'   - summary: data.frame with p25, p50, p75 for each stat
 #'   - status: character indicating simulation status
-simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
+simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000, fumble_rate_per_carry = 0.001) {
   
   # Initialize result structure
   result <- list(
@@ -69,8 +70,6 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
     return(result)
   }
   
-  message(paste("Running", n_sims, "simulations..."))
-  
   # Prepare prediction data frame
   # Need to handle potential NA values in features
   pred_data <- prepare_prediction_data(feature_row)
@@ -91,6 +90,7 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   sim_receptions <- numeric(n_sims)
   sim_rec_yards <- numeric(n_sims)
   sim_rec_tds <- numeric(n_sims)
+  sim_fumbles_lost <- numeric(n_sims)
   sim_fantasy <- numeric(n_sims)
   
   # Run simulations
@@ -173,14 +173,28 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
       sim_rec_tds[i] <- 0
     }
     
-    # 8. Derive fantasy points (NEVER modeled directly)
+    # 8. Sample fumbles lost (Binomial, based on carries and player's historical rate)
+    # Use player-specific fumble rate per carry
+    # Model as: each carry has a small probability of resulting in a fumble lost
+    if (sim_carries[i] > 0) {
+      # Use binomial: each carry is a trial with probability fumble_rate_per_carry
+      # This is more accurate than Poisson for rare events with known number of trials
+      sim_fumbles_lost[i] <- rbinom(1, size = sim_carries[i], prob = fumble_rate_per_carry)
+      # Cap at 2 (very rare to lose more than 2 fumbles)
+      sim_fumbles_lost[i] <- min(sim_fumbles_lost[i], 2)
+    } else {
+      sim_fumbles_lost[i] <- 0
+    }
+    
+    # 9. Derive fantasy points (NEVER modeled directly - always calculated from components)
+    # PPR scoring: rush_yds*0.1 + rush_tds*6 + rec*1 + rec_yds*0.1 + rec_tds*6 - fumbles_lost*2
     sim_fantasy[i] <- compute_ppr_rb(
       rush_yards = sim_rush_yards[i],
       rush_tds = sim_rush_tds[i],
       receptions = sim_receptions[i],
       rec_yards = sim_rec_yards[i],
       rec_tds = sim_rec_tds[i],
-      fumbles_lost = 0
+      fumbles_lost = sim_fumbles_lost[i]
     )
   }
   
@@ -193,14 +207,13 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
     receptions = sim_receptions,
     rec_yards = sim_rec_yards,
     rec_tds = sim_rec_tds,
+    fumbles_lost = sim_fumbles_lost,
     fantasy_ppr = sim_fantasy
   )
   
   # Compute percentiles
   result$summary <- compute_rb_percentiles(result$draws)
   result$status <- "success"
-  
-  message("Simulation complete")
   
   return(result)
 }
@@ -280,7 +293,7 @@ get_residual_sd <- function(model) {
 compute_rb_percentiles <- function(draws) {
   
   stats <- c("carries", "rush_yards", "rush_tds", "targets", 
-             "receptions", "rec_yards", "rec_tds", "fantasy_ppr")
+             "receptions", "rec_yards", "rec_tds", "fumbles_lost", "fantasy_ppr")
   
   result <- data.frame(
     stat = stats,
@@ -335,7 +348,7 @@ compute_rb_percentiles <- function(draws) {
 na_rb_summary <- function() {
   data.frame(
     stat = c("carries", "rush_yards", "rush_tds", "targets", 
-             "receptions", "rec_yards", "rec_tds", "fantasy_ppr"),
+             "receptions", "rec_yards", "rec_tds", "fumbles_lost", "fantasy_ppr"),
     p25 = NA_real_,
     p50 = NA_real_,
     p75 = NA_real_,

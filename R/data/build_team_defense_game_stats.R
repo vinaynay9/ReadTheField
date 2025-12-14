@@ -151,19 +151,48 @@ build_team_defense_game_stats <- function(seasons) {
     int_col <- NULL
     ff_col <- NULL
     
-    # Try to find sacks column
-    for (col in c("sacks", "sack", "defensive_sacks")) {
+    # Try to find sacks column - check more variations
+    for (col in c("sacks", "sack", "defensive_sacks", "sacks_total", "sack_total")) {
       if (col %in% names(player_def_stats)) {
         sacks_col <- col
         break
       }
     }
     
-    # Try to find TFL column
-    for (col in c("tackles_for_loss", "tfl", "defensive_tfl")) {
+    # If still not found, try case-insensitive search
+    if (is.null(sacks_col)) {
+      sacks_matches <- grep("^sack", names(player_def_stats), ignore.case = TRUE, value = TRUE)
+      if (length(sacks_matches) > 0) {
+        sacks_col <- sacks_matches[1]
+        message("Found sacks column (case-insensitive): ", sacks_col)
+      }
+    }
+    
+    # Try to find TFL column - check more variations
+    for (col in c("tackles_for_loss", "tfl", "defensive_tfl", "tfl_total", "tackles_for_loss_total")) {
       if (col %in% names(player_def_stats)) {
         tfl_col <- col
         break
+      }
+    }
+    
+    # If still not found, try case-insensitive search
+    if (is.null(tfl_col)) {
+      tfl_matches <- grep("tfl|tackles.*loss", names(player_def_stats), ignore.case = TRUE, value = TRUE)
+      if (length(tfl_matches) > 0) {
+        tfl_col <- tfl_matches[1]
+        message("Found TFL column (case-insensitive): ", tfl_col)
+      }
+    }
+    
+    # Diagnostic: show available columns if sacks/TFL not found
+    if (is.null(sacks_col) || is.null(tfl_col)) {
+      message("Available defensive stat columns: ", paste(names(player_def_stats), collapse = ", "))
+      if (is.null(sacks_col)) {
+        warning("Sacks column not found. Available columns: ", paste(names(player_def_stats), collapse = ", "))
+      }
+      if (is.null(tfl_col)) {
+        warning("TFL column not found. Available columns: ", paste(names(player_def_stats), collapse = ", "))
       }
     }
     
