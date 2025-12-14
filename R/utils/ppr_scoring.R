@@ -13,9 +13,10 @@
 #   - Receptions: 1 point each
 #   - Receiving yards: 0.1 points per yard
 #   - Receiving TDs: 6 points each
-#   - Fumbles lost: -2 points each (optional, if tracked)
 #   - FG made: 3 points each (simplified; distance-based scoring deferred to v2)
 #   - XP made: 1 point each
+#
+# Note: Fumbles are intentionally excluded from v1 due to low signal-to-noise ratio.
 #
 # Dependencies: None (base R only)
 
@@ -29,7 +30,6 @@ PPR_SCORING <- list(
   reception = 1,
   rec_yards = 0.1,
   rec_td = 6,
-  fumble_lost = -2,
   fg_made = 3,
   xp_made = 1
 )
@@ -45,10 +45,8 @@ PPR_SCORING <- list(
 #' @param receptions Numeric, receptions (PPR: 1 point each)
 #' @param rec_yards Numeric, receiving yards
 #' @param rec_tds Numeric, receiving touchdowns
-#' @param fumbles_lost Numeric, fumbles lost (default 0)
 #' @return Numeric, PPR fantasy points
-compute_ppr_rb <- function(rush_yards, rush_tds, receptions, rec_yards, rec_tds, 
-                           fumbles_lost = 0) {
+compute_ppr_rb <- function(rush_yards, rush_tds, receptions, rec_yards, rec_tds) {
   
   # Replace NA with 0 for calculation (NA stats contribute 0 points)
   rush_yards <- ifelse(is.na(rush_yards), 0, rush_yards)
@@ -56,14 +54,12 @@ compute_ppr_rb <- function(rush_yards, rush_tds, receptions, rec_yards, rec_tds,
   receptions <- ifelse(is.na(receptions), 0, receptions)
   rec_yards <- ifelse(is.na(rec_yards), 0, rec_yards)
   rec_tds <- ifelse(is.na(rec_tds), 0, rec_tds)
-  fumbles_lost <- ifelse(is.na(fumbles_lost), 0, fumbles_lost)
   
   points <- (rush_yards * PPR_SCORING$rush_yards) +
             (rush_tds * PPR_SCORING$rush_td) +
             (receptions * PPR_SCORING$reception) +
             (rec_yards * PPR_SCORING$rec_yards) +
-            (rec_tds * PPR_SCORING$rec_td) +
-            (fumbles_lost * PPR_SCORING$fumble_lost)
+            (rec_tds * PPR_SCORING$rec_td)
   
   return(points)
 }
@@ -78,24 +74,21 @@ compute_ppr_rb <- function(rush_yards, rush_tds, receptions, rec_yards, rec_tds,
 #' @param interceptions Numeric, interceptions thrown
 #' @param rush_yards Numeric, rushing yards
 #' @param rush_tds Numeric, rushing touchdowns
-#' @param fumbles_lost Numeric, fumbles lost (default 0)
 #' @return Numeric, PPR fantasy points
 compute_ppr_qb <- function(pass_yards, pass_tds, interceptions, 
-                           rush_yards, rush_tds, fumbles_lost = 0) {
+                           rush_yards, rush_tds) {
   
   pass_yards <- ifelse(is.na(pass_yards), 0, pass_yards)
   pass_tds <- ifelse(is.na(pass_tds), 0, pass_tds)
   interceptions <- ifelse(is.na(interceptions), 0, interceptions)
   rush_yards <- ifelse(is.na(rush_yards), 0, rush_yards)
   rush_tds <- ifelse(is.na(rush_tds), 0, rush_tds)
-  fumbles_lost <- ifelse(is.na(fumbles_lost), 0, fumbles_lost)
   
   points <- (pass_yards * PPR_SCORING$pass_yards) +
             (pass_tds * PPR_SCORING$pass_td) +
             (interceptions * PPR_SCORING$interception) +
             (rush_yards * PPR_SCORING$rush_yards) +
-            (rush_tds * PPR_SCORING$rush_td) +
-            (fumbles_lost * PPR_SCORING$fumble_lost)
+            (rush_tds * PPR_SCORING$rush_td)
   
   return(points)
 }
@@ -109,19 +102,16 @@ compute_ppr_qb <- function(pass_yards, pass_tds, interceptions,
 #' @param receptions Numeric, receptions (PPR: 1 point each)
 #' @param rec_yards Numeric, receiving yards
 #' @param rec_tds Numeric, receiving touchdowns
-#' @param fumbles_lost Numeric, fumbles lost (default 0)
 #' @return Numeric, PPR fantasy points
-compute_ppr_wrte <- function(receptions, rec_yards, rec_tds, fumbles_lost = 0) {
+compute_ppr_wrte <- function(receptions, rec_yards, rec_tds) {
   
   receptions <- ifelse(is.na(receptions), 0, receptions)
   rec_yards <- ifelse(is.na(rec_yards), 0, rec_yards)
   rec_tds <- ifelse(is.na(rec_tds), 0, rec_tds)
-  fumbles_lost <- ifelse(is.na(fumbles_lost), 0, fumbles_lost)
   
   points <- (receptions * PPR_SCORING$reception) +
             (rec_yards * PPR_SCORING$rec_yards) +
-            (rec_tds * PPR_SCORING$rec_td) +
-            (fumbles_lost * PPR_SCORING$fumble_lost)
+            (rec_tds * PPR_SCORING$rec_td)
   
   return(points)
 }
@@ -168,28 +158,24 @@ compute_ppr_points <- function(position_group, stats) {
       pass_tds = stats$pass_tds %||% 0,
       interceptions = stats$interceptions %||% 0,
       rush_yards = stats$rush_yards %||% 0,
-      rush_tds = stats$rush_tds %||% 0,
-      fumbles_lost = stats$fumbles_lost %||% 0
+      rush_tds = stats$rush_tds %||% 0
     ),
     "RB" = compute_ppr_rb(
       rush_yards = stats$rush_yards %||% 0,
       rush_tds = stats$rush_tds %||% 0,
       receptions = stats$receptions %||% 0,
       rec_yards = stats$rec_yards %||% 0,
-      rec_tds = stats$rec_tds %||% 0,
-      fumbles_lost = stats$fumbles_lost %||% 0
+      rec_tds = stats$rec_tds %||% 0
     ),
     "WR" = compute_ppr_wrte(
       receptions = stats$receptions %||% 0,
       rec_yards = stats$rec_yards %||% 0,
-      rec_tds = stats$rec_tds %||% 0,
-      fumbles_lost = stats$fumbles_lost %||% 0
+      rec_tds = stats$rec_tds %||% 0
     ),
     "TE" = compute_ppr_wrte(
       receptions = stats$receptions %||% 0,
       rec_yards = stats$rec_yards %||% 0,
-      rec_tds = stats$rec_tds %||% 0,
-      fumbles_lost = stats$fumbles_lost %||% 0
+      rec_tds = stats$rec_tds %||% 0
     ),
     "K" = compute_ppr_k(
       fg_made = stats$fg_made %||% 0,

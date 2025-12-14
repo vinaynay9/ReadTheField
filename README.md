@@ -12,6 +12,8 @@ The system is designed as an end-to-end analytics pipeline. Data ingestion, feat
 
 V1 intentionally prioritizes correctness, transparency, and extensibility over breadth. Defensive player predictions and play-by-play micro-analysis are explicitly out of scope at this stage, as public data for those tasks is sparse and noisy. The current design provides a stable foundation that can be extended in future versions without rewriting the core system.
 
+**v1 intentionally excludes fumbles and other low-frequency turnover events. These may be added in future versions after validation infrastructure is complete.**
+
 ## System Architecture
 
 The repository follows a modular pipeline architecture organized around distinct stages of the analytics workflow. Data flows from raw ingestion through feature engineering, model training, validation, and simulation. Each stage operates independently with well-defined interfaces, enabling parallel development and testing. The architecture separates concerns between data management, feature engineering, modeling, validation, and deployment components.
@@ -39,7 +41,7 @@ QB:
  - Returned: PYD, PTD, RYD, RTD, P Attempts, R Attempts, Completions
 
 RB:
- - Used: RUYD, RUTD, Receptions, RECYD, RECTD, Targets, Carries, Fumbles, 
+ - Used: RUYD, RUTD, Receptions, RECYD, RECTD, Targets, Carries
  - Returned: RUYD, RECYD, TOTTD, Carries
 
 WR:

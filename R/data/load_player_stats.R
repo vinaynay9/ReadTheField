@@ -31,8 +31,6 @@
 #'   - receptions: integer, receptions
 #'   - rec_yards: double, receiving yards
 #'   - rec_tds: integer, receiving touchdowns
-#'   - fumbles: integer, fumbles (optional)
-#'   - fumbles_lost: integer, fumbles lost (optional)
 #' @examples
 #' rb_stats <- load_rb_stats(2023)
 #' rb_stats <- load_rb_stats(2021:2024)
@@ -95,7 +93,6 @@ load_rb_stats <- function(seasons) {
     #   - season, week
     #   - carries, rushing_yards, rushing_tds
     #   - targets, receptions, receiving_yards, receiving_tds
-    #   - fumbles, fumbles_lost
     
     # Determine correct column names (nflverse naming may vary)
     player_id_col <- if ("player_id" %in% names(rb_stats)) "player_id" else "gsis_id"
@@ -134,14 +131,11 @@ load_rb_stats <- function(seasons) {
       receptions = as.integer(safe_get(rb_stats, "receptions", 0)),
       rec_yards = as.double(safe_get(rb_stats, "receiving_yards", 0)),
       rec_tds = as.integer(safe_get(rb_stats, "receiving_tds", 0)),
-      fumbles = as.integer(safe_get(rb_stats, "fumbles", 0)),
-      fumbles_lost = as.integer(safe_get(rb_stats, "fumbles_lost", 0)),
       stringsAsFactors = FALSE
     )
     
     # Replace NA counts with 0 (player played but had no carries/targets is 0, not NA)
-    count_cols <- c("carries", "rush_tds", "targets", "receptions", "rec_tds", 
-                    "fumbles", "fumbles_lost")
+    count_cols <- c("carries", "rush_tds", "targets", "receptions", "rec_tds")
     for (col in count_cols) {
       result[[col]] <- ifelse(is.na(result[[col]]), 0L, result[[col]])
     }
@@ -184,8 +178,6 @@ empty_rb_stats_df <- function() {
     receptions = integer(0),
     rec_yards = double(0),
     rec_tds = integer(0),
-    fumbles = integer(0),
-    fumbles_lost = integer(0),
     stringsAsFactors = FALSE
   )
 }

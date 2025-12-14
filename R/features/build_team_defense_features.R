@@ -27,7 +27,6 @@
 #'   - opp_sacks_roll5: Mean sacks (last 5, excluding current)
 #'   - opp_tfl_roll5: Mean tackles for loss (last 5, excluding current)
 #'   - opp_int_roll5: Mean interceptions (last 5, excluding current) - if available
-#'   - opp_fumbles_forced_roll5: Mean fumbles forced (last 5, excluding current) - if available
 #' @examples
 #' def_stats <- build_team_defense_game_stats(2023)
 #' def_features <- build_team_defense_features(def_stats)
@@ -83,9 +82,6 @@ build_team_defense_features <- function(def_game_stats) {
   # Optional features (only if data exists)
   if ("def_interceptions" %in% names(def_game_stats)) {
     result$opp_int_roll5 <- NA_real_
-  }
-  if ("def_fumbles_forced" %in% names(def_game_stats)) {
-    result$opp_fumbles_forced_roll5 <- NA_real_
   }
   
   # Process each team separately
@@ -160,15 +156,6 @@ build_team_defense_features <- function(def_game_stats) {
     if ("def_interceptions" %in% names(team_data) && "opp_int_roll5" %in% names(result)) {
       result$opp_int_roll5[team_mask] <- lagged_roll_mean(
         as.numeric(team_data$def_interceptions),
-        window = 5,
-        min_obs = 1
-      )
-    }
-    
-    # Fumbles forced (optional)
-    if ("def_fumbles_forced" %in% names(team_data) && "opp_fumbles_forced_roll5" %in% names(result)) {
-      result$opp_fumbles_forced_roll5[team_mask] <- lagged_roll_mean(
-        as.numeric(team_data$def_fumbles_forced),
         window = 5,
         min_obs = 1
       )

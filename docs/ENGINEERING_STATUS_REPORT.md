@@ -125,7 +125,7 @@ All percentile outputs (p25, p50, p75) are derived via **Monte Carlo simulation*
 
 **Current State:**
 - Fully implemented for RB position only
-- Returns one row per RB-game with columns: `player_id`, `player_name`, `game_id`, `season`, `week`, `team`, `position`, `carries`, `rush_yards`, `rush_tds`, `targets`, `receptions`, `rec_yards`, `rec_tds`, `fumbles`, `fumbles_lost`
+- Returns one row per RB-game with columns: `player_id`, `player_name`, `game_id`, `season`, `week`, `team`, `position`, `carries`, `rush_yards`, `rush_tds`, `targets`, `receptions`, `rec_yards`, `rec_tds`
 - Filters to RB position only
 - Handles missing columns gracefully with safe defaults
 - Replaces NA counts with 0 (player played but had no carries/targets)
@@ -287,13 +287,11 @@ All percentile outputs (p25, p50, p75) are derived via **Monte Carlo simulation*
 - Receptions: 1 point each (PPR)
 - Receiving yards: 0.1 points per yard
 - Receiving TDs: 6 points each
-- Fumbles lost: -2 points each
 - FG made: 3 points each (simplified; distance-based scoring deferred to v2)
 - XP made: 1 point each
 
 **Limitations:**
 - FG scoring is simplified (no distance-based scoring)
-- Fumble tracking may be incomplete in source data
 
 ---
 
@@ -581,7 +579,7 @@ The system fails safely by:
 
 **v1 Simplifications:**
 - FG scoring is simplified (3 points regardless of distance)
-- No fumble tracking in simulation (assumed 0)
+- Fumbles are intentionally excluded from v1 due to low signal-to-noise ratio
 - No weather or stadium-specific features
 - No injury report integration (beyond snap share proxy, which is not implemented)
 - No game script features (implied by team context but not explicit)

@@ -138,7 +138,6 @@ All features use strictly lagged rolling windows (last 5 games, excluding curren
 | `opp_sacks_roll5` | double | feature | Mean sacks by opponent defense (last 5, excluding current) | lagged rolling mean (window=5) |
 | `opp_tfl_roll5` | double | feature | Mean tackles for loss by opponent defense (last 5, excluding current) | lagged rolling mean (window=5) |
 | `opp_int_roll5` | double | feature | Mean interceptions by opponent defense (last 5, excluding current) | lagged rolling mean (window=5), optional if data available |
-| `opp_fumbles_forced_roll5` | double | feature | Mean fumbles forced by opponent defense (last 5, excluding current) | lagged rolling mean (window=5), optional if data available |
 
 **Purpose**: Captures opponent defensive strength/weakness:
 - **Matchup Quality**: Weak defenses create better opportunities for offensive players
@@ -204,13 +203,13 @@ Position-specific features for running backs. Only populated for rows where `pos
 | `rb_rush_yards_roll3` | double | feature | Mean rush yards last 3 | rolling mean |
 | `rb_rec_yards_roll3` | double | feature | Mean rec yards last 3 | rolling mean |
 | `rb_total_tds_roll5` | double | feature | Mean total TD last 5 | rolling mean |
-| `rb_fumbles_roll5` | double | feature | Mean fumbles last 5 | rolling mean |
 
 **Purpose**: Captures RB-specific usage and efficiency:
 - **Volume**: Carries and targets indicate opportunity (rushing + receiving)
 - **Efficiency**: Yards per carry and yards per target measure performance
 - **Scoring**: Total TDs (rush + receiving) capture scoring opportunity
-- **Ball Security**: Fumble rate (negative indicator)
+
+**Note**: Turnovers (fumbles) are intentionally excluded from v1 due to low signal-to-noise ratio.
 
 **Note**: RBs are dual-threat players, so both rushing and receiving metrics are critical.
 
@@ -287,6 +286,10 @@ Position-specific features for kickers. Only populated for rows where `position_
 
 ---
 
+**Note**: Turnovers (fumbles) are intentionally excluded from v1 due to low signal-to-noise ratio. These may be added in future versions after validation infrastructure is complete.
+
+---
+
 ## Targets (Post-Game Realized Stats)
 
 These columns contain the actual outcomes from the game. They are **never** used as features for the same row, only as training targets or validation labels.
@@ -355,7 +358,6 @@ These columns contain the actual outcomes from the game. They are **never** used
 - Passing yards: 0.04 points per yard
 - Passing TDs: 4 points
 - Interceptions: -2 points
-- (Fumbles lost: -2 points, if tracked)
 
 ---
 

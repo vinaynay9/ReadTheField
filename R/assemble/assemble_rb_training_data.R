@@ -180,9 +180,6 @@ assemble_rb_training_data <- function(seasons) {
       if ("opp_int_roll5" %in% names(def_features)) {
         def_cols <- c(def_cols, "opp_int_roll5")
       }
-      if ("opp_fumbles_forced_roll5" %in% names(def_features)) {
-        def_cols <- c(def_cols, "opp_fumbles_forced_roll5")
-      }
       
       # Only join columns that exist
       def_cols <- intersect(def_cols, names(def_features))

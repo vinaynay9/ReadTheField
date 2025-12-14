@@ -2,12 +2,12 @@
 #
 # Aggregates player-level defensive statistics to team-game level.
 # Computes defensive totals per game including sacks, TFL, interceptions,
-# fumbles forced, and yards/points allowed.
+# and yards/points allowed.
 #
 # Data Discovery Notes (nflverse):
 # - load_player_stats(stat_type = "defense") provides player defensive stats
 # - Available columns typically include: sacks, tackles_for_loss, interceptions,
-#   fumbles_forced, passes_defended
+#   passes_defended
 # - QB hits/pressures: May not be reliably available in nflverse player_stats
 # - Yards allowed: Computed from opponent offensive totals (from schedules + player_stats)
 # - Points allowed: Computed from opponent scores (from schedules)
@@ -35,7 +35,6 @@
 #'   - def_sacks: integer, total sacks by defense
 #'   - def_tfl: integer, total tackles for loss
 #'   - def_interceptions: integer, total interceptions (if available)
-#'   - def_fumbles_forced: integer, total fumbles forced (if available)
 #'   - rush_yards_allowed: double, rushing yards allowed (from opponent offense)
 #'   - pass_yards_allowed: double, passing yards allowed (from opponent offense)
 #'   - total_yards_allowed: double, total yards allowed
@@ -204,14 +203,6 @@ build_team_defense_game_stats <- function(seasons) {
       }
     }
     
-    # Try to find fumbles forced column
-    for (col in c("fumbles_forced", "ff", "defensive_fumbles_forced")) {
-      if (col %in% names(player_def_stats)) {
-        ff_col <- col
-        break
-      }
-    }
-    
     # Build aggregation key
     if (!is.null(game_id_col) && game_id_col %in% names(player_def_stats)) {
       # Use game_id if available
@@ -235,8 +226,7 @@ build_team_defense_game_stats <- function(seasons) {
       list(
         def_sacks = if (!is.null(sacks_col)) safe_get(player_def_stats, sacks_col, 0) else rep(0L, nrow(player_def_stats)),
         def_tfl = if (!is.null(tfl_col)) safe_get(player_def_stats, tfl_col, 0) else rep(0L, nrow(player_def_stats)),
-        def_interceptions = if (!is.null(int_col)) safe_get(player_def_stats, int_col, 0) else rep(0L, nrow(player_def_stats)),
-        def_fumbles_forced = if (!is.null(ff_col)) safe_get(player_def_stats, ff_col, 0) else rep(0L, nrow(player_def_stats))
+        def_interceptions = if (!is.null(int_col)) safe_get(player_def_stats, int_col, 0) else rep(0L, nrow(player_def_stats))
       ),
       by = list(agg_key = player_def_stats$agg_key),
       FUN = sum,
@@ -267,7 +257,6 @@ build_team_defense_game_stats <- function(seasons) {
       def_sacks = integer(0),
       def_tfl = integer(0),
       def_interceptions = integer(0),
-      def_fumbles_forced = integer(0),
       stringsAsFactors = FALSE
     )
   }
@@ -355,7 +344,7 @@ build_team_defense_game_stats <- function(seasons) {
       result <- merge(
         result,
         def_agg[, c("game_id", "defense_team", "def_sacks", "def_tfl", 
-                   "def_interceptions", "def_fumbles_forced")],
+                   "def_interceptions")],
         by = c("game_id", "defense_team"),
         all.x = TRUE
       )
@@ -364,7 +353,7 @@ build_team_defense_game_stats <- function(seasons) {
       result <- merge(
         result,
         def_agg[, c("season", "week", "defense_team", "def_sacks", "def_tfl",
-                   "def_interceptions", "def_fumbles_forced")],
+                   "def_interceptions")],
         by = c("season", "week", "defense_team"),
         all.x = TRUE
       )
@@ -373,14 +362,12 @@ build_team_defense_game_stats <- function(seasons) {
       result$def_sacks <- 0L
       result$def_tfl <- 0L
       result$def_interceptions <- NA_integer_
-      result$def_fumbles_forced <- NA_integer_
     }
   } else {
     # Initialize defensive stat columns as 0
     result$def_sacks <- 0L
     result$def_tfl <- 0L
     result$def_interceptions <- NA_integer_
-    result$def_fumbles_forced <- NA_integer_
   }
   
   # Join offensive stats to compute yards allowed
@@ -496,7 +483,6 @@ empty_defense_game_stats_df <- function() {
     def_sacks = integer(0),
     def_tfl = integer(0),
     def_interceptions = integer(0),
-    def_fumbles_forced = integer(0),
     rush_yards_allowed = double(0),
     pass_yards_allowed = double(0),
     total_yards_allowed = double(0),

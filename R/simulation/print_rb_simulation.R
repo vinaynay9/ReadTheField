@@ -50,10 +50,10 @@ print_rb_simulation <- function(result) {
     cat(paste0(rep("=", 80), collapse = ""), "\n\n")
     
     # Print table header
-    cat(sprintf("%-12s %-8s %8s %12s %8s %11s %10s %10s %8s %12s\n",
+    cat(sprintf("%-12s %-8s %8s %12s %8s %11s %10s %10s %12s\n",
                 "Gameday", "Opponent", "Carries", "Rush Yds", "Targets", 
-                "Receptions", "Rec Yds", "Total TDs", "Fum Lost", "PPR Points"))
-    cat(rep("-", 110), "\n", sep = "")
+                "Receptions", "Rec Yds", "Total TDs", "PPR Points"))
+    cat(rep("-", 100), "\n", sep = "")
     
     # Print each game
     for (i in 1:nrow(recent_games)) {
@@ -74,9 +74,6 @@ print_rb_simulation <- function(result) {
                         ifelse("rush_tds" %in% names(row), row$rush_tds, 0))
       rec_tds <- ifelse("target_rec_tds" %in% names(row), row$target_rec_tds,
                        ifelse("rec_tds" %in% names(row), row$rec_tds, 0))
-      fumbles_lost <- ifelse("target_fumbles_lost" %in% names(row), row$target_fumbles_lost,
-                            ifelse("fumbles_lost" %in% names(row), row$fumbles_lost,
-                                  ifelse("fumbles" %in% names(row), row$fumbles, 0)))
       
       total_tds <- (ifelse(is.na(rush_tds), 0, rush_tds) + 
                     ifelse(is.na(rec_tds), 0, rec_tds))
@@ -87,11 +84,10 @@ print_rb_simulation <- function(result) {
         rush_tds = ifelse(is.na(rush_tds), 0, rush_tds),
         receptions = ifelse(is.na(receptions), 0, receptions),
         rec_yards = ifelse(is.na(rec_yds), 0, rec_yds),
-        rec_tds = ifelse(is.na(rec_tds), 0, rec_tds),
-        fumbles_lost = ifelse(is.na(fumbles_lost), 0, fumbles_lost)
+        rec_tds = ifelse(is.na(rec_tds), 0, rec_tds)
       )
       
-      cat(sprintf("%-12s %-8s %8.0f %12.0f %8.0f %11.0f %10.0f %10.0f %8.0f %12.1f\n",
+      cat(sprintf("%-12s %-8s %8.0f %12.0f %8.0f %11.0f %10.0f %10.0f %12.1f\n",
                   as.character(row$gameday),
                   row$opponent,
                   ifelse(is.na(carries), 0, carries),
@@ -100,7 +96,6 @@ print_rb_simulation <- function(result) {
                   ifelse(is.na(receptions), 0, receptions),
                   ifelse(is.na(rec_yds), 0, rec_yds),
                   total_tds,
-                  ifelse(is.na(fumbles_lost), 0, fumbles_lost),
                   ppr_points))
     }
     
@@ -126,7 +121,6 @@ print_rb_simulation <- function(result) {
   median_rec <- summary_df$p50[summary_df$stat == "receptions"]
   median_rec_yds <- summary_df$p50[summary_df$stat == "rec_yards"]
   median_rec_tds <- summary_df$p50[summary_df$stat == "rec_tds"]
-  median_fumbles_lost <- summary_df$p50[summary_df$stat == "fumbles_lost"]
   median_ppr <- summary_df$p50[summary_df$stat == "fantasy_ppr"]
   
   # Calculate expected PPR manually from components
@@ -134,17 +128,14 @@ print_rb_simulation <- function(result) {
                   (median_rush_tds * 6) + 
                   (median_rec * 1) + 
                   (median_rec_yds * 0.1) + 
-                  (median_rec_tds * 6) - 
-                  (median_fumbles_lost * 2)
+                  (median_rec_tds * 6)
   
-  cat("   Fumbles lost:", median_fumbles_lost, "\n")
   cat("   PPR fantasy points:", median_ppr, "\n")
   cat("   (Calculated from components: ", round(median_rush_yds * 0.1, 1), " rush yds + ", 
       round(median_rush_tds * 6, 1), " rush TDs + ", 
       round(median_rec * 1, 1), " rec + ", 
       round(median_rec_yds * 0.1, 1), " rec yds + ", 
-      round(median_rec_tds * 6, 1), " rec TDs - ", 
-      round(median_fumbles_lost * 2, 1), " fumbles = ", round(expected_ppr, 1), ")\n\n")
+      round(median_rec_tds * 6, 1), " rec TDs = ", round(expected_ppr, 1), ")\n\n")
   
   # ============================================================================
   # Print percentiles (p25 / p50 / p75)

@@ -151,8 +151,6 @@ empty_rb_features_df <- function() {
     receptions = integer(0),
     rec_yards = double(0),
     rec_tds = integer(0),
-    fumbles = integer(0),
-    fumbles_lost = integer(0),
     carries_roll3 = double(0),
     carries_roll5 = double(0),
     carries_roll7 = double(0),

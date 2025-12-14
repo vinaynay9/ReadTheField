@@ -321,35 +321,11 @@ run_rb_simulation <- function(player_name, team, opponent, season, week, n_sims 
   # STEP 6: Run Monte Carlo simulation
   # ============================================================================
   
-  # Calculate player's historical fumble rate for fumble modeling
-  player_historical <- player_data_team
-  if (nrow(player_historical) > 0 && "fumbles_lost" %in% names(player_historical)) {
-    total_carries_hist <- sum(player_historical$carries, na.rm = TRUE)
-    total_fumbles_hist <- sum(player_historical$fumbles_lost, na.rm = TRUE)
-    if (total_carries_hist > 0) {
-      fumble_rate_per_carry <- total_fumbles_hist / total_carries_hist
-    } else {
-      fumble_rate_per_carry <- 0.001  # Default: 0.1% per carry
-    }
-  } else {
-    fumble_rate_per_carry <- 0.001  # Default: 0.1% per carry
-  }
-  
-  result$diagnostics$fumble_rate_per_carry <- fumble_rate_per_carry
-  result$diagnostics$fumble_rate_source <- if (nrow(player_historical) > 0 && 
-                                                "fumbles_lost" %in% names(player_historical) &&
-                                                sum(player_historical$carries, na.rm = TRUE) > 0) {
-    "player_historical"
-  } else {
-    "default"
-  }
-  
   # Run simulation
   sim_result <- simulate_rb_game(
     feature_row = player_feature_row,
     rb_models = rb_models,
-    n_sims = n_sims,
-    fumble_rate_per_carry = fumble_rate_per_carry
+    n_sims = n_sims
   )
   
   if (sim_result$status != "success") {
