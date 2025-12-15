@@ -48,19 +48,33 @@
 #'   - summary: data.frame with p25, p50, p75 for each stat
 #'   - diagnostics: list with model info, distribution stats, TD probabilities
 #'   - draws: data.frame with n_sims rows of simulated stat lines
-run_rb_simulation <- function(player_name, team, opponent, season, week, n_sims = 5000, game_date = NULL) {
+run_rb_simulation <- function(player_name,
+                              team,
+                              opponent,
+                              season,
+                              week,
+                              n_sims = 5000,
+                              game_date = NULL,
+                              player_id = NULL,
+                              game_id = NULL,
+                              game_key = NULL,
+                              seasons_train = NULL,
+                              home_away = NULL) {
   
   # Initialize result structure
   result <- list(
     metadata = list(
       game_id = NULL,
+      game_key = NULL,
       player_id = NULL,
       player_name = NULL,
       team = NULL,
       opponent = NULL,
       season = NULL,
       week = NULL,
-      game_date = NULL
+      game_date = NULL,
+      home_away = NULL,
+      n_sims = n_sims
     ),
     recent_games = data.frame(),
     defensive_context = list(),
@@ -77,81 +91,130 @@ run_rb_simulation <- function(player_name, team, opponent, season, week, n_sims 
   }
   
   # ============================================================================
-  # STEP 1: Identify the correct game
+  # STEP 1: Identify the correct game using resolved metadata (no schedule dependency)
   # ============================================================================
   
-  # Load schedules for adjacent seasons (include previous season for context)
-  seasons_to_load <- c(season - 1, season)
-  schedules <- load_schedules(seasons = seasons_to_load)
-  
-  if (nrow(schedules) == 0) {
-    stop("Failed to load schedules. Cannot proceed.")
+  # Load helpers for keys / seasons
+  if (!exists("build_game_key") || !exists("get_available_seasons_from_cache")) {
+    if (file.exists("R/utils/cache_helpers.R")) {
+      source("R/utils/cache_helpers.R", local = TRUE)
+    }
   }
   
-  # Filter to target game
-  if (is.null(game_date)) {
-    # Find game by season, week, team, opponent
-    target_games <- schedules[
-      schedules$season == season & 
-      schedules$week == week &
-      ((schedules$away_team == team & schedules$home_team == opponent) |
-       (schedules$home_team == team & schedules$away_team == opponent)),
-    ]
+  # Determine game key if not provided
+  resolved_game_key <- if (!is.null(game_key) && !is.na(game_key) && game_key != "") {
+    game_key
+  } else if (exists("build_game_key")) {
+    build_game_key(season, week, game_date, team, opponent, game_id)
   } else {
-    # Find game by date and matchup
-    target_games <- schedules[
-      schedules$gameday == game_date &
-      ((schedules$away_team == team & schedules$home_team == opponent) |
-       (schedules$home_team == team & schedules$away_team == opponent)),
-    ]
+    paste(season, week, game_date, team, opponent, sep = "_")
   }
   
-  # Validation: exactly one game
-  if (nrow(target_games) == 0) {
-    stop("No game found matching: ", team, " vs ", opponent, " (season ", season, ", week ", week, ")")
+  # Training seasons: use provided list or all available historical seasons
+  if (is.null(seasons_train) || length(seasons_train) == 0) {
+    available <- if (exists("get_available_seasons_from_cache")) get_available_seasons_from_cache("rb_stats") else integer(0)
+    if (length(available) == 0) {
+      seasons_train <- sort(unique(c(season - 1, season)))
+    } else {
+      seasons_train <- sort(unique(available[available <= season]))
+      # Prefer history before target season, optionally include target for rolling
+      if (!is.na(week) && week > 1 && season %in% seasons_train) {
+        # keep target season, but training data filtering will drop future weeks
+      } else {
+        seasons_train <- seasons_train[seasons_train < season]
+      }
+    }
   }
   
-  if (nrow(target_games) > 1) {
-    stop("Multiple games found matching: ", team, " vs ", opponent, " (season ", season, ", week ", week, ")")
+  if (length(seasons_train) == 0) {
+    stop("No training seasons available for RB models.")
   }
-  
-  # Extract game info
-  identified_game <- target_games[1, ]
-  game_id <- identified_game$game_id
-  game_season <- identified_game$season
-  game_week <- identified_game$week
-  game_gameday <- identified_game$gameday
-  
-  # Determine if player's team is home or away
-  is_player_home <- (identified_game$home_team == team)
-  player_opponent <- if (is_player_home) identified_game$away_team else identified_game$home_team
-  
-  # Store metadata
-  result$metadata$game_id <- game_id
-  result$metadata$season <- game_season
-  result$metadata$week <- game_week
-  result$metadata$game_date <- game_gameday
-  result$metadata$team <- team
-  result$metadata$opponent <- player_opponent
   
   # ============================================================================
   # STEP 2: Assemble RB data up to (but not including) this game
   # ============================================================================
   
   # Assemble RB training data
-  rb_data <- assemble_rb_training_data(seasons = seasons_to_load)
+  rb_data <- assemble_rb_training_data(seasons = seasons_train)
   
   if (nrow(rb_data) == 0) {
     stop("Failed to assemble RB training data. Cannot proceed.")
   }
   
+  # Identify target game row using provided metadata
+  target_rows <- rb_data
+  if (!is.null(player_id)) {
+    target_rows <- target_rows[target_rows$player_id == player_id, ]
+  } else {
+    # fall back to player name patterns
+    target_rows <- target_rows[target_rows$player_name %in% player_name_patterns, ]
+    if (nrow(target_rows) == 0) {
+      target_rows <- rb_data[grepl(player_name_patterns[1], rb_data$player_name, ignore.case = TRUE), ]
+    }
+  }
+  
+  # Filter by game identifiers
+  if (!is.null(resolved_game_key)) {
+    target_rows <- target_rows[!is.na(target_rows$game_key) & target_rows$game_key == resolved_game_key, ]
+  }
+  if (nrow(target_rows) == 0 && !is.null(game_id)) {
+    target_rows <- rb_data[rb_data$game_id == game_id & (is.null(player_id) | rb_data$player_id == player_id), ]
+  }
+  if (nrow(target_rows) == 0 && !is.null(game_date)) {
+    target_rows <- rb_data[
+      rb_data$gameday == game_date &
+      (is.null(player_id) | rb_data$player_id == player_id) &
+      rb_data$team == team, ]
+  }
+  if (nrow(target_rows) == 0 && !is.na(season)) {
+    target_rows <- rb_data[rb_data$season == season & rb_data$week == week & rb_data$team == team, ]
+  }
+  
+  if (nrow(target_rows) == 0) {
+    stop("Target game not found in assembled RB data for player/team provided.")
+  }
+  
+  # Deterministic disambiguation
+  target_rows <- target_rows[order(target_rows$gameday, target_rows$game_id, target_rows$opponent), ]
+  identified_game_row <- target_rows[1, ]
+  if (!is.null(identified_game_row$game_key) && !is.na(identified_game_row$game_key) && identified_game_row$game_key != "") {
+    resolved_game_key <- identified_game_row$game_key
+  }
+  
+  # Extract game info
+  game_id <- ifelse(!is.null(identified_game_row$game_id) && identified_game_row$game_id != "",
+                    identified_game_row$game_id, game_id)
+  game_season <- ifelse(!is.na(identified_game_row$season), identified_game_row$season, season)
+  game_week <- ifelse(!is.na(identified_game_row$week), identified_game_row$week, week)
+  game_gameday <- ifelse(!is.na(identified_game_row$gameday), identified_game_row$gameday, game_date)
+  
+  # Determine opponent / home-away
+  player_opponent <- ifelse(!is.na(identified_game_row$opponent) && identified_game_row$opponent != "",
+                            identified_game_row$opponent, opponent)
+  player_team <- ifelse(!is.na(identified_game_row$team) && identified_game_row$team != "", identified_game_row$team, team)
+  player_home_away <- ifelse(!is.na(identified_game_row$home_away) && identified_game_row$home_away != "",
+                             identified_game_row$home_away, home_away)
+  
+  # Store metadata
+  result$metadata$game_id <- game_id
+  result$metadata$game_key <- resolved_game_key
+  result$metadata$season <- game_season
+  result$metadata$week <- game_week
+  result$metadata$game_date <- game_gameday
+  result$metadata$team <- player_team
+  result$metadata$opponent <- player_opponent
+  result$metadata$home_away <- player_home_away
+  
   # Filter to games before the identified game
   rb_data_pre <- rb_data[rb_data$gameday < game_gameday, ]
+  if (is.na(game_gameday) || nrow(rb_data_pre) == 0) {
+    rb_data_pre <- rb_data[rb_data$season == game_season & rb_data$week < game_week, ]
+  }
   
   # Find target player in the target game to get their player_id
   target_player_game <- NULL
   for (pattern in player_name_patterns) {
-    target_player_game <- rb_data[rb_data$game_id == game_id & 
+    target_player_game <- rb_data[rb_data$game_key == resolved_game_key & 
                                    rb_data$player_name == pattern, ]
     if (nrow(target_player_game) > 0) break
   }
@@ -160,10 +223,14 @@ run_rb_simulation <- function(player_name, team, opponent, season, week, n_sims 
   if (nrow(target_player_game) == 0 && length(player_name_patterns) > 0) {
     pattern_parts <- strsplit(player_name_patterns[1], "[. ]+")[[1]]
     if (length(pattern_parts) >= 2) {
-      target_player_game <- rb_data[rb_data$game_id == game_id & 
+      target_player_game <- rb_data[rb_data$game_key == resolved_game_key & 
                                     grepl(pattern_parts[1], rb_data$player_name, ignore.case = TRUE) &
                                     grepl(pattern_parts[2], rb_data$player_name, ignore.case = TRUE), ]
     }
+  }
+  if (nrow(target_player_game) == 0 && !is.null(game_id)) {
+    target_player_game <- rb_data[rb_data$game_id == game_id & 
+                                   (rb_data$player_id == player_id | rb_data$player_name %in% player_name_patterns), ]
   }
   
   if (nrow(target_player_game) == 0) {
@@ -180,7 +247,7 @@ run_rb_simulation <- function(player_name, team, opponent, season, week, n_sims 
   target_player_name <- unique(target_player_game$player_name)[1]
   
   # Update team if it doesn't match
-  if (length(target_player_team) > 1 || !target_player_team %in% c(team, identified_game$home_team, identified_game$away_team)) {
+  if (length(target_player_team) > 1 || !target_player_team %in% c(team, player_team)) {
     team <- target_player_team[1]
     result$metadata$team <- team
   }
@@ -207,10 +274,12 @@ run_rb_simulation <- function(player_name, team, opponent, season, week, n_sims 
     stop("Cannot proceed without games for target team (", team, ")")
   }
   
-  # Additional validation: ensure game_id contains the team (sanity check)
+  # Additional validation: ensure identifiers present
   if ("game_id" %in% names(player_data_team)) {
-    valid_games <- grepl(team, player_data_team$game_id)
+    valid_games <- !is.na(player_data_team$game_id)
     player_data_team <- player_data_team[valid_games, ]
+  } else if ("game_key" %in% names(player_data_team)) {
+    player_data_team <- player_data_team[!is.na(player_data_team$game_key) & player_data_team$game_key != "", ]
   }
   
   # ============================================================================
@@ -235,11 +304,17 @@ run_rb_simulation <- function(player_name, team, opponent, season, week, n_sims 
   # ============================================================================
   
   # Get player's row for the identified game
-  player_game_row <- rb_data[rb_data$game_id == game_id & 
+  player_game_row <- rb_data[rb_data$game_key == resolved_game_key & 
                              rb_data$player_id == target_player_id, ]
+  if (nrow(player_game_row) == 0 && !is.null(game_id)) {
+    player_game_row <- rb_data[rb_data$game_id == game_id & rb_data$player_id == target_player_id, ]
+  }
+  if (nrow(player_game_row) == 0 && !is.null(game_gameday)) {
+    player_game_row <- rb_data[rb_data$player_id == target_player_id & rb_data$gameday == game_gameday & rb_data$team == team, ]
+  }
   
   if (nrow(player_game_row) == 0) {
-    stop("Player (player_id: ", target_player_id, ") not found in dataset for game_id: ", game_id)
+    stop("Player (player_id: ", target_player_id, ") not found in dataset for game_key/game_id: ", resolved_game_key)
   }
   
   if (nrow(player_game_row) > 1) {

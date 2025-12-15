@@ -1,29 +1,28 @@
-# Load Player Stats
+# Load All Player Stats (Position Detection)
 #
-# Loads NFL player-level offensive statistics from nflverse sources with local caching.
-# This file specifically handles RB data extraction.
+# Loads NFL player-level offensive statistics from nflverse sources without position filtering.
+# Used for auto-detecting player position, team, and player_id from name.
 # Uses cache-first strategy: reads from cache if available, downloads if needed.
 #
 # Dependencies: nflreadr
 #
 # Usage:
-#   rb_stats <- load_rb_stats(seasons = 2021:2024)
-#   rb_stats <- load_rb_stats(seasons = 2021:2024, use_cache = FALSE)  # Force download
+#   all_stats <- load_all_player_stats(seasons = 2021:2024)
 
-#' Load RB player statistics for specified seasons
+#' Load all player statistics (no position filter) for specified seasons
 #'
 #' Uses nflreadr to load player weekly stats from nflverse with local caching.
-#' Filters to RB position only.
+#' Does NOT filter by position - returns all offensive positions.
 #' Cache-first: reads from cache if available, downloads if needed.
 #' Returns a data.frame with one row per player-game.
 #'
 #' @param seasons Integer vector of NFL seasons to load (e.g., 2021:2024)
 #' @param use_cache Logical, if TRUE (default) reads from cache if available
 #' @param write_cache Logical, if TRUE (default) writes to cache after successful download
-#' @param cache_name Character, cache file name (default "rb_player_stats.rds")
+#' @param cache_name Character, cache file name (default "all_player_stats.rds")
 #' @param retries Integer, number of download retry attempts (default 3)
 #' @param retry_sleep_sec Numeric, seconds to wait between retries (default 2)
-#' @param cache_only Logical, if TRUE skips download attempts and uses cached data only (default TRUE)
+#' @param cache_only Logical, if TRUE skip download attempts and rely on cached data (default TRUE)
 #' @return data.frame with columns:
 #'   - player_id: character, unique player identifier (gsis_id)
 #'   - player_name: character, player display name
@@ -31,34 +30,23 @@
 #'   - season: integer, NFL season year
 #'   - week: integer, week number
 #'   - team: character, player's team for that game
-#'   - position: character, player position (always "RB")
-#'   - carries: integer, rushing attempts
-#'   - rush_yards: double, rushing yards
-#'   - rush_tds: integer, rushing touchdowns
-#'   - targets: integer, receiving targets
-#'   - receptions: integer, receptions
-#'   - rec_yards: double, receiving yards
-#'   - rec_tds: integer, receiving touchdowns
-#' @examples
-#' rb_stats <- load_rb_stats(2023)
-#' rb_stats <- load_rb_stats(2021:2024, use_cache = FALSE)  # Force download
-load_rb_stats <- function(seasons = NULL,
-                          use_cache = TRUE,
-                          write_cache = TRUE,
-                          cache_name = "rb_player_stats.rds",
-                          retries = 3,
-                          retry_sleep_sec = 2,
-                          cache_only = TRUE) {
+#'   - position: character, player position (QB/RB/WR/TE/K)
+load_all_player_stats <- function(seasons = NULL,
+                                  use_cache = TRUE,
+                                  write_cache = TRUE,
+                                  cache_name = "all_player_stats.rds",
+                                  retries = 3,
+                                  retry_sleep_sec = 2,
+                                  cache_only = TRUE) {
   
-  # Load cache helpers (needed for build_game_key and season detection)
+  # Load cache helpers
   if (!exists("read_cache") || !exists("save_cache") || !exists("cache_exists") || !exists("build_game_key") || !exists("get_available_seasons_from_cache")) {
     if (file.exists("R/utils/cache_helpers.R")) {
       source("R/utils/cache_helpers.R", local = TRUE)
     }
   }
 
-  # Ensure required columns exist and game_key is populated
-  normalize_rb_stats <- function(df) {
+  normalize_all_stats <- function(df) {
     if (is.null(df) || nrow(df) == 0) return(df)
     if (!"opponent" %in% names(df)) df$opponent <- NA_character_
     if (!"home_away" %in% names(df)) df$home_away <- NA_character_
@@ -66,7 +54,6 @@ load_rb_stats <- function(seasons = NULL,
     if (!"game_date" %in% names(df)) df$game_date <- if ("gameday" %in% names(df)) df$gameday else as.Date(NA)
     if (!"gameday" %in% names(df)) df$gameday <- df$game_date
     if (!"game_key" %in% names(df)) df$game_key <- NA_character_
-    
     if (exists("build_game_key")) {
       df$game_key <- ifelse(
         is.na(df$game_key) | df$game_key == "",
@@ -77,16 +64,16 @@ load_rb_stats <- function(seasons = NULL,
     df
   }
   
-  # Determine seasons to load
+  # Validate input
   if (missing(seasons) || is.null(seasons) || length(seasons) == 0) {
     if (exists("get_available_seasons_from_cache")) {
-      seasons <- get_available_seasons_from_cache("rb_stats")
+      seasons <- get_available_seasons_from_cache("player_stats")
     }
   }
   
   if (is.null(seasons) || length(seasons) == 0) {
-    warning("No seasons specified and none found in cache, returning empty RB stats")
-    return(empty_rb_stats_df())
+    warning("No seasons specified and none found in cache, returning empty player stats")
+    return(empty_all_player_stats_df())
   }
   
   seasons <- as.integer(seasons)
@@ -96,7 +83,7 @@ load_rb_stats <- function(seasons = NULL,
   }
   
   if (length(seasons) == 0) {
-    return(empty_rb_stats_df())
+    return(empty_all_player_stats_df())
   }
   
   # Try cache first if enabled
@@ -106,7 +93,7 @@ load_rb_stats <- function(seasons = NULL,
       # Filter cached data to requested seasons
       cached_filtered <- cached_data[cached_data$season %in% seasons, ]
       if (nrow(cached_filtered) > 0) {
-        cached_filtered <- normalize_rb_stats(cached_filtered)
+        cached_filtered <- normalize_all_stats(cached_filtered)
         return(cached_filtered)
       }
     }
@@ -114,7 +101,7 @@ load_rb_stats <- function(seasons = NULL,
   
   if (isTRUE(cache_only)) {
     warning("cache_only=TRUE but cache miss for requested seasons; skipping download")
-    return(empty_rb_stats_df())
+    return(empty_all_player_stats_df())
   }
   
   # Cache miss or use_cache = FALSE: attempt download with retries
@@ -128,33 +115,39 @@ load_rb_stats <- function(seasons = NULL,
         stop("nflreadr package not installed")
       }
       
-      # Load player stats (weekly)
+      # Load player stats (weekly) - ALL positions
       raw_stats <- nflreadr::load_player_stats(seasons = seasons, stat_type = "offense")
       
       if (is.null(raw_stats) || nrow(raw_stats) == 0) {
         stop("nflreadr returned no player stats for specified seasons")
       }
       
-      # Filter to RB only
-      # nflverse uses "position" or "position_group" columns
-      # Position filtering: only keep rows where position is "RB"
-      if ("position" %in% names(raw_stats)) {
-        rb_stats <- raw_stats[raw_stats$position == "RB", ]
-      } else if ("position_group" %in% names(raw_stats)) {
-        rb_stats <- raw_stats[raw_stats$position_group == "RB", ]
-      } else {
+      # Map nflverse column names to our schema
+      player_id_col <- if ("player_id" %in% names(raw_stats)) "player_id" else "gsis_id"
+      player_name_col <- if ("player_name" %in% names(raw_stats)) "player_name" else "player_display_name"
+      team_col <- if ("team" %in% names(raw_stats)) "team" else "recent_team"
+      position_col <- if ("position" %in% names(raw_stats)) "position" else "position_group"
+      
+      # Extract position (normalize to position_group values: QB, RB, WR, TE, K)
+      position_raw <- raw_stats[[position_col]]
+      if (is.null(position_raw)) {
         stop("No position column found in player stats")
       }
       
-      if (nrow(rb_stats) == 0) {
-        stop("No RB data found after position filtering")
-      }
-      
-      # Map nflverse column names to our schema
-      # Determine correct column names (nflverse naming may vary)
-      player_id_col <- if ("player_id" %in% names(rb_stats)) "player_id" else "gsis_id"
-      player_name_col <- if ("player_name" %in% names(rb_stats)) "player_name" else "player_display_name"
-      team_col <- if ("team" %in% names(rb_stats)) "team" else "recent_team"
+      # Normalize position to position_group values
+      position_normalized <- ifelse(
+        position_raw %in% c("QB", "RB", "WR", "TE", "K"),
+        position_raw,
+        ifelse(
+          position_raw %in% c("FB"),
+          "RB",  # Fullbacks treated as RBs
+          ifelse(
+            position_raw %in% c("P"),
+            "K",  # Punters grouped with K for now
+            NA_character_
+          )
+        )
+      )
       
       # Extract statistics with safe column access
       safe_get <- function(df, cols, default = NA) {
@@ -173,68 +166,53 @@ load_rb_stats <- function(seasons = NULL,
       }
       
       # Build game_id if present; always produce stable game_key
-      if ("game_id" %in% names(rb_stats)) {
-        game_ids <- as.character(rb_stats$game_id)
+      if ("game_id" %in% names(raw_stats)) {
+        game_ids <- as.character(raw_stats$game_id)
       } else {
-        game_ids <- rep(NA_character_, nrow(rb_stats))
+        game_ids <- rep(NA_character_, nrow(raw_stats))
       }
       
-      game_dates <- safe_get_date(rb_stats, c("gameday", "game_date"), default = NA)
-      opponents <- as.character(safe_get(rb_stats, c("opponent_team", "opponent", "opp_team", "defteam"), NA))
-      home_away <- as.character(safe_get(rb_stats, "home_away", NA))
-      game_types <- as.character(safe_get(rb_stats, "game_type", NA))
+      game_dates <- safe_get_date(raw_stats, c("gameday", "game_date"), default = NA)
+      opponents <- as.character(safe_get(raw_stats, c("opponent_team", "opponent", "opp_team", "defteam"), NA))
+      home_away <- as.character(safe_get(raw_stats, "home_away", NA))
+      game_types <- as.character(safe_get(raw_stats, "game_type", NA))
       
-      # Stable game_key when game_id missing
       game_keys <- if (exists("build_game_key")) {
         mapply(
           build_game_key,
-          season = rb_stats$season,
-          week = rb_stats$week,
+          season = raw_stats$season,
+          week = raw_stats$week,
           game_date = game_dates,
-          team = rb_stats[[team_col]],
+          team = raw_stats[[team_col]],
           opponent = opponents,
           game_id = game_ids,
           SIMPLIFY = TRUE,
           USE.NAMES = FALSE
         )
       } else {
-        ifelse(!is.na(game_ids), game_ids, paste(rb_stats$season, rb_stats$week, rb_stats[[team_col]], opponents, sep = "_"))
+        ifelse(!is.na(game_ids), game_ids, paste(raw_stats$season, raw_stats$week, raw_stats[[team_col]], opponents, sep = "_"))
       }
       
       result_all <- data.frame(
-        player_id = as.character(rb_stats[[player_id_col]]),
-        player_name = as.character(rb_stats[[player_name_col]]),
+        player_id = as.character(raw_stats[[player_id_col]]),
+        player_name = as.character(raw_stats[[player_name_col]]),
         game_id = game_ids,
         game_key = as.character(game_keys),
-        season = as.integer(rb_stats$season),
-        week = as.integer(rb_stats$week),
-        team = as.character(rb_stats[[team_col]]),
+        season = as.integer(raw_stats$season),
+        week = as.integer(raw_stats$week),
+        team = as.character(raw_stats[[team_col]]),
         opponent = opponents,
         home_away = home_away,
         game_type = game_types,
         game_date = game_dates,
-        position = "RB",
-        carries = as.integer(safe_get(rb_stats, "carries", 0)),
-        rush_yards = as.double(safe_get(rb_stats, "rushing_yards", 0)),
-        rush_tds = as.integer(safe_get(rb_stats, "rushing_tds", 0)),
-        targets = as.integer(safe_get(rb_stats, "targets", 0)),
-        receptions = as.integer(safe_get(rb_stats, "receptions", 0)),
-        rec_yards = as.double(safe_get(rb_stats, "receiving_yards", 0)),
-        rec_tds = as.integer(safe_get(rb_stats, "receiving_tds", 0)),
+        position = position_normalized,
         stringsAsFactors = FALSE
       )
       
       result_all$gameday <- result_all$game_date
       
-      # Replace NA counts with 0 (player played but had no carries/targets is 0, not NA)
-      count_cols <- c("carries", "rush_tds", "targets", "receptions", "rec_tds")
-      for (col in count_cols) {
-        result_all[[col]] <- ifelse(is.na(result_all[[col]]), 0L, result_all[[col]])
-      }
-      
-      # Yards can remain NA if truly missing, but typically should be 0
-      result_all$rush_yards <- ifelse(is.na(result_all$rush_yards), 0, result_all$rush_yards)
-      result_all$rec_yards <- ifelse(is.na(result_all$rec_yards), 0, result_all$rec_yards)
+      # Remove rows with NA position (non-offensive positions or invalid)
+      result_all <- result_all[!is.na(result_all$position), ]
       
       # Sort by player, season, week
       result_all <- result_all[order(result_all$player_id, result_all$season, result_all$week), ]
@@ -247,7 +225,7 @@ load_rb_stats <- function(seasons = NULL,
       
       # Filter to requested seasons for return
       result <- result_all[result_all$season %in% seasons, ]
-      result <- normalize_rb_stats(result)
+      result <- normalize_all_stats(result)
       
       download_success <- TRUE
       return(result)
@@ -265,35 +243,32 @@ load_rb_stats <- function(seasons = NULL,
   }
   
   # Download failed after retries
-  # Check if cache exists (even if use_cache was FALSE, we might have old cache)
+  # Check if cache exists
   if (exists("cache_exists") && cache_exists(cache_name)) {
     cached_data <- read_cache(cache_name)
     if (!is.null(cached_data) && nrow(cached_data) > 0) {
-      # Filter to requested seasons
       cached_filtered <- cached_data[cached_data$season %in% seasons, ]
       if (nrow(cached_filtered) > 0) {
         warning("Download failed, using cached data. Run scripts/refresh_nflverse_cache.R when online to update cache.")
-        return(normalize_rb_stats(cached_filtered))
+        return(normalize_all_stats(cached_filtered))
       }
     }
   }
   
   # No cache and download failed: stop with clear error
-  stop("RB player stats unavailable. Download failed after ", retries, " attempts: ", 
+  stop("Player stats unavailable. Download failed after ", retries, " attempts: ", 
        if (!is.null(last_error)) last_error$message else "unknown error",
        "\n\nIf you're offline or GitHub is blocked, run scripts/refresh_nflverse_cache.R once when online.")
   
-  # Fallback (should not reach here, but ensures consistent return)
-  return(empty_rb_stats_df())
+  # Fallback (should not reach here)
+  return(empty_all_player_stats_df())
 }
 
 
-#' Create empty RB stats data.frame with correct schema
-#'
-#' Used as fallback when data loading fails.
+#' Create empty all player stats data.frame with correct schema
 #'
 #' @return data.frame with zero rows and correct column types
-empty_rb_stats_df <- function() {
+empty_all_player_stats_df <- function() {
   data.frame(
     player_id = character(0),
     player_name = character(0),
@@ -308,13 +283,6 @@ empty_rb_stats_df <- function() {
     game_date = as.Date(character(0)),
     gameday = as.Date(character(0)),
     position = character(0),
-    carries = integer(0),
-    rush_yards = double(0),
-    rush_tds = integer(0),
-    targets = integer(0),
-    receptions = integer(0),
-    rec_yards = double(0),
-    rec_tds = integer(0),
     stringsAsFactors = FALSE
   )
 }

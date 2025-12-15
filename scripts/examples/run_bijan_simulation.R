@@ -1,20 +1,13 @@
-# Run Player Game Simulation - Fully Automated
+# Run RB Simulation - Generic Player Game Simulation
 #
-# This script runs a fully automated simulation for any player's game.
-# Simply specify player name and game date - everything else is auto-detected!
+# This script runs a date-verified and opponent-verified simulation for
+# any RB player's game, with full input validation.
 # 
-# Configuration: Set target_player_name and target_date
-# Example: Bijan Robinson, 2025-12-11
-#
-# The system will automatically:
-#   - Detect player position (RB/WR/TE/QB/K)
-#   - Detect player's team
-#   - Detect opponent team
-#   - Detect season and week
-#   - Route to appropriate position-specific simulation
+# Configuration: Set target_player_name, target_date, target_away_team, target_home_team
+# Example: Bijan Robinson, 2025-12-11, ATL @ TB
 #
 # Architecture:
-#   Layer 1: simulate_player_game() - fully automated (auto-detects everything)
+#   Layer 1: run_rb_simulation() - pure computation (no printing, no files)
 #   Layer 2: print_rb_simulation() - presentation (console output)
 #   Layer 3: write_rb_simulation() - persistence (file writing)
 
@@ -72,7 +65,7 @@ if (file.exists("README.md") && file.exists("R") && file.exists("scripts")) {
     cat("  1. setwd('C:/Users/vinay/ReadTheField')\n")
     cat("  2. Or navigate to the project folder in RStudio\n")
     cat("  3. Or run: setwd(dirname(rstudioapi::getActiveDocumentContext()$path))\n")
-    cat("\nThen run: source('scripts/run_bijan_simulation.R')\n")
+    cat("\nThen run: source('scripts/examples/run_bijan_simulation.R')\n")
     stop("Project root not found. Please set working directory first.")
   }
   
@@ -139,20 +132,12 @@ tryCatch({
   stop("Failed to load ppr_scoring.R: ", conditionMessage(e))
 })
 
-# Source the automated simulation function
+# Source the new three-layer architecture functions
 tryCatch({
-  source("R/simulation/simulate_player_game.R")
-  cat("  - simulate_player_game.R loaded\n")
+  source("R/simulation/run_rb_simulation.R")
+  cat("  - run_rb_simulation.R loaded\n")
 }, error = function(e) {
-  stop("Failed to load simulate_player_game.R: ", conditionMessage(e))
-})
-
-# Source the presentation and persistence functions
-tryCatch({
-  source("R/simulation/print_player_simulation.R")
-  cat("  - print_player_simulation.R loaded\n")
-}, error = function(e) {
-  stop("Failed to load print_player_simulation.R: ", conditionMessage(e))
+  stop("Failed to load run_rb_simulation.R: ", conditionMessage(e))
 })
 
 tryCatch({
@@ -174,29 +159,37 @@ cat("All functions loaded successfully.\n\n")
 # ============================================================================
 # CONFIGURATION: Set target player and game
 # ============================================================================
-# Simply specify player name and game date - everything else is auto-detected!
-target_player_name <- "Bijan Robinson"  # Can also try "B.Robinson"
+# These can be changed to simulate any player/game
+target_player_name_patterns <- c("B.Robinson", "Bijan Robinson")  # Try these name patterns
 target_date <- as.Date("2025-12-11")
+target_away_team <- "ATL"
+target_home_team <- "TB"
+
+# Extract season and week from date (will be validated by run_rb_simulation)
+# For now, we'll pass the date and let run_rb_simulation find the game
+# But we need to determine which team is home/away
+# Based on the configuration: ATL @ TB means ATL is away, TB is home
 
 # ============================================================================
-# LAYER 1: Pure Computation - Fully Automated
+# LAYER 1: Pure Computation
 # ============================================================================
-# Run simulation - auto-detects position, team, opponent, season, week
+# Run simulation exactly ONCE - no printing, no file writing
 
-result <- simulate_player_game(
-  player_name = target_player_name,
-  game_date = target_date,
-  n_sims = 5000
+result <- run_rb_simulation(
+  player_name = target_player_name_patterns,
+  team = target_away_team,  # Player's team
+  opponent = target_home_team,  # Opponent team
+  season = 2025,  # Will be validated against game_date
+  week = 15,  # Will be validated against game_date
+  n_sims = 5000,
+  game_date = target_date
 )
 
 # ============================================================================
 # LAYER 2: Presentation
 # ============================================================================
-# Print player-specific results (clean stats-focused output)
+# Print results to console
 
-print_player_simulation(result)
-
-# Print technical diagnostics (process details)
 print_rb_simulation(result)
 
 # ============================================================================
@@ -207,5 +200,3 @@ print_rb_simulation(result)
 write_rb_simulation(result, "rb_simulation_output.txt", overwrite = TRUE)
 
 cat("Output saved to: rb_simulation_output.txt\n")
-
-

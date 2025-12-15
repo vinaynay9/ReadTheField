@@ -47,14 +47,14 @@ assemble_rb_training_data <- function(seasons) {
   }
   
   message("Loading schedules...")
-  schedules <- load_schedules(seasons)
+  schedules <- load_schedules(seasons, cache_only = TRUE)
+  schedules_available <- nrow(schedules) > 0
   
-  if (nrow(schedules) == 0) {
-    warning("No schedule data loaded")
-    return(empty_rb_training_df())
+  if (!schedules_available) {
+    warning("No schedule data loaded; will derive game context from player stats")
+  } else {
+    message(paste("Loaded", nrow(schedules), "games"))
   }
-  
-  message(paste("Loaded", nrow(schedules), "games"))
   
   message("Loading RB player stats...")
   rb_stats <- load_rb_stats(seasons)
@@ -70,35 +70,47 @@ assemble_rb_training_data <- function(seasons) {
   # Create two rows per game: one for home team, one for away team
   message("Building game-team mapping...")
   
-  home_games <- data.frame(
-    game_id = schedules$game_id,
-    season = schedules$season,
-    week = schedules$week,
-    gameday = schedules$gameday,
-    team = schedules$home_team,
-    opponent = schedules$away_team,
-    home_away = "HOME",
-    is_home = 1L,
-    stadium = schedules$stadium,
-    surface = schedules$surface,
-    stringsAsFactors = FALSE
-  )
-  
-  away_games <- data.frame(
-    game_id = schedules$game_id,
-    season = schedules$season,
-    week = schedules$week,
-    gameday = schedules$gameday,
-    team = schedules$away_team,
-    opponent = schedules$home_team,
-    home_away = "AWAY",
-    is_home = 0L,
-    stadium = schedules$stadium,
-    surface = schedules$surface,
-    stringsAsFactors = FALSE
-  )
-  
-  game_team_lookup <- rbind(home_games, away_games)
+  if (schedules_available) {
+    home_games <- data.frame(
+      game_id = schedules$game_id,
+      season = schedules$season,
+      week = schedules$week,
+      gameday = schedules$gameday,
+      team = schedules$home_team,
+      opponent = schedules$away_team,
+      home_away = "HOME",
+      is_home = 1L,
+      stadium = schedules$stadium,
+      surface = schedules$surface,
+      stringsAsFactors = FALSE
+    )
+    
+    away_games <- data.frame(
+      game_id = schedules$game_id,
+      season = schedules$season,
+      week = schedules$week,
+      gameday = schedules$gameday,
+      team = schedules$away_team,
+      opponent = schedules$home_team,
+      home_away = "AWAY",
+      is_home = 0L,
+      stadium = schedules$stadium,
+      surface = schedules$surface,
+      stringsAsFactors = FALSE
+    )
+    
+    game_team_lookup <- rbind(home_games, away_games)
+  } else {
+    # Derive minimal mapping from player stats when schedules are unavailable
+    derived_games <- unique(rb_stats[, c("game_id", "game_key", "season", "week", "team", "opponent", "home_away", "game_date", "gameday")])
+    derived_games$gameday <- if (!"gameday" %in% names(derived_games) || all(is.na(derived_games$gameday))) derived_games$game_date else derived_games$gameday
+    derived_games$home_away <- toupper(ifelse(is.na(derived_games$home_away), "", derived_games$home_away))
+    derived_games$is_home <- ifelse(derived_games$home_away == "HOME", 1L,
+                                    ifelse(derived_games$home_away == "AWAY", 0L, NA_integer_))
+    derived_games$stadium <- NA_character_
+    derived_games$surface <- NA_character_
+    game_team_lookup <- derived_games
+  }
   
   # Join RB stats with game context
   # Match on season, week, team (since game_id in player_stats may be constructed)
@@ -122,10 +134,47 @@ assemble_rb_training_data <- function(seasons) {
     rb_data$game_id_sched <- NULL
   }
   
-  # Remove rows that didn't match (shouldn't happen if data is consistent)
+  # Prefer schedule opponent/home info when available
+  if ("opponent_sched" %in% names(rb_data)) {
+    rb_data$opponent <- ifelse(!is.na(rb_data$opponent_sched), rb_data$opponent_sched, rb_data$opponent)
+    rb_data$opponent_sched <- NULL
+  }
+  if ("home_away_sched" %in% names(rb_data)) {
+    rb_data$home_away <- ifelse(!is.na(rb_data$home_away_sched), rb_data$home_away_sched, rb_data$home_away)
+    rb_data$home_away_sched <- NULL
+  }
+  if ("is_home_sched" %in% names(rb_data)) {
+    rb_data$is_home <- ifelse(!is.na(rb_data$is_home_sched), rb_data$is_home_sched, rb_data$is_home)
+    rb_data$is_home_sched <- NULL
+  }
+  if ("gameday_sched" %in% names(rb_data)) {
+    rb_data$gameday <- ifelse(!is.na(rb_data$gameday_sched), rb_data$gameday_sched, rb_data$gameday)
+    rb_data$gameday_sched <- NULL
+  }
+  
+  # Ensure gameday populated from game_date when available
+  if (!"gameday" %in% names(rb_data) || all(is.na(rb_data$gameday))) {
+    rb_data$gameday <- rb_data$game_date
+  } else {
+    rb_data$gameday <- ifelse(is.na(rb_data$gameday), rb_data$game_date, rb_data$gameday)
+  }
+  
+  # Fill game_key deterministically
+  if (!"game_key" %in% names(rb_data)) {
+    rb_data$game_key <- NA_character_
+  }
+  if (exists("build_game_key")) {
+    rb_data$game_key <- ifelse(
+      is.na(rb_data$game_key) | rb_data$game_key == "",
+      build_game_key(rb_data$season, rb_data$week, rb_data$gameday, rb_data$team, rb_data$opponent, rb_data$game_id),
+      rb_data$game_key
+    )
+  }
+  
+  # Remove rows that didn't match and have no date (features need ordering)
   unmatched <- sum(is.na(rb_data$gameday))
   if (unmatched > 0) {
-    warning(paste(unmatched, "RB records did not match to schedule"))
+    warning(paste(unmatched, "RB records missing game dates; excluding from training data"))
     rb_data <- rb_data[!is.na(rb_data$gameday), ]
   }
   
@@ -231,7 +280,7 @@ assemble_rb_training_data <- function(seasons) {
   # Select and order final columns
   final_cols <- c(
     # Identifiers
-    "game_id", "player_id", "season", "week", "gameday",
+    "game_id", "game_key", "player_id", "season", "week", "gameday",
     # Metadata
     "player_name", "team", "position", "opponent", "home_away", "is_home",
     # Optional metadata

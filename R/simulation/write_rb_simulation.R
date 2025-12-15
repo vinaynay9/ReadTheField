@@ -42,7 +42,9 @@ write_rb_simulation <- function(result, file = "rb_simulation_output.txt", overw
     cat("Simulation started at", as.character(Sys.time()), "\n")
     cat("Output will be saved to:", file, "\n\n")
     
-    # Use print function to format output (but redirect to file)
+    # Use print functions to format output (but redirect to file)
+    # First print player-specific results, then technical diagnostics
+    print_player_simulation(result)
     print_rb_simulation(result)
     
     # Close sink
