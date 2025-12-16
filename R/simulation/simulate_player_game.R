@@ -69,6 +69,12 @@ simulate_player_game <- function(player_name,
     }
   }
   
+  # Ensure cache_only is TRUE (no nflreadr calls during simulation)
+  if (!isTRUE(cache_only)) {
+    warning("cache_only was FALSE, forcing to TRUE. Simulation must use cached data only.")
+    cache_only <- TRUE
+  }
+  
   # Resolve player/game context from cached data
   resolved <- resolve_player_game(
     player_name = player_name,
@@ -88,13 +94,18 @@ simulate_player_game <- function(player_name,
          ". Position cannot be NA or empty.")
   }
   
-  # Get available seasons from cache
-  available_seasons <- if (exists("get_available_seasons_from_cache")) {
-    unique(c(get_available_seasons_from_cache("rb_stats"), get_available_seasons_from_cache("player_stats")))
-  } else integer(0)
-  available_seasons <- sort(unique(available_seasons))
+  if (!exists("read_rb_weekly_features_cache")) {
+    if (file.exists("R/data/build_weekly_player_layers.R")) {
+      source("R/data/build_weekly_player_layers.R", local = TRUE)
+    } else {
+      stop("R/data/build_weekly_player_layers.R is required for simulation")
+    }
+  }
+
+  rb_features_for_seasons <- read_rb_weekly_features_cache()
+  available_seasons <- sort(unique(rb_features_for_seasons$season[!is.na(rb_features_for_seasons$season)]))
   if (length(available_seasons) == 0) {
-    available_seasons <- sort(unique(c(resolved$season - 1L, resolved$season)))
+    stop("RB weekly features cache is empty. Run scripts/refresh_weekly_cache.R to populate it.")
   }
   
   # Apply simulation mode policy to determine training seasons

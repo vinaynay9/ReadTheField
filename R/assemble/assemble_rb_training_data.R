@@ -1,32 +1,70 @@
 # Assemble RB Training Data
-#
-# Joins schedules and player stats, then builds features for RB training.
-# Constructs one row per RB per game with:
-#   - Game metadata (game_id, season, week, gameday)
-#   - Player metadata (player_id, player_name, team, position)
-#   - Game context (opponent, home_away, is_home)
-#   - Pre-game features (rolling stats, efficiency metrics)
-#   - Post-game targets (actual stats for training)
-#
-# All pre-game features use strictly lagged data (no current-game leakage).
-#
-# Dependencies:
-#   - R/data/load_schedules.R
-#   - R/data/load_player_stats.R
-#   - R/data/build_team_defense_game_stats.R
-#   - R/features/build_rb_features.R
-#   - R/features/build_team_defense_features.R
-#   - R/utils/rolling_helpers.R
-#
-# Usage:
-#   source("R/data/load_schedules.R")
-#   source("R/data/load_player_stats.R")
-#   source("R/data/build_team_defense_game_stats.R")
-#   source("R/features/build_rb_features.R")
-#   source("R/features/build_team_defense_features.R")
-#   source("R/utils/rolling_helpers.R")
-#   rb_training_data <- assemble_rb_training_data(seasons = 2021:2024)
+# ...
 
+
+#' Assemble RB weekly features using pre-filtered RB stats
+#'
+#' @param rb_weekly_stats data.frame produced by build_rb_weekly_stats()
+#' @return data.frame with rolling features and target columns
+assemble_rb_weekly_features <- function(rb_weekly_stats) {
+  if (is.null(rb_weekly_stats) || nrow(rb_weekly_stats) == 0) {
+    stop("rb_weekly_stats must be provided with at least one row")
+  }
+
+  required_cols <- c(
+    "player_id", "player_name", "team", "opponent", "season", "week",
+    "game_key", "game_date", "carries", "rushing_yards", "rushing_tds",
+    "targets", "receptions", "receiving_yards", "receiving_tds", "home_away"
+  )
+  missing <- setdiff(required_cols, names(rb_weekly_stats))
+  if (length(missing) > 0) {
+    stop("Missing required columns in rb_weekly_stats: ", paste(missing, collapse = ", "))
+  }
+
+  stats <- rb_weekly_stats
+  stats$season <- as.integer(stats$season)
+  stats$week <- as.integer(stats$week)
+  stats$game_date <- as.Date(stats$game_date)
+  stats$gameday <- stats$game_date
+  stats$home_away <- toupper(trimws(as.character(stats$home_away)))
+  stats$is_home <- ifelse(
+    stats$home_away == "HOME", 1L,
+    ifelse(stats$home_away == "AWAY", 0L, NA_integer_)
+  )
+  stats <- stats[order(stats$player_id, stats$season, stats$week, stats$game_date), ]
+
+  if (!exists("build_rb_features")) {
+    if (file.exists("R/features/build_rb_features.R")) {
+      source("R/features/build_rb_features.R", local = TRUE)
+    } else {
+      stop("R/features/build_rb_features.R is required to build rolling features")
+    }
+  }
+
+  features <- build_rb_features(stats)
+  # RB v1 contract: create target columns with v1 names
+  features$target_carries <- features$carries
+  features$target_rushing_yards <- features$rushing_yards
+  features$target_receptions <- features$receptions
+  features$target_receiving_yards <- features$receiving_yards
+  # Keep split TDs temporarily for computing total_touchdowns
+  features$target_rush_tds <- features$rushing_tds
+  features$target_rec_tds <- features$receiving_tds
+  features$target_total_touchdowns <- features$target_rush_tds + features$target_rec_tds
+
+  drop_cols <- c(
+    "carries", "rushing_yards", "rushing_tds",
+    "targets", "receptions", "receiving_yards", "receiving_tds"
+  )
+  drop_cols <- intersect(drop_cols, names(features))
+  features <- features[, setdiff(names(features), drop_cols), drop = FALSE]
+
+  features <- features[order(features$season, features$week, features$gameday, features$player_id), ]
+  rownames(features) <- NULL
+  features
+}
+
+#' Assemble RB Training Data
 #' Assemble complete RB training dataset
 #'
 #' Loads raw data, joins schedules with player stats, computes features,

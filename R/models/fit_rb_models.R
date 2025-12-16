@@ -1,51 +1,44 @@
-# Fit RB Models
+# Fit RB Models (v1 Contract)
 #
-# Fits statistical models for RB simulation following the dependency graph:
-#   carries -> rush_yards | carries -> rush_tds | carries
-#   targets -> receptions | targets -> rec_yards | receptions -> rec_tds | targets
+# Fits statistical models for RB simulation following the RB v1 contract.
+# Models exactly 5 outcomes: carries, rushing_yards, receiving_yards, receptions, total_touchdowns
 #
 # Models:
-#   - carries_model: Negative Binomial for volume
-#   - targets_model: Negative Binomial for volume
-#   - rush_yards_model: Gaussian conditional on carries
-#   - rec_yards_model: Gaussian conditional on receptions
-#   - rush_tds_model: Poisson for scoring
-#   - rec_tds_model: Poisson for scoring
-#   - catch_rate_model: Logistic for receptions | targets (binomial probability)
+#   - carries_model: Negative Binomial or Poisson for volume
+#   - rushing_yards_model: Gaussian conditional on carries
+#   - receiving_yards_model: Gaussian conditional on receptions
+#   - receptions_model: Negative Binomial or Poisson for volume
+#   - total_touchdowns_model: Poisson or Negative Binomial for scoring
 #
 # Dependencies: MASS (for glm.nb)
 #
 # Usage:
 #   rb_models <- fit_rb_models(rb_training_data)
 
-#' Fit all RB models from training data
+#' Fit all RB models from training data (RB v1 contract)
 #'
-#' Fits the complete set of RB models for simulation.
+#' Fits exactly 5 models for RB simulation outcomes.
 #' Returns a list of fitted model objects.
-#' If training data is empty or fitting fails, returns NULL models with warnings.
+#' Fails loudly if insufficient data or model fitting fails.
 #'
 #' @param training_data data.frame with feature and target columns
 #' @param min_rows Integer, minimum rows required for fitting (default 50)
 #' @return Named list of fitted models:
-#'   - carries_model: glm.nb for carries
-#'   - targets_model: glm.nb for targets
-#'   - rush_yards_model: lm for rush_yards ~ carries + features
-#'   - rec_yards_model: lm for rec_yards ~ receptions + features
-#'   - rush_tds_model: glm poisson for rush_tds
-#'   - rec_tds_model: glm poisson for rec_tds
-#'   - catch_rate_model: glm binomial for catch probability
+#'   - carries_model: glm.nb or glm poisson for carries
+#'   - rushing_yards_model: lm for rushing_yards ~ carries + features
+#'   - receiving_yards_model: lm for receiving_yards ~ receptions + features
+#'   - receptions_model: glm.nb or glm poisson for receptions
+#'   - total_touchdowns_model: glm poisson or glm.nb for total_touchdowns
 #'   - model_info: metadata about fitting
 fit_rb_models <- function(training_data, min_rows = 50) {
   
   # Initialize result structure
   result <- list(
     carries_model = NULL,
-    targets_model = NULL,
-    rush_yards_model = NULL,
-    rec_yards_model = NULL,
-    rush_tds_model = NULL,
-    rec_tds_model = NULL,
-    catch_rate_model = NULL,
+    rushing_yards_model = NULL,
+    receiving_yards_model = NULL,
+    receptions_model = NULL,
+    total_touchdowns_model = NULL,
     model_info = list(
       n_training_rows = 0,
       fitted_at = Sys.time(),
@@ -53,28 +46,44 @@ fit_rb_models <- function(training_data, min_rows = 50) {
     )
   )
   
-  # Validate input
+  # Validate input - fail loudly
   if (is.null(training_data) || nrow(training_data) == 0) {
-    warning("Empty training data provided. All models set to NULL.")
-    result$model_info$status <- "no_data"
-    return(result)
+    stop("Empty training data provided. Cannot fit RB models. ",
+         "Training data must have at least one row.")
+  }
+  
+  # Check for required outcome columns (RB v1 contract)
+  required_outcomes <- c("target_carries", "target_rushing_yards", "target_receiving_yards",
+                        "target_receptions", "target_total_touchdowns")
+  missing_outcomes <- setdiff(required_outcomes, names(training_data))
+  if (length(missing_outcomes) > 0) {
+    stop("Missing required RB v1 outcome columns: ", paste(missing_outcomes, collapse = ", "),
+         ". Cannot fit models. Expected columns: ", paste(required_outcomes, collapse = ", "))
   }
   
   # Filter to rows with valid features (non-NA rolling features)
-  # Early-career rows with NA features cannot be used for training
   feature_cols <- c("carries_roll3", "carries_roll5", "targets_roll3", "targets_roll5")
-  complete_mask <- complete.cases(training_data[, intersect(feature_cols, names(training_data))])
-  train_df <- training_data[complete_mask, ]
+  available_features <- intersect(feature_cols, names(training_data))
+  if (length(available_features) == 0) {
+    stop("No required rolling features found. Cannot fit models. ",
+         "Expected at least one of: ", paste(feature_cols, collapse = ", "))
+  }
+  
+  complete_mask <- complete.cases(training_data[, available_features, drop = FALSE])
+  train_df <- training_data[complete_mask, , drop = FALSE]
   
   if (nrow(train_df) < min_rows) {
-    warning(paste("Only", nrow(train_df), "complete rows available. Need at least", min_rows, "."))
-    result$model_info$status <- "insufficient_data"
-    result$model_info$n_training_rows <- nrow(train_df)
-    return(result)
+    stop("Insufficient training data. Found ", nrow(train_df), " complete rows, ",
+         "but need at least ", min_rows, ". Cannot fit RB models.")
+  }
+  
+  if (nrow(train_df) == 0) {
+    stop("0 complete rows after filtering. Cannot fit RB models. ",
+         "Check that rolling features are computed correctly.")
   }
   
   result$model_info$n_training_rows <- nrow(train_df)
-  message(paste("Fitting RB models on", nrow(train_df), "training rows"))
+  message(paste("Fitting RB v1 models on", nrow(train_df), "training rows"))
   
   # Check for MASS package (needed for glm.nb)
   if (!requireNamespace("MASS", quietly = TRUE)) {
@@ -84,7 +93,7 @@ fit_rb_models <- function(training_data, min_rows = 50) {
     use_negbin <- TRUE
   }
   
-  # 1. Fit carries model (Negative Binomial)
+  # 1. Fit carries model (Negative Binomial or Poisson)
   message("Fitting carries model...")
   result$carries_model <- tryCatch({
     if (use_negbin) {
@@ -100,34 +109,16 @@ fit_rb_models <- function(training_data, min_rows = 50) {
       )
     }
   }, error = function(e) {
-    warning(paste("Failed to fit carries model:", e$message))
-    NULL
+    stop("Failed to fit carries model: ", e$message, ". Cannot proceed with RB simulation.")
   })
   
-  # 2. Fit targets model (Negative Binomial)
-  message("Fitting targets model...")
-  result$targets_model <- tryCatch({
-    if (use_negbin) {
-      MASS::glm.nb(
-        target_targets ~ targets_roll3 + targets_roll5 + is_home,
-        data = train_df
-      )
-    } else {
-      glm(
-        target_targets ~ targets_roll3 + targets_roll5 + is_home,
-        data = train_df,
-        family = poisson(link = "log")
-      )
-    }
-  }, error = function(e) {
-    warning(paste("Failed to fit targets model:", e$message))
-    NULL
-  })
+  if (is.null(result$carries_model)) {
+    stop("carries_model is NULL after fitting. Cannot proceed with RB simulation.")
+  }
   
-  # 3. Fit rush yards model (Gaussian conditional on carries)
-  # Include defensive features: opp_rush_yards_allowed_roll5, opp_tfl_roll5, opp_sacks_roll5
-  message("Fitting rush yards model...")
-  result$rush_yards_model <- tryCatch({
+  # 2. Fit rushing_yards model (Gaussian conditional on carries)
+  message("Fitting rushing_yards model...")
+  result$rushing_yards_model <- tryCatch({
     # Build formula with defensive features if available
     def_features <- c("opp_rush_yards_allowed_roll5", "opp_tfl_roll5", "opp_sacks_roll5")
     available_def <- intersect(def_features, names(train_df))
@@ -140,133 +131,110 @@ fit_rb_models <- function(training_data, min_rows = 50) {
       if (nrow(train_df_rush) >= min_rows) {
         # Build formula with available defensive features
         def_formula <- paste(available_def, collapse = " + ")
-        formula_str <- paste("target_rush_yards ~ target_carries + yards_per_carry_roll5 + is_home +", def_formula)
+        formula_str <- paste("target_rushing_yards ~ target_carries + yards_per_carry_roll5 + is_home +", def_formula)
         lm(as.formula(formula_str), data = train_df_rush)
       } else {
         # Fallback: use model without defensive features
-        warning("Insufficient data with defensive features for rush yards model. Using model without defensive features.")
-        lm(target_rush_yards ~ target_carries + yards_per_carry_roll5 + is_home, data = train_df)
+        warning("Insufficient data with defensive features for rushing_yards model. Using model without defensive features.")
+        lm(target_rushing_yards ~ target_carries + yards_per_carry_roll5 + is_home, data = train_df)
       }
     } else {
       # No defensive features available
-      lm(target_rush_yards ~ target_carries + yards_per_carry_roll5 + is_home, data = train_df)
+      lm(target_rushing_yards ~ target_carries + yards_per_carry_roll5 + is_home, data = train_df)
     }
   }, error = function(e) {
-    warning(paste("Failed to fit rush yards model:", e$message))
-    NULL
+    stop("Failed to fit rushing_yards model: ", e$message, ". Cannot proceed with RB simulation.")
   })
   
-  # 4. Fit rec yards model (Gaussian conditional on receptions)
-  message("Fitting rec yards model...")
-  result$rec_yards_model <- tryCatch({
-    lm(
-      target_rec_yards ~ target_receptions + yards_per_target_roll5 + is_home,
-      data = train_df
-    )
-  }, error = function(e) {
-    warning(paste("Failed to fit rec yards model:", e$message))
-    NULL
-  })
+  if (is.null(result$rushing_yards_model)) {
+    stop("rushing_yards_model is NULL after fitting. Cannot proceed with RB simulation.")
+  }
   
-  # 5. Fit rush TDs model (Poisson)
-  # Include defensive features: opp_points_allowed_roll5 (proxy for rush TDs allowed)
-  message("Fitting rush TDs model...")
-  result$rush_tds_model <- tryCatch({
-    # Try to use opp_points_allowed_roll5 as proxy for rush TDs allowed
-    if ("opp_points_allowed_roll5" %in% names(train_df)) {
-      # Filter to rows where defensive feature is not NA
-      def_complete <- !is.na(train_df$opp_points_allowed_roll5)
-      train_df_td <- train_df[def_complete, ]
-      
-      if (nrow(train_df_td) >= min_rows) {
-        glm(
-          target_rush_tds ~ target_carries + rush_tds_roll5 + is_home + opp_points_allowed_roll5,
-          data = train_df_td,
-          family = poisson(link = "log")
-        )
-      } else {
-        # Fallback: use model without defensive features
-        warning("Insufficient data with defensive features for rush TDs model. Using model without defensive features.")
-        glm(
-          target_rush_tds ~ target_carries + rush_tds_roll5 + is_home,
-          data = train_df,
-          family = poisson(link = "log")
-        )
-      }
+  # 3. Fit receptions model (Negative Binomial or Poisson)
+  message("Fitting receptions model...")
+  result$receptions_model <- tryCatch({
+    if (use_negbin) {
+      MASS::glm.nb(
+        target_receptions ~ targets_roll3 + targets_roll5 + is_home,
+        data = train_df
+      )
     } else {
-      # No defensive features available
       glm(
-        target_rush_tds ~ target_carries + rush_tds_roll5 + is_home,
+        target_receptions ~ targets_roll3 + targets_roll5 + is_home,
         data = train_df,
         family = poisson(link = "log")
       )
     }
   }, error = function(e) {
-    warning(paste("Failed to fit rush TDs model:", e$message))
-    NULL
+    stop("Failed to fit receptions model: ", e$message, ". Cannot proceed with RB simulation.")
   })
   
-  # 6. Fit rec TDs model (Poisson)
-  message("Fitting rec TDs model...")
-  result$rec_tds_model <- tryCatch({
-    glm(
-      target_rec_tds ~ target_targets + rec_tds_roll5 + is_home,
-      data = train_df,
-      family = poisson(link = "log")
+  if (is.null(result$receptions_model)) {
+    stop("receptions_model is NULL after fitting. Cannot proceed with RB simulation.")
+  }
+  
+  # 4. Fit receiving_yards model (Gaussian conditional on receptions)
+  message("Fitting receiving_yards model...")
+  result$receiving_yards_model <- tryCatch({
+    lm(
+      target_receiving_yards ~ target_receptions + yards_per_target_roll5 + is_home,
+      data = train_df
     )
   }, error = function(e) {
-    warning(paste("Failed to fit rec TDs model:", e$message))
-    NULL
+    stop("Failed to fit receiving_yards model: ", e$message, ". Cannot proceed with RB simulation.")
   })
   
-  # 7. Fit catch rate model (Binomial for receptions | targets)
-  message("Fitting catch rate model...")
-  result$catch_rate_model <- tryCatch({
-    # Create a data frame for binomial fitting
-    # We model P(reception | target) using catch_rate history
-    catch_df <- train_df[train_df$target_targets > 0, ]
-    if (nrow(catch_df) < min_rows) {
-      warning("Insufficient data for catch rate model")
-      NULL
+  if (is.null(result$receiving_yards_model)) {
+    stop("receiving_yards_model is NULL after fitting. Cannot proceed with RB simulation.")
+  }
+  
+  # 5. Fit total_touchdowns model (Poisson or Negative Binomial)
+  message("Fitting total_touchdowns model...")
+  result$total_touchdowns_model <- tryCatch({
+    # Use carries and receptions as predictors (total volume)
+    if (use_negbin) {
+      MASS::glm.nb(
+        target_total_touchdowns ~ target_carries + target_receptions + is_home,
+        data = train_df
+      )
     } else {
       glm(
-        cbind(target_receptions, target_targets - target_receptions) ~ 
-          catch_rate_roll5 + is_home,
-        data = catch_df,
-        family = binomial(link = "logit")
+        target_total_touchdowns ~ target_carries + target_receptions + is_home,
+        data = train_df,
+        family = poisson(link = "log")
       )
     }
   }, error = function(e) {
-    warning(paste("Failed to fit catch rate model:", e$message))
-    NULL
+    stop("Failed to fit total_touchdowns model: ", e$message, ". Cannot proceed with RB simulation.")
   })
   
-  # Update status
-  n_fitted <- sum(!sapply(result[1:7], is.null))
-  if (n_fitted == 7) {
-    result$model_info$status <- "fully_fitted"
-  } else if (n_fitted > 0) {
-    result$model_info$status <- "partially_fitted"
-  } else {
-    result$model_info$status <- "all_failed"
+  if (is.null(result$total_touchdowns_model)) {
+    stop("total_touchdowns_model is NULL after fitting. Cannot proceed with RB simulation.")
   }
   
-  message(paste("Fitting complete:", n_fitted, "of 7 models fitted"))
+  # Update status
+  n_fitted <- sum(!sapply(result[1:5], is.null))
+  if (n_fitted == 5) {
+    result$model_info$status <- "fully_fitted"
+  } else {
+    stop("Only ", n_fitted, " of 5 required models fitted. Cannot proceed with RB simulation.")
+  }
+  
+  message(paste("Fitting complete: all 5 RB v1 models fitted successfully"))
   
   return(result)
 }
 
 
-#' Check if RB models are valid for simulation
+#' Check if RB models are valid for simulation (RB v1 contract)
 #'
 #' @param rb_models List returned by fit_rb_models
 #' @return Logical, TRUE if all required models are fitted
 validate_rb_models <- function(rb_models) {
   if (is.null(rb_models)) return(FALSE)
   
-  required <- c("carries_model", "targets_model", "rush_yards_model", 
-                "rec_yards_model", "rush_tds_model", "rec_tds_model")
+  required <- c("carries_model", "rushing_yards_model", "receiving_yards_model",
+                "receptions_model", "total_touchdowns_model")
   
   all(sapply(required, function(m) !is.null(rb_models[[m]])))
 }
-

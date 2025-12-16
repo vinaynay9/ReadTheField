@@ -1,43 +1,36 @@
-# Simulate RB Game
+# Simulate RB Game (v1 Contract)
 #
-# Monte Carlo simulation for RB player-game outcomes.
-# Follows the dependency graph:
-#   1. Sample carries (Negative Binomial)
-#   2. Sample rush_yards | carries (Gaussian, truncated at 0)
-#   3. Sample rush_tds | carries (Poisson)
-#   4. Sample targets (Negative Binomial)
-#   5. Sample receptions | targets (Binomial)
-#   6. Sample rec_yards | receptions (Gaussian, truncated at 0)
-#   7. Sample rec_tds | targets (Poisson)
-#   8. Derive fantasy points
+# Monte Carlo simulation for RB player-game outcomes following RB v1 contract.
+# Simulation order:
+#   1. Sample carries (Negative Binomial or Poisson)
+#   2. Sample rushing_yards | carries (Gaussian, truncated at 0)
+#   3. Sample receptions (Negative Binomial or Poisson)
+#   4. Sample receiving_yards | receptions (Gaussian, truncated at 0)
+#   5. Sample total_touchdowns (Poisson or Negative Binomial)
 #
-# Fantasy points are NEVER modeled directly - always derived from components.
+# Fantasy points are NOT computed in this function - derived downstream using 50th percentile only.
 #
 # Dependencies:
-#   - R/utils/ppr_scoring.R
 #   - R/models/fit_rb_models.R (for validate_rb_models)
 #
 # Usage:
-#   source("R/utils/ppr_scoring.R")
 #   result <- simulate_rb_game(feature_row, rb_models, n_sims = 5000)
 
-#' Simulate RB game outcomes
+#' Simulate RB game outcomes (RB v1 contract)
 #'
 #' Runs Monte Carlo simulation to generate distribution of RB outcomes.
-#' Returns raw simulation draws and percentile summary.
+#' Returns raw simulation draws and percentile summary for 5 outcomes only.
 #'
 #' @param feature_row data.frame with one row containing pre-game features:
 #'   - carries_roll3, carries_roll5
 #'   - targets_roll3, targets_roll5
 #'   - yards_per_carry_roll5, yards_per_target_roll5
-#'   - catch_rate_roll5
-#'   - rush_tds_roll5, rec_tds_roll5
 #'   - is_home
-#' @param rb_models List of fitted models from fit_rb_models()
+#' @param rb_models List of fitted models from fit_rb_models() (RB v1 contract)
 #' @param n_sims Integer, number of Monte Carlo simulations (default 5000)
 #' @return List with:
-#'   - draws: data.frame with n_sims rows of simulated stat lines
-#'   - summary: data.frame with p25, p50, p75 for each stat
+#'   - draws: data.frame with n_sims rows of simulated stat lines (5 outcomes)
+#'   - summary: data.frame with p25, p50, p75 for each outcome
 #'   - status: character indicating simulation status
 simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   
@@ -57,38 +50,40 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
     stop("Multiple feature rows provided to simulate_rb_game. Expected exactly one row.")
   }
   
-  # Check if models are valid - fail loudly
-  if (is.null(rb_models) || !validate_rb_models(rb_models)) {
-    stop("RB models are NULL or incomplete. Cannot proceed with simulation. ",
-         "Required models: carries_model, targets_model, rush_yards_model, ",
-         "rec_yards_model, rush_tds_model, rec_tds_model")
+  # Check if models are valid (RB v1 contract) - fail loudly
+  if (is.null(rb_models)) {
+    stop("RB models are NULL. Cannot proceed with simulation. ",
+         "Required models: carries_model, rushing_yards_model, receiving_yards_model, ",
+         "receptions_model, total_touchdowns_model")
+  }
+  
+  if (!validate_rb_models(rb_models)) {
+    stop("RB models are incomplete. Cannot proceed with simulation. ",
+         "Required models: carries_model, rushing_yards_model, receiving_yards_model, ",
+         "receptions_model, total_touchdowns_model")
+  }
+  
+  # Verify all required models exist
+  required_models <- c("carries_model", "rushing_yards_model", "receiving_yards_model",
+                       "receptions_model", "total_touchdowns_model")
+  missing_models <- required_models[!sapply(required_models, function(m) !is.null(rb_models[[m]]))]
+  if (length(missing_models) > 0) {
+    stop("Missing required RB v1 models: ", paste(missing_models, collapse = ", "),
+         ". Cannot proceed with simulation.")
   }
   
   # Prepare prediction data frame
-  # Need to handle potential NA values in features
   pred_data <- prepare_prediction_data(feature_row)
   
-  # Check for defensive features (non-fatal, but document)
-  def_features <- c("opp_rush_yards_allowed_roll5", "opp_tfl_roll5", "opp_sacks_roll5", 
-                    "opp_points_allowed_roll5")
-  missing_def <- setdiff(def_features, names(pred_data))
-  # Note: Missing defensive features are handled via defaults in prepare_prediction_data
-  # No warning needed - simulation proceeds with defaults
-  
-  # Initialize simulation storage
+  # Initialize simulation storage (RB v1 outcomes only)
   sim_carries <- numeric(n_sims)
-  sim_rush_yards <- numeric(n_sims)
-  sim_rush_tds <- numeric(n_sims)
-  sim_targets <- numeric(n_sims)
+  sim_rushing_yards <- numeric(n_sims)
   sim_receptions <- numeric(n_sims)
-  sim_rec_yards <- numeric(n_sims)
-  sim_rec_tds <- numeric(n_sims)
-  sim_fantasy <- numeric(n_sims)
+  sim_receiving_yards <- numeric(n_sims)
+  sim_total_touchdowns <- numeric(n_sims)
   
   # Run simulations
   for (i in seq_len(n_sims)) {
-    
-    # --- RUSHING PATH ---
     
     # 1. Sample carries (Negative Binomial / Poisson)
     carries_mu <- predict_safe(rb_models$carries_model, pred_data, type = "response")
@@ -100,92 +95,62 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
       # Poisson fallback
       sim_carries[i] <- rpois(1, lambda = carries_mu)
     }
+    sim_carries[i] <- max(0, sim_carries[i])  # Ensure non-negative
     
-    # 2. Sample rush_yards | carries (Gaussian, truncated at 0)
-    # Update prediction data with sampled carries
+    # 2. Sample rushing_yards | carries (Gaussian, truncated at 0)
     pred_data_rush <- pred_data
     pred_data_rush$target_carries <- sim_carries[i]
     
-    rush_yards_mu <- predict_safe(rb_models$rush_yards_model, pred_data_rush)
-    rush_yards_sigma <- get_residual_sd(rb_models$rush_yards_model)
+    rushing_yards_mu <- predict_safe(rb_models$rushing_yards_model, pred_data_rush)
+    rushing_yards_sigma <- get_residual_sd(rb_models$rushing_yards_model)
     
-    sim_rush_yards[i] <- max(0, rnorm(1, mean = rush_yards_mu, sd = rush_yards_sigma))
+    sim_rushing_yards[i] <- max(0, rnorm(1, mean = rushing_yards_mu, sd = rushing_yards_sigma))
     
-    # 3. Sample rush_tds | carries (Poisson)
-    rush_tds_lambda <- predict_safe(rb_models$rush_tds_model, pred_data_rush, type = "response")
-    sim_rush_tds[i] <- rpois(1, lambda = max(0.01, rush_tds_lambda))
-    
-    # --- RECEIVING PATH ---
-    
-    # 4. Sample targets (Negative Binomial / Poisson)
-    targets_mu <- predict_safe(rb_models$targets_model, pred_data, type = "response")
-    if (inherits(rb_models$targets_model, "negbin")) {
-      theta <- rb_models$targets_model$theta
-      sim_targets[i] <- rnbinom(1, size = theta, mu = targets_mu)
+    # 3. Sample receptions (Negative Binomial / Poisson)
+    receptions_mu <- predict_safe(rb_models$receptions_model, pred_data, type = "response")
+    if (inherits(rb_models$receptions_model, "negbin")) {
+      theta <- rb_models$receptions_model$theta
+      sim_receptions[i] <- rnbinom(1, size = theta, mu = receptions_mu)
     } else {
-      sim_targets[i] <- rpois(1, lambda = targets_mu)
+      sim_receptions[i] <- rpois(1, lambda = receptions_mu)
     }
+    sim_receptions[i] <- max(0, sim_receptions[i])  # Ensure non-negative
     
-    # 5. Sample receptions | targets (Binomial)
-    if (sim_targets[i] > 0) {
-      if (!is.null(rb_models$catch_rate_model)) {
-        catch_prob <- predict_safe(rb_models$catch_rate_model, pred_data, type = "response")
-        catch_prob <- min(max(catch_prob, 0.1), 0.95)  # Bound probability
-      } else {
-        # Fallback: use historical catch rate
-        catch_prob <- ifelse(is.na(pred_data$catch_rate_roll5), 0.75, pred_data$catch_rate_roll5)
-        catch_prob <- min(max(catch_prob, 0.1), 0.95)
-      }
-      sim_receptions[i] <- rbinom(1, size = sim_targets[i], prob = catch_prob)
-    } else {
-      sim_receptions[i] <- 0
-    }
-    
-    # 6. Sample rec_yards | receptions (Gaussian, truncated at 0)
+    # 4. Sample receiving_yards | receptions (Gaussian, truncated at 0)
     if (sim_receptions[i] > 0) {
       pred_data_rec <- pred_data
       pred_data_rec$target_receptions <- sim_receptions[i]
       
-      rec_yards_mu <- predict_safe(rb_models$rec_yards_model, pred_data_rec)
-      rec_yards_sigma <- get_residual_sd(rb_models$rec_yards_model)
+      receiving_yards_mu <- predict_safe(rb_models$receiving_yards_model, pred_data_rec)
+      receiving_yards_sigma <- get_residual_sd(rb_models$receiving_yards_model)
       
-      sim_rec_yards[i] <- max(0, rnorm(1, mean = rec_yards_mu, sd = rec_yards_sigma))
+      sim_receiving_yards[i] <- max(0, rnorm(1, mean = receiving_yards_mu, sd = receiving_yards_sigma))
     } else {
-      sim_rec_yards[i] <- 0
+      sim_receiving_yards[i] <- 0
     }
     
-    # 7. Sample rec_tds | targets (Poisson)
-    if (sim_targets[i] > 0) {
-      pred_data_rec_td <- pred_data
-      pred_data_rec_td$target_targets <- sim_targets[i]
-      
-      rec_tds_lambda <- predict_safe(rb_models$rec_tds_model, pred_data_rec_td, type = "response")
-      sim_rec_tds[i] <- rpois(1, lambda = max(0.01, rec_tds_lambda))
-    } else {
-      sim_rec_tds[i] <- 0
-    }
+    # 5. Sample total_touchdowns (Poisson or Negative Binomial)
+    pred_data_td <- pred_data
+    pred_data_td$target_carries <- sim_carries[i]
+    pred_data_td$target_receptions <- sim_receptions[i]
     
-    # 8. Derive fantasy points
-    # PPR scoring: rush_yds*0.1 + rush_tds*6 + rec*1 + rec_yds*0.1 + rec_tds*6
-    sim_fantasy[i] <- compute_ppr_rb(
-      rush_yards = sim_rush_yards[i],
-      rush_tds = sim_rush_tds[i],
-      receptions = sim_receptions[i],
-      rec_yards = sim_rec_yards[i],
-      rec_tds = sim_rec_tds[i]
-    )
+    total_tds_mu <- predict_safe(rb_models$total_touchdowns_model, pred_data_td, type = "response")
+    if (inherits(rb_models$total_touchdowns_model, "negbin")) {
+      theta <- rb_models$total_touchdowns_model$theta
+      sim_total_touchdowns[i] <- rnbinom(1, size = theta, mu = total_tds_mu)
+    } else {
+      sim_total_touchdowns[i] <- rpois(1, lambda = max(0.01, total_tds_mu))
+    }
+    sim_total_touchdowns[i] <- max(0, sim_total_touchdowns[i])  # Ensure non-negative
   }
   
-  # Compile draws
+  # Compile draws (RB v1 outcomes only)
   result$draws <- data.frame(
     carries = sim_carries,
-    rush_yards = sim_rush_yards,
-    rush_tds = sim_rush_tds,
-    targets = sim_targets,
+    rushing_yards = sim_rushing_yards,
     receptions = sim_receptions,
-    rec_yards = sim_rec_yards,
-    rec_tds = sim_rec_tds,
-    fantasy_ppr = sim_fantasy
+    receiving_yards = sim_receiving_yards,
+    total_touchdowns = sim_total_touchdowns
   )
   
   # Compute percentiles
@@ -212,9 +177,6 @@ prepare_prediction_data <- function(feature_row) {
     targets_roll5 = 3,
     yards_per_carry_roll5 = 4.0,
     yards_per_target_roll5 = 7.0,
-    catch_rate_roll5 = 0.75,
-    rush_tds_roll5 = 0.3,
-    rec_tds_roll5 = 0.1,
     is_home = 0
   )
   
@@ -235,14 +197,18 @@ prepare_prediction_data <- function(feature_row) {
 #' @param model Fitted model object
 #' @param newdata data.frame for prediction
 #' @param type Prediction type (default "response")
-#' @return Predicted value, or fallback if prediction fails
+#' @return Predicted value, or stop() if prediction fails
 predict_safe <- function(model, newdata, type = "response") {
+  if (is.null(model)) {
+    stop("Model is NULL. Cannot make prediction. This indicates a model/data mismatch.")
+  }
+  
   tryCatch({
     pred <- predict(model, newdata = newdata, type = type)
     as.numeric(pred)
   }, error = function(e) {
     stop("Prediction failed for model. Error: ", e$message, 
-         ". This indicates a model/data mismatch. Cannot proceed with simulation.")
+         ". This indicates a model/data schema mismatch. Cannot proceed with simulation.")
   })
 }
 
@@ -252,24 +218,27 @@ predict_safe <- function(model, newdata, type = "response") {
 #' @param model lm object
 #' @return Numeric, residual SD
 get_residual_sd <- function(model) {
-  if (is.null(model)) return(20)  # Fallback
+  if (is.null(model)) {
+    stop("Model is NULL. Cannot get residual SD. This indicates a model/data mismatch.")
+  }
   
   tryCatch({
     sigma(model)
   }, error = function(e) {
-    20  # Fallback
+    stop("Failed to get residual SD from model. Error: ", e$message,
+         ". Cannot proceed with simulation.")
   })
 }
 
 
-#' Compute percentiles from simulation draws
+#' Compute percentiles from simulation draws (RB v1 outcomes)
 #'
 #' @param draws data.frame of simulation draws
-#' @return data.frame with p25, p50, p75 for each stat
+#' @return data.frame with p25, p50, p75 for each outcome
 compute_rb_percentiles <- function(draws) {
   
-  stats <- c("carries", "rush_yards", "rush_tds", "targets", 
-             "receptions", "rec_yards", "rec_tds", "fantasy_ppr")
+  # RB v1 outcomes only
+  stats <- c("carries", "rushing_yards", "receptions", "receiving_yards", "total_touchdowns")
   
   result <- data.frame(
     stat = stats,
@@ -291,7 +260,7 @@ compute_rb_percentiles <- function(draws) {
   
   # Round appropriately
   # Counts: round to integer
-  count_stats <- c("carries", "rush_tds", "targets", "receptions", "rec_tds")
+  count_stats <- c("carries", "receptions", "total_touchdowns")
   for (stat in count_stats) {
     idx <- which(result$stat == stat)
     result$p25[idx] <- round(result$p25[idx])
@@ -300,7 +269,7 @@ compute_rb_percentiles <- function(draws) {
   }
   
   # Yards: round to integer
-  yards_stats <- c("rush_yards", "rec_yards")
+  yards_stats <- c("rushing_yards", "receiving_yards")
   for (stat in yards_stats) {
     idx <- which(result$stat == stat)
     result$p25[idx] <- round(result$p25[idx])
@@ -308,41 +277,19 @@ compute_rb_percentiles <- function(draws) {
     result$p75[idx] <- round(result$p75[idx])
   }
   
-  # Fantasy: round to one decimal
-  idx <- which(result$stat == "fantasy_ppr")
-  result$p25[idx] <- round(result$p25[idx], 1)
-  result$p50[idx] <- round(result$p50[idx], 1)
-  result$p75[idx] <- round(result$p75[idx], 1)
-  
   return(result)
 }
 
 
-#' Create NA summary for failed simulations
-#'
-#' @return data.frame with NA percentiles
-na_rb_summary <- function() {
-  data.frame(
-    stat = c("carries", "rush_yards", "rush_tds", "targets", 
-             "receptions", "rec_yards", "rec_tds", "fantasy_ppr"),
-    p25 = NA_real_,
-    p50 = NA_real_,
-    p75 = NA_real_,
-    stringsAsFactors = FALSE
-  )
-}
-
-
-#' Validate RB models (imported from fit_rb_models.R)
+#' Validate RB models (RB v1 contract)
 #'
 #' @param rb_models List returned by fit_rb_models
 #' @return Logical, TRUE if all required models are fitted
 validate_rb_models <- function(rb_models) {
   if (is.null(rb_models)) return(FALSE)
   
-  required <- c("carries_model", "targets_model", "rush_yards_model", 
-                "rec_yards_model", "rush_tds_model", "rec_tds_model")
+  required <- c("carries_model", "rushing_yards_model", "receiving_yards_model",
+                "receptions_model", "total_touchdowns_model")
   
   all(sapply(required, function(m) !is.null(rb_models[[m]])))
 }
-
