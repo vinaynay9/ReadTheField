@@ -9,6 +9,7 @@
 player_week_identity_path <- file.path("data", "cache", "player_week_identity.parquet")
 rb_weekly_stats_path <- file.path("data", "cache", "rb_weekly_stats.parquet")
 rb_weekly_features_path <- file.path("data", "processed", "rb_weekly_features.parquet")
+player_directory_path <- file.path("data", "cache", "player_directory.parquet")
 
 # Ensure cache helpers are available for build_game_key
 if (!exists("build_game_key")) {
@@ -392,5 +393,123 @@ read_rb_weekly_stats_cache <- function() {
 
 read_rb_weekly_features_cache <- function() {
   read_parquet_cache(rb_weekly_features_path, "RB weekly features cache", "scripts/refresh_weekly_cache.R")
+}
+
+#' Build player directory cache from nflreadr
+#'
+#' Creates a canonical player directory using nflreadr::load_players().
+#' This provides full names and player_id mappings for name resolution.
+#' player_id is the source of truth; weekly stats may use abbreviated names.
+#'
+#' @param write_cache Logical, if TRUE write to parquet cache (default TRUE)
+#' @return data.frame with player directory columns
+build_player_directory <- function(write_cache = TRUE) {
+  if (!requireNamespace("nflreadr", quietly = TRUE)) {
+    stop("Package 'nflreadr' is required. Install with install.packages('nflreadr').")
+  }
+  
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("Package 'arrow' is required. Install with install.packages('arrow').")
+  }
+  
+  cat("Loading player directory from nflreadr...\n")
+  players <- nflreadr::load_players()
+  
+  if (is.null(players) || nrow(players) == 0) {
+    stop("nflreadr::load_players() returned empty result. Cannot build player directory.")
+  }
+  
+  # Required columns: player_id, full_name, first_name, last_name
+  required_cols <- c("gsis_id", "display_name", "first_name", "last_name")
+  
+  # Map nflreadr column names to canonical names
+  # gsis_id -> player_id
+  # display_name -> full_name
+  if (!"gsis_id" %in% names(players)) {
+    # Try alternative column names
+    if ("player_id" %in% names(players)) {
+      players$gsis_id <- players$player_id
+    } else if ("player_gsis_id" %in% names(players)) {
+      players$gsis_id <- players$player_gsis_id
+    } else {
+      stop("Cannot find player_id column in nflreadr::load_players() output. ",
+           "Expected: gsis_id, player_id, or player_gsis_id")
+    }
+  }
+  
+  if (!"display_name" %in% names(players)) {
+    if ("full_name" %in% names(players)) {
+      players$display_name <- players$full_name
+    } else if ("name" %in% names(players)) {
+      players$display_name <- players$name
+    } else {
+      stop("Cannot find full_name column in nflreadr::load_players() output. ",
+           "Expected: display_name, full_name, or name")
+    }
+  }
+  
+  if (!"first_name" %in% names(players)) {
+    stop("Cannot find first_name column in nflreadr::load_players() output.")
+  }
+  
+  if (!"last_name" %in% names(players)) {
+    stop("Cannot find last_name column in nflreadr::load_players() output.")
+  }
+  
+  # Build canonical player directory
+  player_dir <- data.frame(
+    player_id = as.character(players$gsis_id),
+    full_name = as.character(players$display_name),
+    first_name = as.character(players$first_name),
+    last_name = as.character(players$last_name),
+    stringsAsFactors = FALSE
+  )
+  
+  # Remove rows with missing player_id or full_name
+  player_dir <- player_dir[
+    !is.na(player_dir$player_id) & player_dir$player_id != "" &
+    !is.na(player_dir$full_name) & player_dir$full_name != "",
+    , drop = FALSE
+  ]
+  
+  if (nrow(player_dir) == 0) {
+    stop("Player directory built with zero valid rows. Check nflreadr::load_players() output.")
+  }
+  
+  # Remove duplicates (keep first occurrence)
+  player_dir <- player_dir[!duplicated(player_dir$player_id), , drop = FALSE]
+  
+  # Add canonical name for matching
+  # Define canonicalize_name helper if not available
+  canonicalize_name_local <- function(x) {
+    if (is.null(x) || length(x) == 0) {
+      return(character(0))
+    }
+    x <- as.character(x)
+    x <- tolower(x)
+    x <- gsub("\\.", "", x)  # Remove periods
+    x <- gsub("\\s+", " ", x)  # Normalize whitespace
+    x <- trimws(x)
+    x[nchar(x) == 0] <- NA_character_
+    x
+  }
+  
+  player_dir$canonical_name <- canonicalize_name_local(player_dir$full_name)
+  
+  # Order by player_id for consistency
+  player_dir <- player_dir[order(player_dir$player_id), ]
+  rownames(player_dir) <- NULL
+  
+  if (write_cache) {
+    dir.create(dirname(player_directory_path), recursive = TRUE, showWarnings = FALSE)
+    arrow::write_parquet(player_dir, player_directory_path)
+    cat("  Wrote player directory cache with", nrow(player_dir), "players\n")
+  }
+  
+  player_dir
+}
+
+read_player_directory_cache <- function() {
+  read_parquet_cache(player_directory_path, "Player directory cache", "scripts/refresh_weekly_cache.R")
 }
 

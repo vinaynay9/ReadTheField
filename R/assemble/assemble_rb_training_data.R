@@ -61,6 +61,56 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
 
   features <- features[order(features$season, features$week, features$gameday, features$player_id), ]
   rownames(features) <- NULL
+  
+  # Filter out malformed rows with NA identity fields (Layer 3 hardening)
+  bad_rows <- is.na(features$player_id) | is.na(features$season) | is.na(features$week)
+  
+  if (any(bad_rows)) {
+    warning(sprintf(
+      "Dropping %d malformed RB feature rows with NA identity fields (player_id, season, or week)",
+      sum(bad_rows)
+    ))
+    features <- features[!bad_rows, , drop = FALSE]
+  }
+  
+  # Hard assertion: no NA in required identity fields after filtering
+  if (nrow(features) == 0) {
+    stop("All RB feature rows were dropped due to NA identity fields. ",
+         "Cannot create valid feature cache. Check Layer 2 (rb_weekly_stats) for data quality issues.")
+  }
+  
+  if (any(is.na(features$player_id))) {
+    stop("Found NA player_id in RB features after filtering. This should not occur. ",
+         "Layer 3 assembly logic error.")
+  }
+  
+  if (any(is.na(features$season))) {
+    stop("Found NA season in RB features after filtering. This should not occur. ",
+         "Layer 3 assembly logic error.")
+  }
+  
+  if (any(is.na(features$week))) {
+    stop("Found NA week in RB features after filtering. This should not occur. ",
+         "Layer 3 assembly logic error.")
+  }
+  
+  # Hard assertion: Week 1 rolling features must be NA (season boundary enforcement)
+  week1_rows <- features[features$week == 1, , drop = FALSE]
+  if (nrow(week1_rows) > 0) {
+    rolling_cols <- grep("_roll[0-9]+$", names(features), value = TRUE)
+    for (col in rolling_cols) {
+      week1_vals <- week1_rows[[col]]
+      non_na_count <- sum(!is.na(week1_vals))
+      if (non_na_count > 0) {
+        stop("Season boundary violation detected: Found ", non_na_count, 
+             " non-NA rolling feature '", col, "' in Week 1 rows. ",
+             "Week 1 must have NA rolling features (no prior games in season). ",
+             "This indicates cross-season leakage in rolling window computation. ",
+             "Check build_rb_features() grouping logic.")
+      }
+    }
+  }
+  
   features
 }
 

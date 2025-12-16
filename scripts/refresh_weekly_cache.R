@@ -36,6 +36,22 @@ seasons_to_refresh <- 1999:current_year
 
 cat("Refreshing weekly RB caches for seasons", min(seasons_to_refresh), "through", max(seasons_to_refresh), "...\n")
 
+# Build player directory cache (required for name resolution)
+if (!exists("build_player_directory")) {
+  if (file.exists("R/data/build_weekly_player_layers.R")) {
+    source("R/data/build_weekly_player_layers.R")
+  } else {
+    stop("Missing R/data/build_weekly_player_layers.R")
+  }
+}
+
+cat("  Building player directory cache...\n")
+player_dir <- build_player_directory(write_cache = TRUE)
+if (nrow(player_dir) == 0) {
+  stop("Player directory cache built with zero rows; ensure nflreadr returned data.")
+}
+cat("  Built player directory cache with", nrow(player_dir), "players\n")
+
 identity <- build_player_week_identity(
   seasons = seasons_to_refresh,
   season_type = "REG",
@@ -71,7 +87,15 @@ if (nrow(rb_features) == 0) {
 }
 
 cat("  Built RB weekly features cache with", nrow(rb_features), "rows\n")
+
+# Get cache paths for output
+player_directory_path <- file.path("data", "cache", "player_directory.parquet")
+player_week_identity_path <- file.path("data", "cache", "player_week_identity.parquet")
+rb_weekly_stats_path <- file.path("data", "cache", "rb_weekly_stats.parquet")
+rb_weekly_features_path <- file.path("data", "processed", "rb_weekly_features.parquet")
+
 cat("\nWeekly caches refreshed. Files:")
+cat("\n  -", player_directory_path)
 cat("\n  -", player_week_identity_path)
 cat("\n  -", rb_weekly_stats_path)
 cat("\n  -", rb_weekly_features_path, "\n")

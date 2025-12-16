@@ -83,61 +83,8 @@ if (file.exists("README.md") && file.exists("R") && file.exists("scripts")) {
 
 # Source required functions with error handling
 cat("Loading required functions...\n")
-tryCatch({
-  source("R/data/load_schedules.R")
-  cat("  - load_schedules.R loaded\n")
-}, error = function(e) {
-  stop("Failed to load load_schedules.R: ", conditionMessage(e))
-})
-
-tryCatch({
-  source("R/data/load_player_stats.R")
-  cat("  - load_player_stats.R loaded\n")
-}, error = function(e) {
-  stop("Failed to load load_player_stats.R: ", conditionMessage(e))
-})
-
-tryCatch({
-  source("R/features/build_rb_features.R")
-  cat("  - build_rb_features.R loaded\n")
-}, error = function(e) {
-  stop("Failed to load build_rb_features.R: ", conditionMessage(e))
-})
-
-tryCatch({
-  source("R/utils/rolling_helpers.R")
-  cat("  - rolling_helpers.R loaded\n")
-}, error = function(e) {
-  stop("Failed to load rolling_helpers.R: ", conditionMessage(e))
-})
-
-tryCatch({
-  source("R/assemble/assemble_rb_training_data.R")
-  cat("  - assemble_rb_training_data.R loaded\n")
-}, error = function(e) {
-  stop("Failed to load assemble_rb_training_data.R: ", conditionMessage(e))
-})
-
-tryCatch({
-  source("R/models/fit_rb_models.R")
-  cat("  - fit_rb_models.R loaded\n")
-}, error = function(e) {
-  stop("Failed to load fit_rb_models.R: ", conditionMessage(e))
-})
-
-tryCatch({
-  source("R/simulation/simulate_rb_game.R")
-  cat("  - simulate_rb_game.R loaded\n")
-}, error = function(e) {
-  stop("Failed to load simulate_rb_game.R: ", conditionMessage(e))
-})
-
-tryCatch({
-  source("R/utils/ppr_scoring.R")
-  cat("  - ppr_scoring.R loaded\n")
-}, error = function(e) {
-  stop("Failed to load ppr_scoring.R: ", conditionMessage(e))
-})
+# Note: Most functions are loaded automatically by simulate_player_game()
+# Only load presentation/persistence functions here
 
 # Source the automated simulation function
 tryCatch({
@@ -175,8 +122,9 @@ cat("All functions loaded successfully.\n\n")
 # CONFIGURATION: Set target player and game
 # ============================================================================
 # Simply specify player name and game date - everything else is auto-detected!
-target_player_name <- "Bijan Robinson"  # Can also try "B.Robinson"
-target_date <- as.Date("2025-12-11")
+target_player_name <- "Bijan Robinson"
+target_season <- 2024
+target_week <- 8
 
 # ============================================================================
 # LAYER 1: Pure Computation - Fully Automated
@@ -185,7 +133,8 @@ target_date <- as.Date("2025-12-11")
 
 result <- simulate_player_game(
   player_name = target_player_name,
-  game_date = target_date,
+  season = target_season,
+  week = target_week,
   n_sims = 5000
 )
 

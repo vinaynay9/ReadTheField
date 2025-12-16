@@ -56,7 +56,9 @@ run_rb_simulation <- function(player_name,
                               game_key = NULL,
                               seasons_train = NULL,
                               home_away = NULL,
-                              mode_policy = NULL) {
+                              mode_policy = NULL,
+                              synthetic_feature_row = NULL,
+                              is_future = FALSE) {
   
   # Initialize result structure
   result <- list(
@@ -368,25 +370,43 @@ run_rb_simulation <- function(player_name,
   # ============================================================================
   
   # Get player's row for the identified game
-  player_game_row <- rb_data_all[rb_data_all$game_key == resolved_game_key & 
-                                 rb_data_all$player_id == target_player_id, ]
-  if (nrow(player_game_row) == 0 && !is.null(game_id)) {
-    player_game_row <- rb_data_all[rb_data_all$game_id == game_id & rb_data_all$player_id == target_player_id, ]
-  }
-  if (nrow(player_game_row) == 0 && !is.null(game_gameday)) {
-    player_game_row <- rb_data_all[rb_data_all$player_id == target_player_id & rb_data_all$gameday == game_gameday & rb_data_all$team == team, ]
-  }
-  
-  if (nrow(player_game_row) == 0) {
-    stop("Player not found in dataset for target game. ",
-         "Player ID: ", target_player_id,
-         ", Game Key: ", ifelse(is.null(resolved_game_key) || is.na(resolved_game_key), "NULL", resolved_game_key),
-         ", Game ID: ", ifelse(is.null(game_id) || is.na(game_id), "NULL", game_id),
-         ". Game may be missing from assembled training data or player did not play.")
-  }
-  
-  if (nrow(player_game_row) > 1) {
-    player_game_row <- player_game_row[1, ]
+  # For future games, use the synthetic feature row if provided
+  if (is_future && !is.null(synthetic_feature_row)) {
+    # FUTURE MODE: Use synthetic feature row
+    player_game_row <- synthetic_feature_row
+    
+    # Validate synthetic row has required fields
+    if (nrow(player_game_row) != 1) {
+      stop("Synthetic feature row must have exactly one row. Got ", nrow(player_game_row), " rows.")
+    }
+    
+    if (player_game_row$player_id != target_player_id) {
+      stop("Synthetic feature row player_id '", player_game_row$player_id, 
+           "' does not match target player_id '", target_player_id, "'.")
+    }
+    
+  } else {
+    # REPLAY MODE: Find feature row from cache
+    player_game_row <- rb_data_all[rb_data_all$game_key == resolved_game_key & 
+                                    rb_data_all$player_id == target_player_id, ]
+    if (nrow(player_game_row) == 0 && !is.null(game_id)) {
+      player_game_row <- rb_data_all[rb_data_all$game_id == game_id & rb_data_all$player_id == target_player_id, ]
+    }
+    if (nrow(player_game_row) == 0 && !is.null(game_gameday)) {
+      player_game_row <- rb_data_all[rb_data_all$player_id == target_player_id & rb_data_all$gameday == game_gameday & rb_data_all$team == team, ]
+    }
+    
+    if (nrow(player_game_row) == 0) {
+      stop("Player not found in dataset for target game. ",
+           "Player ID: ", target_player_id,
+           ", Game Key: ", ifelse(is.null(resolved_game_key) || is.na(resolved_game_key), "NULL", resolved_game_key),
+           ", Game ID: ", ifelse(is.null(game_id) || is.na(game_id), "NULL", game_id),
+           ". Game may be missing from assembled training data or player did not play.")
+    }
+    
+    if (nrow(player_game_row) > 1) {
+      player_game_row <- player_game_row[1, ]
+    }
   }
 
   # Enforce minimum 3-game history rule

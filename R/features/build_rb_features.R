@@ -9,28 +9,33 @@
 #   source("R/utils/rolling_helpers.R")
 #   rb_data_with_features <- build_rb_features(rb_data)
 
-#' Build rolling features for RB data
+#' Build rolling features for RB data (season-bounded)
 #'
 #' Computes lagged rolling means and efficiency metrics for RB player-game data.
-#' Features are computed per-player, sorted by season/week.
-#' Returns NA for early-career rows with insufficient history.
+#' Features are computed per (player_id, season) group, with rolling windows
+#' resetting at season boundaries. This ensures Week 1 of each season has NA
+#' rolling features (no prior games in that season).
+#'
+#' Rolling windows are strictly lagged: the current game is never included.
+#' Week 1 of any season will have NA for all rolling features.
+#' Week 2 will use only Week 1 data, Week 3 will use Weeks 1-2, etc.
 #'
 #' @param rb_data data.frame with columns:
-#'   - player_id, season, week (for ordering)
+#'   - player_id, season, week (for ordering and grouping)
 #'   - carries, rush_yards, rush_tds
 #'   - targets, receptions, rec_yards, rec_tds
 #' @return data.frame with original columns plus:
-#'   - carries_roll3: mean carries over last 3 games
-#'   - carries_roll5: mean carries over last 5 games
-#'   - targets_roll3: mean targets over last 3 games
-#'   - targets_roll5: mean targets over last 5 games
-#'   - rush_yards_roll3: mean rush yards over last 3 games
-#'   - rec_yards_roll3: mean rec yards over last 3 games
-#'   - yards_per_carry_roll5: ratio-of-sums yards/carries over last 5
-#'   - yards_per_target_roll5: ratio-of-sums rec_yards/targets over last 5
-#'   - catch_rate_roll5: ratio-of-sums receptions/targets over last 5
-#'   - rush_tds_roll5: mean rush TDs over last 5 games
-#'   - rec_tds_roll5: mean rec TDs over last 5 games
+#'   - carries_roll3: mean carries over last 3 games (within season)
+#'   - carries_roll5: mean carries over last 5 games (within season)
+#'   - targets_roll3: mean targets over last 3 games (within season)
+#'   - targets_roll5: mean targets over last 5 games (within season)
+#'   - rush_yards_roll3: mean rush yards over last 3 games (within season)
+#'   - rec_yards_roll3: mean rec yards over last 3 games (within season)
+#'   - yards_per_carry_roll5: ratio-of-sums yards/carries over last 5 (within season)
+#'   - yards_per_target_roll5: ratio-of-sums rec_yards/targets over last 5 (within season)
+#'   - catch_rate_roll5: ratio-of-sums receptions/targets over last 5 (within season)
+#'   - rush_tds_roll5: mean rush TDs over last 5 games (within season)
+#'   - rec_tds_roll5: mean rec TDs over last 5 games (within season)
 build_rb_features <- function(rb_data) {
   
   # Validate input
@@ -46,7 +51,7 @@ build_rb_features <- function(rb_data) {
     stop(paste("Missing required columns:", paste(missing_cols, collapse = ", ")))
   }
   
-  # Ensure data is sorted by player, then time
+  # Ensure data is sorted by player, season, then week (season-bounded grouping)
   rb_data <- rb_data[order(rb_data$player_id, rb_data$season, rb_data$week), ]
   
   # Initialize feature columns
@@ -71,20 +76,31 @@ build_rb_features <- function(rb_data) {
   rb_data$rush_tds_roll5 <- NA_real_
   rb_data$rec_tds_roll5 <- NA_real_
   
-  # Get unique players
-
-  players <- unique(rb_data$player_id)
+  # Compute features per (player_id, season) group to enforce season boundaries
+  # This prevents cross-season leakage in rolling windows
+  player_seasons <- unique(rb_data[, c("player_id", "season"), drop = FALSE])
+  player_seasons <- player_seasons[order(player_seasons$player_id, player_seasons$season), ]
   
-  # Compute features per player
-  for (pid in players) {
-    idx <- which(rb_data$player_id == pid)
+  for (i in seq_len(nrow(player_seasons))) {
+    pid <- player_seasons$player_id[i]
+    season_val <- player_seasons$season[i]
+    
+    # Get indices for this (player_id, season) group
+    idx <- which(rb_data$player_id == pid & rb_data$season == season_val)
     
     if (length(idx) < 2) {
-      # Not enough games for any rolling features
+      # Not enough games in this season for any rolling features
       next
     }
     
-    # Extract player's data (already sorted by time)
+    # Extract player-season's data (already sorted by week within season)
+    # Verify ordering: should be strictly increasing weeks
+    weeks_in_season <- rb_data$week[idx]
+    if (any(diff(weeks_in_season) <= 0)) {
+      stop("Weeks not strictly increasing for player ", pid, " season ", season_val,
+           ". Data must be sorted by week within each (player_id, season) group.")
+    }
+    
     carries <- rb_data$carries[idx]
     rush_yards <- rb_data$rush_yards[idx]
     rush_tds <- rb_data$rush_tds[idx]
@@ -94,36 +110,39 @@ build_rb_features <- function(rb_data) {
     rec_tds <- rb_data$rec_tds[idx]
     
     # Compute rolling means (lagged) - multiple windows for trend analysis
-    rb_data$carries_roll3[idx] <- lagged_roll_mean(carries, window = 3, min_obs = 1)
-    rb_data$carries_roll5[idx] <- lagged_roll_mean(carries, window = 5, min_obs = 1)
-    rb_data$carries_roll7[idx] <- lagged_roll_mean(carries, window = 7, min_obs = 1)
-    rb_data$carries_roll10[idx] <- lagged_roll_mean(carries, window = 10, min_obs = 1)
+    # Rolling windows reset at season boundary (only use weeks within this season)
+    # Strict window semantics: requires exactly N prior games (no partial windows)
+    rb_data$carries_roll3[idx] <- lagged_roll_mean(carries, window = 3)
+    rb_data$carries_roll5[idx] <- lagged_roll_mean(carries, window = 5)
+    rb_data$carries_roll7[idx] <- lagged_roll_mean(carries, window = 7)
+    rb_data$carries_roll10[idx] <- lagged_roll_mean(carries, window = 10)
     
-    rb_data$targets_roll3[idx] <- lagged_roll_mean(targets, window = 3, min_obs = 1)
-    rb_data$targets_roll5[idx] <- lagged_roll_mean(targets, window = 5, min_obs = 1)
-    rb_data$targets_roll7[idx] <- lagged_roll_mean(targets, window = 7, min_obs = 1)
-    rb_data$targets_roll10[idx] <- lagged_roll_mean(targets, window = 10, min_obs = 1)
+    rb_data$targets_roll3[idx] <- lagged_roll_mean(targets, window = 3)
+    rb_data$targets_roll5[idx] <- lagged_roll_mean(targets, window = 5)
+    rb_data$targets_roll7[idx] <- lagged_roll_mean(targets, window = 7)
+    rb_data$targets_roll10[idx] <- lagged_roll_mean(targets, window = 10)
     
-    rb_data$rush_yards_roll3[idx] <- lagged_roll_mean(rush_yards, window = 3, min_obs = 1)
-    rb_data$rush_yards_roll7[idx] <- lagged_roll_mean(rush_yards, window = 7, min_obs = 1)
-    rb_data$rush_yards_roll10[idx] <- lagged_roll_mean(rush_yards, window = 10, min_obs = 1)
+    rb_data$rush_yards_roll3[idx] <- lagged_roll_mean(rush_yards, window = 3)
+    rb_data$rush_yards_roll7[idx] <- lagged_roll_mean(rush_yards, window = 7)
+    rb_data$rush_yards_roll10[idx] <- lagged_roll_mean(rush_yards, window = 10)
     
-    rb_data$rec_yards_roll3[idx] <- lagged_roll_mean(rec_yards, window = 3, min_obs = 1)
-    rb_data$rec_yards_roll7[idx] <- lagged_roll_mean(rec_yards, window = 7, min_obs = 1)
-    rb_data$rec_yards_roll10[idx] <- lagged_roll_mean(rec_yards, window = 10, min_obs = 1)
+    rb_data$rec_yards_roll3[idx] <- lagged_roll_mean(rec_yards, window = 3)
+    rb_data$rec_yards_roll7[idx] <- lagged_roll_mean(rec_yards, window = 7)
+    rb_data$rec_yards_roll10[idx] <- lagged_roll_mean(rec_yards, window = 10)
     
-    rb_data$rush_tds_roll5[idx] <- lagged_roll_mean(rush_tds, window = 5, min_obs = 1)
-    rb_data$rec_tds_roll5[idx] <- lagged_roll_mean(rec_tds, window = 5, min_obs = 1)
+    rb_data$rush_tds_roll5[idx] <- lagged_roll_mean(rush_tds, window = 5)
+    rb_data$rec_tds_roll5[idx] <- lagged_roll_mean(rec_tds, window = 5)
     
     # Compute ratio-of-sums efficiency metrics (lagged)
+    # Strict window semantics: requires exactly N prior games (no partial windows)
     rb_data$yards_per_carry_roll5[idx] <- lagged_ratio_of_sums(
-      rush_yards, carries, window = 5, min_obs = 1
+      rush_yards, carries, window = 5
     )
     rb_data$yards_per_target_roll5[idx] <- lagged_ratio_of_sums(
-      rec_yards, targets, window = 5, min_obs = 1
+      rec_yards, targets, window = 5
     )
     rb_data$catch_rate_roll5[idx] <- lagged_ratio_of_sums(
-      receptions, targets, window = 5, min_obs = 1
+      receptions, targets, window = 5
     )
   }
   

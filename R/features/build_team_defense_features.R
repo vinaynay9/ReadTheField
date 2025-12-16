@@ -96,14 +96,13 @@ build_team_defense_features <- function(def_game_stats) {
     team_data <- team_data[order(team_data$season, team_data$week, team_data$gameday), ]
     
     # Compute rolling features using lagged windows
-    # Window = 5, min_obs = 1 (need at least 1 prior game)
+    # Window = 5 (strict semantics: requires exactly 5 prior games)
     
     # Pass yards allowed
     if ("pass_yards_allowed" %in% names(team_data)) {
       result$opp_pass_yards_allowed_roll5[team_mask] <- lagged_roll_mean(
         team_data$pass_yards_allowed,
-        window = 5,
-        min_obs = 1
+        window = 5
       )
     }
     
@@ -111,8 +110,7 @@ build_team_defense_features <- function(def_game_stats) {
     if ("rush_yards_allowed" %in% names(team_data)) {
       result$opp_rush_yards_allowed_roll5[team_mask] <- lagged_roll_mean(
         team_data$rush_yards_allowed,
-        window = 5,
-        min_obs = 1
+        window = 5
       )
     }
     
@@ -120,8 +118,7 @@ build_team_defense_features <- function(def_game_stats) {
     if ("total_yards_allowed" %in% names(team_data)) {
       result$opp_total_yards_allowed_roll5[team_mask] <- lagged_roll_mean(
         team_data$total_yards_allowed,
-        window = 5,
-        min_obs = 1
+        window = 5
       )
     }
     
@@ -129,8 +126,7 @@ build_team_defense_features <- function(def_game_stats) {
     if ("points_allowed" %in% names(team_data)) {
       result$opp_points_allowed_roll5[team_mask] <- lagged_roll_mean(
         team_data$points_allowed,
-        window = 5,
-        min_obs = 1
+        window = 5
       )
     }
     
@@ -138,8 +134,7 @@ build_team_defense_features <- function(def_game_stats) {
     if ("def_sacks" %in% names(team_data)) {
       result$opp_sacks_roll5[team_mask] <- lagged_roll_mean(
         as.numeric(team_data$def_sacks),
-        window = 5,
-        min_obs = 1
+        window = 5
       )
     }
     
@@ -147,8 +142,7 @@ build_team_defense_features <- function(def_game_stats) {
     if ("def_tfl" %in% names(team_data)) {
       result$opp_tfl_roll5[team_mask] <- lagged_roll_mean(
         as.numeric(team_data$def_tfl),
-        window = 5,
-        min_obs = 1
+        window = 5
       )
     }
     
@@ -156,8 +150,7 @@ build_team_defense_features <- function(def_game_stats) {
     if ("def_interceptions" %in% names(team_data) && "opp_int_roll5" %in% names(result)) {
       result$opp_int_roll5[team_mask] <- lagged_roll_mean(
         as.numeric(team_data$def_interceptions),
-        window = 5,
-        min_obs = 1
+        window = 5
       )
     }
     
