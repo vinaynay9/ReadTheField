@@ -59,7 +59,8 @@ run_rb_simulation <- function(player_name,
                               game_id = NULL,
                               game_key = NULL,
                               seasons_train = NULL,
-                              home_away = NULL) {
+                              home_away = NULL,
+                              mode_policy = NULL) {
   
   # Initialize result structure
   result <- list(
@@ -110,24 +111,12 @@ run_rb_simulation <- function(player_name,
     paste(season, week, game_date, team, opponent, sep = "_")
   }
   
-  # Training seasons: use provided list or all available historical seasons
+  # Training seasons: must be provided (determined by simulation mode policy)
+  # No ad-hoc filtering - all training window logic goes through policy
   if (is.null(seasons_train) || length(seasons_train) == 0) {
-    available <- if (exists("get_available_seasons_from_cache")) get_available_seasons_from_cache("rb_stats") else integer(0)
-    if (length(available) == 0) {
-      seasons_train <- sort(unique(c(season - 1, season)))
-    } else {
-      seasons_train <- sort(unique(available[available <= season]))
-      # Prefer history before target season, optionally include target for rolling
-      if (!is.na(week) && week > 1 && season %in% seasons_train) {
-        # keep target season, but training data filtering will drop future weeks
-      } else {
-        seasons_train <- seasons_train[seasons_train < season]
-      }
-    }
-  }
-  
-  if (length(seasons_train) == 0) {
-    stop("No training seasons available for RB models.")
+    stop("No training seasons provided to run_rb_simulation. ",
+         "Training seasons must be determined by simulation_mode_policy() ",
+         "and passed from simulate_player_game().")
   }
   
   # ============================================================================
@@ -138,7 +127,9 @@ run_rb_simulation <- function(player_name,
   rb_data <- assemble_rb_training_data(seasons = seasons_train)
   
   if (nrow(rb_data) == 0) {
-    stop("Failed to assemble RB training data. Cannot proceed.")
+    stop("Failed to assemble RB training data. Cannot proceed. ",
+         "Requested seasons: ", paste(seasons_train, collapse = ", "),
+         ". No RB data available for these seasons in cache.")
   }
   
   # Identify target game row using provided metadata
@@ -171,7 +162,10 @@ run_rb_simulation <- function(player_name,
   }
   
   if (nrow(target_rows) == 0) {
-    stop("Target game not found in assembled RB data for player/team provided.")
+    stop("Target game not found in assembled RB data for player/team provided. ",
+         "Player: ", paste(player_name_patterns, collapse = ", "), 
+         ", Team: ", team, ", Season: ", season, ", Week: ", week,
+         ". Game may be unavailable in cached data or before data availability.")
   }
   
   # Deterministic disambiguation
@@ -205,10 +199,53 @@ run_rb_simulation <- function(player_name,
   result$metadata$opponent <- player_opponent
   result$metadata$home_away <- player_home_away
   
-  # Filter to games before the identified game
-  rb_data_pre <- rb_data[rb_data$gameday < game_gameday, ]
-  if (is.na(game_gameday) || nrow(rb_data_pre) == 0) {
-    rb_data_pre <- rb_data[rb_data$season == game_season & rb_data$week < game_week, ]
+  # Filter to games before the identified game (respecting policy exclusions)
+  # Rolling features are already precomputed in assemble_rb_training_data
+  # We just need to filter out future games and optionally the target game
+  rb_data_pre <- rb_data
+  
+  # Apply policy week limits if provided
+  if (!is.null(mode_policy) && !is.null(mode_policy$max_week_per_season) && length(mode_policy$max_week_per_season) > 0) {
+    for (season_str in names(mode_policy$max_week_per_season)) {
+      season_limit <- as.integer(season_str)
+      max_week <- mode_policy$max_week_per_season[[season_str]]
+      if (!is.null(max_week) && !is.na(max_week)) {
+        # Filter this season to weeks <= max_week
+        season_mask <- rb_data_pre$season == season_limit
+        week_mask <- is.na(rb_data_pre$week) | rb_data_pre$week <= max_week
+        rb_data_pre <- rb_data_pre[!season_mask | week_mask, ]
+      }
+    }
+  }
+  
+  # Filter by date if available
+  if (!is.na(game_gameday)) {
+    rb_data_pre <- rb_data_pre[rb_data_pre$gameday < game_gameday, ]
+  }
+  
+  # Filter by season/week if date filtering didn't work or wasn't sufficient
+  if (nrow(rb_data_pre) == 0 || is.na(game_gameday)) {
+    # Filter by season and week
+    rb_data_pre <- rb_data[rb_data$season < game_season | 
+                           (rb_data$season == game_season & !is.na(rb_data$week) & !is.na(game_week) & rb_data$week < game_week), ]
+  }
+  
+  # Exclude target game based on policy (or always exclude for safety if policy not provided)
+  exclude_target <- if (!is.null(mode_policy) && !is.null(mode_policy$exclude_target_game)) {
+    mode_policy$exclude_target_game
+  } else {
+    TRUE  # Default: always exclude for safety
+  }
+  
+  if (exclude_target) {
+    # Exclude target game by game_key if it exists
+    if (!is.na(resolved_game_key) && resolved_game_key != "") {
+      rb_data_pre <- rb_data_pre[is.na(rb_data_pre$game_key) | rb_data_pre$game_key != resolved_game_key, ]
+    }
+    # Exclude by game_id if available
+    if (!is.null(game_id) && !is.na(game_id) && game_id != "") {
+      rb_data_pre <- rb_data_pre[is.na(rb_data_pre$game_id) | rb_data_pre$game_id != game_id, ]
+    }
   }
   
   # Find target player in the target game to get their player_id
@@ -234,7 +271,11 @@ run_rb_simulation <- function(player_name,
   }
   
   if (nrow(target_player_game) == 0) {
-    stop("Target player not found in target game (", game_id, "). Cannot determine player_id.")
+    stop("Target player not found in target game. Cannot determine player_id. ",
+         "Player: ", paste(player_name_patterns, collapse = ", "),
+         ", Game ID: ", ifelse(is.null(game_id), "NULL", game_id),
+         ", Game Key: ", ifelse(is.null(resolved_game_key) || is.na(resolved_game_key), "NULL", resolved_game_key),
+         ". Player may not have played in this game or data is unavailable.")
   }
   
   # Get the player_id and verify team matches
@@ -261,9 +302,15 @@ run_rb_simulation <- function(player_name,
   if (nrow(player_data) == 0) {
     player_all <- rb_data[rb_data$player_id == target_player_id, ]
     if (nrow(player_all) > 0) {
-      stop("Player not found in RB dataset before ", as.character(game_gameday), ".")
+      stop("Player not found in RB dataset before target game. ",
+           "Player ID: ", target_player_id,
+           ", Target Game Date: ", as.character(game_gameday),
+           ". Player has no games before this date in cached data.")
     } else {
-      stop("Player not found in RB dataset at all. Please check player name and data availability.")
+      stop("Player not found in RB dataset at all. ",
+           "Player ID: ", target_player_id,
+           ". Please check player name and data availability. ",
+           "Player may not be a running back or data may be missing from cache.")
     }
   }
   
@@ -271,7 +318,11 @@ run_rb_simulation <- function(player_name,
   player_data_team <- player_data[player_data$team == team, ]
   
   if (nrow(player_data_team) == 0) {
-    stop("Cannot proceed without games for target team (", team, ")")
+    stop("Cannot proceed without games for target team. ",
+         "Player ID: ", target_player_id,
+         ", Team: ", team,
+         ", Games before target: ", nrow(player_data),
+         ". Player may have changed teams or team data is unavailable.")
   }
   
   # Additional validation: ensure identifiers present
@@ -314,7 +365,11 @@ run_rb_simulation <- function(player_name,
   }
   
   if (nrow(player_game_row) == 0) {
-    stop("Player (player_id: ", target_player_id, ") not found in dataset for game_key/game_id: ", resolved_game_key)
+    stop("Player not found in dataset for target game. ",
+         "Player ID: ", target_player_id,
+         ", Game Key: ", ifelse(is.null(resolved_game_key) || is.na(resolved_game_key), "NULL", resolved_game_key),
+         ", Game ID: ", ifelse(is.null(game_id) || is.na(game_id), "NULL", game_id),
+         ". Game may be missing from assembled training data or player did not play.")
   }
   
   if (nrow(player_game_row) > 1) {

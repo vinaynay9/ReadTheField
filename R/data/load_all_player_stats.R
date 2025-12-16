@@ -1,17 +1,17 @@
 # Load All Player Stats (Position Detection)
 #
-# Loads NFL player-level offensive statistics from nflverse sources without position filtering.
+# Loads NFL player-level weekly game data from ffverse sources without position filtering.
 # Used for auto-detecting player position, team, and player_id from name.
 # Uses cache-first strategy: reads from cache if available, downloads if needed.
 #
-# Dependencies: nflreadr
+# Dependencies: ffverse
 #
 # Usage:
 #   all_stats <- load_all_player_stats(seasons = 2021:2024)
 
 #' Load all player statistics (no position filter) for specified seasons
 #'
-#' Uses nflreadr to load player weekly stats from nflverse with local caching.
+#' Uses ffverse to load weekly player-game data with local caching.
 #' Does NOT filter by position - returns all offensive positions.
 #' Cache-first: reads from cache if available, downloads if needed.
 #' Returns a data.frame with one row per player-game.
@@ -61,6 +61,27 @@ load_all_player_stats <- function(seasons = NULL,
         df$game_key
       )
     }
+    
+    # Validate and normalize position (required for cached data)
+    if (!"position" %in% names(df)) {
+      stop("Cached player stats missing required column: position")
+    }
+    
+    # Normalize position: uppercase, trim whitespace
+    df$position <- toupper(trimws(df$position))
+    
+    # Validate all positions are valid
+    invalid <- is.na(df$position) | 
+               !df$position %in% c("QB", "RB", "WR", "TE", "K")
+    
+    if (any(invalid)) {
+      stop(
+        "Invalid or missing position in cached player stats for ",
+        sum(invalid),
+        " rows. All positions must be uppercase and one of: QB, RB, WR, TE, K"
+      )
+    }
+    
     df
   }
   
@@ -110,46 +131,102 @@ load_all_player_stats <- function(seasons = NULL,
   
   for (attempt in seq_len(retries)) {
     tryCatch({
-      # Check if nflreadr is available
-      if (!requireNamespace("nflreadr", quietly = TRUE)) {
-        stop("nflreadr package not installed")
+      # Check if ffverse is available
+      if (!requireNamespace("ffverse", quietly = TRUE)) {
+        stop("ffverse package not installed")
       }
       
-      # Load player stats (weekly) - ALL positions
-      raw_stats <- nflreadr::load_player_stats(seasons = seasons, stat_type = "offense")
+      # Load weekly opportunity data (one row per player per game)
+      opp_data <- ffverse::load_ff_opportunity(seasons = seasons)
       
-      if (is.null(raw_stats) || nrow(raw_stats) == 0) {
-        stop("nflreadr returned no player stats for specified seasons")
+      if (is.null(opp_data) || nrow(opp_data) == 0) {
+        stop("ffverse::load_ff_opportunity returned no data for specified seasons")
       }
       
-      # Map nflverse column names to our schema
-      player_id_col <- if ("player_id" %in% names(raw_stats)) "player_id" else "gsis_id"
-      player_name_col <- if ("player_name" %in% names(raw_stats)) "player_name" else "player_display_name"
-      team_col <- if ("team" %in% names(raw_stats)) "team" else "recent_team"
-      position_col <- if ("position" %in% names(raw_stats)) "position" else "position_group"
+      # Load player IDs and metadata (including position)
+      player_ids <- ffverse::load_ff_playerids()
       
-      # Extract position (normalize to position_group values: QB, RB, WR, TE, K)
-      position_raw <- raw_stats[[position_col]]
-      if (is.null(position_raw)) {
-        stop("No position column found in player stats")
+      if (is.null(player_ids) || nrow(player_ids) == 0) {
+        stop("ffverse::load_ff_playerids returned no data")
       }
       
-      # Normalize position to position_group values
+      # Join opportunity data with player IDs to get position and player name
+      # Determine join key (typically player_id or gsis_id)
+      opp_player_id_col <- if ("player_id" %in% names(opp_data)) "player_id" else 
+                          if ("gsis_id" %in% names(opp_data)) "gsis_id" else
+                          if ("fantasypros_id" %in% names(opp_data)) "fantasypros_id" else NULL
+      
+      player_id_col <- if ("player_id" %in% names(player_ids)) "player_id" else
+                       if ("gsis_id" %in% names(player_ids)) "gsis_id" else
+                       if ("fantasypros_id" %in% names(player_ids)) "fantasypros_id" else NULL
+      
+      if (is.null(opp_player_id_col) || is.null(player_id_col)) {
+        stop("Cannot determine player ID column for joining opportunity data with player IDs")
+      }
+      
+      # Determine player name and position columns in player_ids
+      player_name_col <- if ("player_name" %in% names(player_ids)) "player_name" else 
+                        if ("name" %in% names(player_ids)) "name" else NULL
+      position_col_ids <- if ("position" %in% names(player_ids)) "position" else
+                         if ("pos" %in% names(player_ids)) "pos" else NULL
+      
+      if (is.null(player_name_col) || is.null(position_col_ids)) {
+        stop("Missing required columns in player_ids: player_name and position")
+      }
+      
+      # Select columns to join from player_ids
+      player_cols_to_join <- c(player_id_col, player_name_col, position_col_ids)
+      player_cols_to_join <- player_cols_to_join[player_cols_to_join %in% names(player_ids)]
+      
+      # Join to get position and player name
+      merged_data <- merge(
+        opp_data,
+        player_ids[, player_cols_to_join, drop = FALSE],
+        by.x = opp_player_id_col,
+        by.y = player_id_col,
+        all.x = TRUE
+      )
+      
+      if (nrow(merged_data) == 0) {
+        stop("Join between opportunity data and player IDs produced no rows")
+      }
+      
+      # Extract position column (should be from player_ids join)
+      position_col <- position_col_ids
+      
+      if (!position_col %in% names(merged_data)) {
+        stop("Position column '", position_col, "' not found after joining with player IDs")
+      }
+      
+      position_raw <- merged_data[[position_col]]
+      
+      # Normalize position: uppercase, trim whitespace, map aliases
+      position_normalized <- toupper(trimws(position_raw))
+      
+      # Map position aliases
       position_normalized <- ifelse(
-        position_raw %in% c("QB", "RB", "WR", "TE", "K"),
-        position_raw,
+        position_normalized %in% c("QB", "RB", "WR", "TE", "K"),
+        position_normalized,
         ifelse(
-          position_raw %in% c("FB"),
+          position_normalized %in% c("FB"),
           "RB",  # Fullbacks treated as RBs
           ifelse(
-            position_raw %in% c("P"),
+            position_normalized %in% c("P"),
             "K",  # Punters grouped with K for now
             NA_character_
           )
         )
       )
       
-      # Extract statistics with safe column access
+      # Fail fast on invalid positions (after normalization)
+      valid_positions <- c("QB", "RB", "WR", "TE", "K")
+      invalid_pos <- unique(position_normalized[!is.na(position_normalized) & !position_normalized %in% valid_positions])
+      if (length(invalid_pos) > 0) {
+        stop("Invalid positions found in player data: ", paste(invalid_pos, collapse = ", "),
+             ". Valid positions are: ", paste(valid_positions, collapse = ", "))
+      }
+      
+      # Extract columns with safe access
       safe_get <- function(df, cols, default = NA) {
         if (is.character(cols) && length(cols) > 1) {
           for (c in cols) {
@@ -165,42 +242,60 @@ load_all_player_stats <- function(seasons = NULL,
         tryCatch(as.Date(vals), error = function(e) rep(as.Date(default), length(vals)))
       }
       
-      # Build game_id if present; always produce stable game_key
-      if ("game_id" %in% names(raw_stats)) {
-        game_ids <- as.character(raw_stats$game_id)
+      # Extract player ID (use the join key)
+      player_ids_final <- as.character(merged_data[[opp_player_id_col]])
+      
+      # Extract player name (should be from player_ids join)
+      if (!player_name_col %in% names(merged_data)) {
+        stop("Player name column '", player_name_col, "' not found after joining with player IDs")
+      }
+      player_names <- as.character(merged_data[[player_name_col]])
+      
+      # Extract game metadata
+      game_ids <- if ("game_id" %in% names(merged_data)) {
+        as.character(merged_data$game_id)
       } else {
-        game_ids <- rep(NA_character_, nrow(raw_stats))
+        rep(NA_character_, nrow(merged_data))
       }
       
-      game_dates <- safe_get_date(raw_stats, c("gameday", "game_date"), default = NA)
-      opponents <- as.character(safe_get(raw_stats, c("opponent_team", "opponent", "opp_team", "defteam"), NA))
-      home_away <- as.character(safe_get(raw_stats, "home_away", NA))
-      game_types <- as.character(safe_get(raw_stats, "game_type", NA))
+      game_dates <- safe_get_date(merged_data, c("gameday", "game_date", "date"), default = NA)
+      opponents <- as.character(safe_get(merged_data, c("opponent_team", "opponent", "opp_team", "defteam"), NA))
+      home_away <- as.character(safe_get(merged_data, c("home_away", "location"), NA))
+      game_types <- as.character(safe_get(merged_data, "game_type", NA))
+      team_col <- if ("team" %in% names(merged_data)) "team" else
+                  if ("team_abbr" %in% names(merged_data)) "team_abbr" else NULL
+      if (is.null(team_col)) {
+        stop("No team column found in opportunity data")
+      }
+      teams <- as.character(merged_data[[team_col]])
       
+      # Build game keys
       game_keys <- if (exists("build_game_key")) {
         mapply(
           build_game_key,
-          season = raw_stats$season,
-          week = raw_stats$week,
+          season = merged_data$season,
+          week = merged_data$week,
           game_date = game_dates,
-          team = raw_stats[[team_col]],
+          team = teams,
           opponent = opponents,
           game_id = game_ids,
           SIMPLIFY = TRUE,
           USE.NAMES = FALSE
         )
       } else {
-        ifelse(!is.na(game_ids), game_ids, paste(raw_stats$season, raw_stats$week, raw_stats[[team_col]], opponents, sep = "_"))
+        ifelse(!is.na(game_ids), game_ids, 
+               paste(merged_data$season, merged_data$week, teams, opponents, sep = "_"))
       }
       
+      # Build result dataframe
       result_all <- data.frame(
-        player_id = as.character(raw_stats[[player_id_col]]),
-        player_name = as.character(raw_stats[[player_name_col]]),
+        player_id = player_ids_final,
+        player_name = player_names,
         game_id = game_ids,
         game_key = as.character(game_keys),
-        season = as.integer(raw_stats$season),
-        week = as.integer(raw_stats$week),
-        team = as.character(raw_stats[[team_col]]),
+        season = as.integer(merged_data$season),
+        week = as.integer(merged_data$week),
+        team = teams,
         opponent = opponents,
         home_away = home_away,
         game_type = game_types,
@@ -214,12 +309,38 @@ load_all_player_stats <- function(seasons = NULL,
       # Remove rows with NA position (non-offensive positions or invalid)
       result_all <- result_all[!is.na(result_all$position), ]
       
+      # Fail loudly if no rows remain
+      if (nrow(result_all) == 0) {
+        stop("No player-game rows with valid positions after filtering. Cannot proceed.")
+      }
+      
       # Sort by player, season, week
       result_all <- result_all[order(result_all$player_id, result_all$season, result_all$week), ]
       rownames(result_all) <- NULL
       
-      # Write full dataset to cache if enabled
-      if (write_cache && exists("save_cache")) {
+      # Validate position before writing cache
+      if (!"position" %in% names(result_all)) {
+        stop("Cached player stats missing required column: position")
+      }
+      
+      invalid <- is.na(result_all$position) | 
+                 !result_all$position %in% c("QB", "RB", "WR", "TE", "K")
+      
+      if (any(invalid)) {
+        stop(
+          "Invalid or missing position in cached player stats for ",
+          sum(invalid),
+          " rows. All positions must be uppercase and one of: QB, RB, WR, TE, K"
+        )
+      }
+      
+      # Fail loudly if no data to cache
+      if (nrow(result_all) == 0) {
+        stop("No player-game rows to cache. Cannot write empty cache.")
+      }
+      
+      # Write full dataset to cache if enabled (only if non-empty)
+      if (write_cache && exists("save_cache") && nrow(result_all) > 0) {
         save_cache(result_all, cache_name)
       }
       

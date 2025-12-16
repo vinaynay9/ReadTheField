@@ -189,3 +189,38 @@ is_cache_fresh <- function(name, max_age_days = 7, cache_dir = "data/cache") {
   return(file_age_days <= max_age_days)
 }
 
+
+#' Get available training seasons from cache
+#'
+#' Inspects cached data to return all available historical seasons for training.
+#' Defaults to maximum history available in cache.
+#'
+#' @param position Optional character, position filter (e.g., "RB")
+#' @param max_seasons Optional integer, cap on number of seasons (default: all available)
+#' @param cache_dir Character, cache directory (default "data/cache")
+#' @return Integer vector of available seasons, sorted ascending
+get_available_training_seasons <- function(position = NULL, max_seasons = NULL, cache_dir = "data/cache") {
+  # Get available seasons from cache
+  if (exists("get_available_seasons_from_cache")) {
+    if (!is.null(position) && position == "RB") {
+      available <- get_available_seasons_from_cache("rb_stats", cache_dir = cache_dir)
+    } else {
+      available <- unique(c(
+        get_available_seasons_from_cache("rb_stats", cache_dir = cache_dir),
+        get_available_seasons_from_cache("player_stats", cache_dir = cache_dir)
+      ))
+    }
+  } else {
+    available <- integer(0)
+  }
+  
+  available <- sort(unique(as.integer(available)))
+  available <- available[!is.na(available)]
+  
+  # Apply optional cap
+  if (!is.null(max_seasons) && length(available) > max_seasons) {
+    available <- tail(available, max_seasons)
+  }
+  
+  return(available)
+}

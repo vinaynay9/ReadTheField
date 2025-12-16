@@ -33,15 +33,42 @@ resolve_player_game <- function(player_name,
     if (file.exists("R/data/load_schedules.R")) source("R/data/load_schedules.R", local = TRUE)
   }
   
+  # Get cached seasons first (required for cache_only mode)
+  cached_seasons <- if (exists("get_available_seasons_from_cache")) {
+    get_available_seasons_from_cache("player_stats")
+  } else {
+    integer(0)
+  }
+  
   # Determine search seasons
+  requested_seasons <- seasons
   if (is.null(seasons) || length(seasons) == 0) {
-    seasons <- if (exists("get_available_seasons_from_cache")) get_available_seasons_from_cache("player_stats") else integer(0)
-    if (length(seasons) == 0) {
+    # No seasons provided: use cached seasons if available, otherwise infer
+    if (length(cached_seasons) > 0) {
+      seasons <- cached_seasons
+    } else {
       year_guess <- as.integer(format(game_date, "%Y"))
       seasons <- c(year_guess - 1L, year_guess, year_guess + 1L)
     }
   }
   seasons <- sort(unique(as.integer(seasons)))
+  
+  # Intersect requested seasons with cached seasons when cache_only = TRUE
+  if (isTRUE(cache_only)) {
+    if (length(cached_seasons) == 0) {
+      stop("No cached player stats available. ",
+           "Requested seasons: ", paste(seasons, collapse = ", "), ". ",
+           "Run scripts/refresh_nflverse_cache.R to populate cache, or set cache_only = FALSE.")
+    }
+    seasons_before_intersect <- seasons
+    seasons <- intersect(seasons, cached_seasons)
+    if (length(seasons) == 0) {
+      stop("No cached player stats available for requested seasons. ",
+           "Requested: ", paste(seasons_before_intersect, collapse = ", "), ". ",
+           "Available in cache: ", paste(cached_seasons, collapse = ", "), ". ",
+           "Run scripts/refresh_nflverse_cache.R to populate cache, or set cache_only = FALSE.")
+    }
+  }
   
   # Load player stats (cache-first)
   stats_all <- load_all_player_stats(seasons = seasons, cache_only = cache_only)
@@ -63,7 +90,14 @@ resolve_player_game <- function(player_name,
   # Candidates on the exact date
   candidates <- stats_all[stats_all$gameday == game_date, ]
   if (!is.null(position)) {
-    candidates <- candidates[candidates$position == position, ]
+    # ENFORCE POSITION DETERMINISM: Normalize position filter
+    position_filter <- toupper(trimws(position))
+    valid_positions <- c("QB", "RB", "WR", "TE", "K")
+    if (!position_filter %in% valid_positions) {
+      stop("Invalid position filter '", position, "'. Must be one of: ", 
+           paste(valid_positions, collapse = ", "))
+    }
+    candidates <- candidates[!is.na(candidates$position) & toupper(trimws(candidates$position)) == position_filter, ]
   }
   # Name matching tiers
   exact_matches <- candidates[candidates$norm_name == target_norm | candidates$player_name == player_name, ]
@@ -121,18 +155,71 @@ resolve_player_game <- function(player_name,
     if (length(other_teams) == 1) inferred_opponent <- other_teams
   }
   
-  # Build game key
-  resolved_game_key <- if (exists("build_game_key")) {
-    build_game_key(inferred_season, inferred_week, game_date, chosen$team, inferred_opponent, inferred_game_id)
-  } else {
-    paste(inferred_season, inferred_week, format(game_date, "%Y%m%d"), chosen$team, inferred_opponent, sep = "_")
+  # ENFORCE INVARIANTS: Fail loudly if required fields are missing
+  # Position must exist and be uppercase, one of QB/RB/WR/TE/K
+  resolved_position <- ifelse(is.null(position), chosen$position, position)
+  if (is.na(resolved_position) || resolved_position == "") {
+    stop("Cannot resolve position for player '", player_name, "' on ", as.character(game_date), 
+         ". Position is required and cannot be inferred from cached data.")
+  }
+  resolved_position <- toupper(trimws(resolved_position))
+  valid_positions <- c("QB", "RB", "WR", "TE", "K")
+  if (!resolved_position %in% valid_positions) {
+    stop("Invalid position '", resolved_position, "' for player '", player_name, 
+         "'. Must be one of: ", paste(valid_positions, collapse = ", "))
   }
   
+  # Team must exist
+  resolved_team <- chosen$team
+  if (is.na(resolved_team) || resolved_team == "" || length(resolved_team) == 0) {
+    stop("Cannot resolve team for player '", player_name, "' on ", as.character(game_date),
+         ". Team is required and cannot be inferred from cached data.")
+  }
+  
+  # Opponent must exist
+  if (is.na(inferred_opponent) || inferred_opponent == "" || length(inferred_opponent) == 0) {
+    stop("Cannot resolve opponent for player '", player_name, "' on ", as.character(game_date),
+         ". Opponent is required and cannot be inferred from cached data.")
+  }
+  
+  # Season must exist
+  if (is.na(inferred_season) || length(inferred_season) == 0) {
+    stop("Cannot resolve season for player '", player_name, "' on ", as.character(game_date),
+         ". Season is required and cannot be inferred from cached data.")
+  }
+  
+  # Build game key (must not be NA)
+  resolved_game_key <- if (exists("build_game_key")) {
+    build_game_key(inferred_season, inferred_week, game_date, resolved_team, inferred_opponent, inferred_game_id)
+  } else {
+    paste(inferred_season, inferred_week, format(game_date, "%Y%m%d"), resolved_team, inferred_opponent, sep = "_")
+  }
+  
+  if (is.na(resolved_game_key) || resolved_game_key == "" || length(resolved_game_key) == 0) {
+    stop("Cannot build game_key for player '", player_name, "' on ", as.character(game_date),
+         ". Game key is required and cannot be constructed from available data.")
+  }
+  
+  # Player ID must exist
+  resolved_player_id <- chosen$player_id
+  if (is.na(resolved_player_id) || resolved_player_id == "" || length(resolved_player_id) == 0) {
+    stop("Cannot resolve player_id for player '", player_name, "' on ", as.character(game_date),
+         ". Player ID is required and cannot be inferred from cached data.")
+  }
+  
+  # Player name canonical must exist
+  resolved_player_name <- chosen$player_name
+  if (is.na(resolved_player_name) || resolved_player_name == "" || length(resolved_player_name) == 0) {
+    stop("Cannot resolve canonical player_name for player '", player_name, "' on ", as.character(game_date),
+         ". Player name is required and cannot be inferred from cached data.")
+  }
+  
+  # Return all required metadata (week can be NA if genuinely unavailable)
   list(
-    player_id = chosen$player_id,
-    player_name_canonical = chosen$player_name,
-    position = ifelse(is.null(position), chosen$position, position),
-    team = chosen$team,
+    player_id = resolved_player_id,
+    player_name_canonical = resolved_player_name,
+    position = resolved_position,
+    team = resolved_team,
     opponent = inferred_opponent,
     home_away = inferred_home_away,
     season = inferred_season,

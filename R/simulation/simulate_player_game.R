@@ -17,12 +17,18 @@
 #' @param player_name Character, player name (e.g., "Bijan Robinson", "B.Robinson")
 #' @param game_date Date, game date (e.g., as.Date("2025-12-11"))
 #' @param n_sims Integer, number of Monte Carlo simulations (default 5000)
+#' @param mode Character, simulation mode: "upcoming_game", "hypothetical_matchup", or "historical_replay" (default "historical_replay")
+#' @param position Optional character position filter
+#' @param seasons Optional integer vector of seasons to search (default: all available in cache)
+#' @param max_train_seasons Optional integer, cap on number of training seasons (default: all available)
+#' @param cache_only Logical, if TRUE avoid download attempts (default TRUE)
 #' @return List with simulation results (structure depends on position)
 #' @examples
-#' result <- simulate_player_game("Bijan Robinson", as.Date("2025-12-11"))
+#' result <- simulate_player_game("Bijan Robinson", as.Date("2025-12-11"), mode = "historical_replay")
 simulate_player_game <- function(player_name,
                                  game_date,
                                  n_sims = 5000,
+                                 mode = "historical_replay",
                                  position = NULL,
                                  seasons = NULL,
                                  max_train_seasons = NULL,
@@ -55,6 +61,13 @@ simulate_player_game <- function(player_name,
       source("R/utils/cache_helpers.R", local = TRUE)
     }
   }
+  if (!exists("simulation_mode_policy")) {
+    if (file.exists("R/simulation/simulation_mode_policy.R")) {
+      source("R/simulation/simulation_mode_policy.R", local = TRUE)
+    } else {
+      stop("simulation_mode_policy function not found")
+    }
+  }
   
   # Resolve player/game context from cached data
   resolved <- resolve_player_game(
@@ -67,21 +80,35 @@ simulate_player_game <- function(player_name,
   
   position <- resolved$position
   
-  # Determine training seasons (max historical by default)
+  # ENFORCE POSITION DETERMINISM: Validate position is uppercase and valid
+  valid_positions <- c("QB", "RB", "WR", "TE", "K")
+  if (is.na(position) || position == "" || !position %in% valid_positions) {
+    stop("Invalid position '", position, "' for player '", player_name, 
+         "'. Position must be one of: ", paste(valid_positions, collapse = ", "),
+         ". Position cannot be NA or empty.")
+  }
+  
+  # Get available seasons from cache
   available_seasons <- if (exists("get_available_seasons_from_cache")) {
     unique(c(get_available_seasons_from_cache("rb_stats"), get_available_seasons_from_cache("player_stats")))
   } else integer(0)
   available_seasons <- sort(unique(available_seasons))
   if (length(available_seasons) == 0) {
-    available_seasons <- sort(unique(c(resolved$season - 1, resolved$season)))
+    available_seasons <- sort(unique(c(resolved$season - 1L, resolved$season)))
   }
   
-  seasons_train <- available_seasons[available_seasons < resolved$season]
-  if (!is.null(resolved$week) && !is.na(resolved$week) && resolved$week > 1 && resolved$season %in% available_seasons) {
-    seasons_train <- unique(c(seasons_train, resolved$season))
-  }
-  seasons_train <- sort(unique(seasons_train))
+  # Apply simulation mode policy to determine training seasons
+  policy <- simulation_mode_policy(
+    mode = mode,
+    target_season = resolved$season,
+    target_week = resolved$week,
+    target_game_date = resolved$game_date,
+    available_seasons = available_seasons
+  )
   
+  seasons_train <- policy$seasons_allowed
+  
+  # Apply optional cap on training seasons
   if (!is.null(max_train_seasons) && length(seasons_train) > max_train_seasons) {
     seasons_train <- tail(seasons_train, max_train_seasons)
   }
@@ -108,7 +135,8 @@ simulate_player_game <- function(player_name,
       game_id = resolved$game_id,
       game_key = resolved$game_key,
       seasons_train = seasons_train,
-      home_away = resolved$home_away
+      home_away = resolved$home_away,
+      mode_policy = policy
     )
     
     return(result)

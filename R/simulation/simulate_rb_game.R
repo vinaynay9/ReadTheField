@@ -48,38 +48,32 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
     status = "not_run"
   )
   
-  # Validate inputs
+  # Validate inputs - fail loudly, no partial outputs
   if (is.null(feature_row) || nrow(feature_row) == 0) {
-    warning("No feature row provided")
-    result$status <- "no_features"
-    result$summary <- na_rb_summary()
-    return(result)
+    stop("No feature row provided to simulate_rb_game. Cannot proceed with simulation.")
   }
   
   if (nrow(feature_row) > 1) {
-    warning("Multiple rows provided; using first row only")
-    feature_row <- feature_row[1, , drop = FALSE]
+    stop("Multiple feature rows provided to simulate_rb_game. Expected exactly one row.")
   }
   
-  # Check if models are valid
+  # Check if models are valid - fail loudly
   if (is.null(rb_models) || !validate_rb_models(rb_models)) {
-    warning("RB models are NULL or incomplete. Returning NA percentiles.")
-    result$status <- "invalid_models"
-    result$summary <- na_rb_summary()
-    return(result)
+    stop("RB models are NULL or incomplete. Cannot proceed with simulation. ",
+         "Required models: carries_model, targets_model, rush_yards_model, ",
+         "rec_yards_model, rush_tds_model, rec_tds_model")
   }
   
   # Prepare prediction data frame
   # Need to handle potential NA values in features
   pred_data <- prepare_prediction_data(feature_row)
   
-  # Check for defensive features and warn if missing
+  # Check for defensive features (non-fatal, but document)
   def_features <- c("opp_rush_yards_allowed_roll5", "opp_tfl_roll5", "opp_sacks_roll5", 
                     "opp_points_allowed_roll5")
   missing_def <- setdiff(def_features, names(pred_data))
-  if (length(missing_def) > 0) {
-    warning("WARNING: Defensive opponent features missing; efficiency may be overstated")
-  }
+  # Note: Missing defensive features are handled via defaults in prepare_prediction_data
+  # No warning needed - simulation proceeds with defaults
   
   # Initialize simulation storage
   sim_carries <- numeric(n_sims)
@@ -247,9 +241,8 @@ predict_safe <- function(model, newdata, type = "response") {
     pred <- predict(model, newdata = newdata, type = type)
     as.numeric(pred)
   }, error = function(e) {
-    warning(paste("Prediction failed:", e$message))
-    # Return reasonable fallback
-    if (type == "response") 1 else 0
+    stop("Prediction failed for model. Error: ", e$message, 
+         ". This indicates a model/data mismatch. Cannot proceed with simulation.")
   })
 }
 
