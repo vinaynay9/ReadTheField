@@ -85,63 +85,31 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   # Run simulations
   for (i in seq_len(n_sims)) {
     
-    # 1. Sample carries (Negative Binomial / Poisson)
-    carries_mu <- predict_safe(rb_models$carries_model, pred_data, type = "response")
-    if (inherits(rb_models$carries_model, "negbin")) {
-      # Negative Binomial: need theta (dispersion)
-      theta <- rb_models$carries_model$theta
-      sim_carries[i] <- rnbinom(1, size = theta, mu = carries_mu)
-    } else {
-      # Poisson fallback
-      sim_carries[i] <- rpois(1, lambda = carries_mu)
-    }
-    sim_carries[i] <- max(0, sim_carries[i])  # Ensure non-negative
+    # 1. Sample carries
+    sim_carries[i] <- sample_from_model(rb_models$carries_model, pred_data, n_samples = 1)
     
-    # 2. Sample rushing_yards | carries (Gaussian, truncated at 0)
+    # 2. Sample rushing_yards | carries
     pred_data_rush <- pred_data
     pred_data_rush$target_carries <- sim_carries[i]
+    sim_rushing_yards[i] <- sample_from_model(rb_models$rushing_yards_model, pred_data_rush, n_samples = 1)
     
-    rushing_yards_mu <- predict_safe(rb_models$rushing_yards_model, pred_data_rush)
-    rushing_yards_sigma <- get_residual_sd(rb_models$rushing_yards_model)
+    # 3. Sample receptions
+    sim_receptions[i] <- sample_from_model(rb_models$receptions_model, pred_data, n_samples = 1)
     
-    sim_rushing_yards[i] <- max(0, rnorm(1, mean = rushing_yards_mu, sd = rushing_yards_sigma))
-    
-    # 3. Sample receptions (Negative Binomial / Poisson)
-    receptions_mu <- predict_safe(rb_models$receptions_model, pred_data, type = "response")
-    if (inherits(rb_models$receptions_model, "negbin")) {
-      theta <- rb_models$receptions_model$theta
-      sim_receptions[i] <- rnbinom(1, size = theta, mu = receptions_mu)
-    } else {
-      sim_receptions[i] <- rpois(1, lambda = receptions_mu)
-    }
-    sim_receptions[i] <- max(0, sim_receptions[i])  # Ensure non-negative
-    
-    # 4. Sample receiving_yards | receptions (Gaussian, truncated at 0)
+    # 4. Sample receiving_yards | receptions
     if (sim_receptions[i] > 0) {
       pred_data_rec <- pred_data
       pred_data_rec$target_receptions <- sim_receptions[i]
-      
-      receiving_yards_mu <- predict_safe(rb_models$receiving_yards_model, pred_data_rec)
-      receiving_yards_sigma <- get_residual_sd(rb_models$receiving_yards_model)
-      
-      sim_receiving_yards[i] <- max(0, rnorm(1, mean = receiving_yards_mu, sd = receiving_yards_sigma))
+      sim_receiving_yards[i] <- sample_from_model(rb_models$receiving_yards_model, pred_data_rec, n_samples = 1)
     } else {
       sim_receiving_yards[i] <- 0
     }
     
-    # 5. Sample total_touchdowns (Poisson or Negative Binomial)
+    # 5. Sample total_touchdowns
     pred_data_td <- pred_data
     pred_data_td$target_carries <- sim_carries[i]
     pred_data_td$target_receptions <- sim_receptions[i]
-    
-    total_tds_mu <- predict_safe(rb_models$total_touchdowns_model, pred_data_td, type = "response")
-    if (inherits(rb_models$total_touchdowns_model, "negbin")) {
-      theta <- rb_models$total_touchdowns_model$theta
-      sim_total_touchdowns[i] <- rnbinom(1, size = theta, mu = total_tds_mu)
-    } else {
-      sim_total_touchdowns[i] <- rpois(1, lambda = max(0.01, total_tds_mu))
-    }
-    sim_total_touchdowns[i] <- max(0, sim_total_touchdowns[i])  # Ensure non-negative
+    sim_total_touchdowns[i] <- sample_from_model(rb_models$total_touchdowns_model, pred_data_td, n_samples = 1)
   }
   
   # Compile draws (RB v1 outcomes only)
@@ -150,8 +118,20 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
     rushing_yards = sim_rushing_yards,
     receptions = sim_receptions,
     receiving_yards = sim_receiving_yards,
-    total_touchdowns = sim_total_touchdowns
+    total_touchdowns = sim_total_touchdowns,
+    stringsAsFactors = FALSE
   )
+  
+  # Defensive check: ensure all vectors are non-NULL and correct length
+  required_outcomes <- c("carries", "rushing_yards", "receptions", "receiving_yards", "total_touchdowns")
+  for (outcome in required_outcomes) {
+    if (is.null(result$draws[[outcome]])) {
+      stop("Simulation output '", outcome, "' is NULL. All outputs must be numeric vectors.")
+    }
+    if (length(result$draws[[outcome]]) != n_sims) {
+      stop("Simulation output '", outcome, "' has incorrect length. Expected ", n_sims, ", got ", length(result$draws[[outcome]]), ".")
+    }
+  }
   
   # Compute percentiles
   result$summary <- compute_rb_percentiles(result$draws)
@@ -192,17 +172,31 @@ prepare_prediction_data <- function(feature_row) {
 }
 
 
-#' Safe predict wrapper
+#' Safe predict wrapper with baseline model support
 #'
-#' @param model Fitted model object
+#' @param model Fitted model object or baseline model
 #' @param newdata data.frame for prediction
 #' @param type Prediction type (default "response")
-#' @return Predicted value, or stop() if prediction fails
-predict_safe <- function(model, newdata, type = "response") {
+#' @param n_samples Integer, number of samples to generate (for baseline models)
+#' @return Numeric vector of predictions
+predict_safe <- function(model, newdata, type = "response", n_samples = 1) {
   if (is.null(model)) {
     stop("Model is NULL. Cannot make prediction. This indicates a model/data mismatch.")
   }
   
+  # Handle baseline models
+  if (!is.null(model$type) && model$type == "baseline") {
+    if (model$is_count) {
+      # For counts, use Poisson with mean = value
+      result <- rpois(n_samples, lambda = max(0.01, model$value))
+    } else {
+      # For continuous, use Gaussian with truncation at 0
+      result <- pmax(0, rnorm(n_samples, mean = model$value, sd = model$sd))
+    }
+    return(result)
+  }
+  
+  # Handle regular models
   tryCatch({
     pred <- predict(model, newdata = newdata, type = type)
     as.numeric(pred)
@@ -212,16 +206,77 @@ predict_safe <- function(model, newdata, type = "response") {
   })
 }
 
-
-#' Get residual standard deviation from linear model
+#' Sample from a model prediction (handles baseline and regular models)
 #'
-#' @param model lm object
+#' @param model Fitted model object or baseline model
+#' @param newdata data.frame for prediction
+#' @param n_samples Integer, number of samples
+#' @return Numeric vector of samples
+sample_from_model <- function(model, newdata, n_samples = 1) {
+  if (is.null(model)) {
+    stop("Model is NULL. Cannot sample. This indicates a model/data mismatch.")
+  }
+  
+  # Handle baseline models
+  if (!is.null(model$type) && model$type == "baseline") {
+    if (model$is_count) {
+      # For counts, use Poisson with mean = value, round to integer
+      return(pmax(0L, as.integer(round(rpois(n_samples, lambda = max(0.01, model$value))))))
+    } else {
+      # For continuous, use Gaussian with truncation at 0
+      return(pmax(0, rnorm(n_samples, mean = model$value, sd = model$sd)))
+    }
+  }
+  
+  # Handle regular models
+  # Get mean prediction
+  mu <- predict_safe(model, newdata, type = "response", n_samples = 1)
+  
+  # Determine model type and sample accordingly
+  if (inherits(model, "glm")) {
+    family_name <- model$family$family
+    if (family_name == "poisson" || family_name == "quasipoisson") {
+      # Poisson: sample directly
+      return(pmax(0L, as.integer(round(rpois(n_samples, lambda = pmax(0.01, mu))))))
+    } else if (family_name == "negbin" || inherits(model, "negbin")) {
+      # Negative Binomial: need theta
+      theta <- if (!is.null(model$theta)) model$theta else 1.0
+      return(pmax(0L, as.integer(round(rnbinom(n_samples, size = theta, mu = pmax(0.01, mu))))))
+    }
+  } else if (inherits(model, "lm")) {
+    # Linear model: check for transform
+    if (!is.null(model$transform) && model$transform == "log1p") {
+      # Back-transform log1p
+      sigma_val <- get_residual_sd(model)
+      samples <- rnorm(n_samples, mean = mu, sd = sigma_val)
+      return(pmax(0, expm1(samples)))
+    } else {
+      # Regular Gaussian
+      sigma_val <- get_residual_sd(model)
+      return(pmax(0, rnorm(n_samples, mean = mu, sd = sigma_val)))
+    }
+  }
+  
+  # Fallback: return mean
+  return(rep(mu, n_samples))
+}
+
+
+#' Get residual standard deviation from linear model or baseline
+#'
+#' @param model lm object or baseline model
 #' @return Numeric, residual SD
 get_residual_sd <- function(model) {
   if (is.null(model)) {
     stop("Model is NULL. Cannot get residual SD. This indicates a model/data mismatch.")
   }
   
+  # Handle baseline models
+  if (!is.null(model$type) && model$type == "baseline") {
+    return(model$sd)
+  }
+  
+  # Handle regular models
   tryCatch({
     sigma(model)
   }, error = function(e) {

@@ -82,16 +82,14 @@ if (file.exists("README.md") && file.exists("R") && file.exists("scripts")) {
 }
 
 # Source required functions with error handling
-cat("Loading required functions...\n")
-# Note: Most functions are loaded automatically by simulate_player_game()
-# Only load presentation/persistence functions here
+cat("Loading simulation bootstrap...\n")
 
-# Source the automated simulation function
+# Source the bootstrap (loads all simulation dependencies)
 tryCatch({
-  source("R/simulation/simulate_player_game.R")
-  cat("  - simulate_player_game.R loaded\n")
+  source("R/simulation/bootstrap_simulation.R")
+  cat("  - bootstrap_simulation.R loaded\n")
 }, error = function(e) {
-  stop("Failed to load simulate_player_game.R: ", conditionMessage(e))
+  stop("Failed to load simulation bootstrap: ", conditionMessage(e))
 })
 
 # Source the presentation and persistence functions

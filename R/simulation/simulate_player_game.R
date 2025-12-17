@@ -10,20 +10,22 @@
 
 #' Simulate a player's game performance - fully automated
 #'
-#' Main entry point for player game simulations. Supports two modes:
-#'   - "replay": Historical replay of completed games (default)
-#'   - "future": Forward-looking projection for upcoming games
+#' Main entry point for player game simulations. Supports three modes:
+#'   - "historical_replay": Replay of completed games (default, requires game in cache)
+#'   - "upcoming_game": Forward projection for upcoming games (requires season+week, no game_date)
+#'   - "hypothetical_matchup": Hypothetical scenario with swapped opponent (requires season+week)
 #'
 #' Routes to appropriate position-specific simulation function.
 #'
 #' @param player_name Character, player name (case-insensitive, e.g., "Bijan Robinson")
-#' @param game_date Date, game date (optional if season and week provided, not allowed in future mode)
-#' @param season Optional integer season (required for future mode, optional for replay)
-#' @param week Optional integer week (required for future mode, optional for replay)
+#' @param game_date Date, game date (optional if season and week provided, not allowed in upcoming_game mode)
+#' @param season Optional integer season (required for upcoming_game mode, optional for historical_replay)
+#' @param week Optional integer week (required for upcoming_game mode, optional for historical_replay)
 #' @param n_sims Integer, number of Monte Carlo simulations (default 5000)
-#' @param mode Character, simulation mode: "replay" (default) or "future"
-#'   - "replay": Historical replay of completed games (requires game in cache)
-#'   - "future": Forward projection for upcoming games (requires season and week, disallows game_date)
+#' @param mode Character, simulation mode (default "historical_replay"):
+#'   - "historical_replay": Replay of completed games (requires game in identity cache)
+#'   - "upcoming_game": Forward projection for upcoming games (requires season and week, disallows game_date)
+#'   - "hypothetical_matchup": Hypothetical scenario with swapped opponent (requires season and week)
 #' @param position Optional character position filter
 #' @param seasons Optional integer vector of seasons to search (default: all available in cache)
 #' @param max_train_seasons Optional integer, cap on number of training seasons (default: all available)
@@ -31,17 +33,17 @@
 #' @return List with simulation results (structure depends on position)
 #' @examples
 #' # Historical replay mode (default)
-#' result <- simulate_player_game("Bijan Robinson", season = 2024, week = 15, mode = "replay")
+#' result <- simulate_player_game("Bijan Robinson", season = 2024, week = 15, mode = "historical_replay")
 #' result <- simulate_player_game("Bijan Robinson", game_date = as.Date("2024-12-11"))
 #' 
-#' # Future projection mode
-#' result <- simulate_player_game("Bijan Robinson", season = 2025, week = 15, mode = "future")
+#' # Upcoming game mode
+#' result <- simulate_player_game("Bijan Robinson", season = 2025, week = 15, mode = "upcoming_game")
 simulate_player_game <- function(player_name,
                                  game_date = NULL,
                                  season = NULL,
                                  week = NULL,
                                  n_sims = 5000,
-                                 mode = "replay",
+                                 mode = c("historical_replay", "upcoming_game", "hypothetical_matchup"),
                                  position = NULL,
                                  seasons = NULL,
                                  max_train_seasons = NULL,
@@ -56,35 +58,41 @@ simulate_player_game <- function(player_name,
     stop("player_name cannot be empty")
   }
   
-  # Validate and normalize mode parameter
-  if (missing(mode) || is.null(mode)) {
-    mode <- "replay"
-  }
-  mode <- tolower(trimws(as.character(mode)))
-  if (!mode %in% c("replay", "future")) {
-    stop("mode must be 'replay' or 'future', got: ", mode)
-  }
+  # Validate and normalize mode parameter using match.arg()
+  mode <- match.arg(mode)
   
   # Determine resolution mode
   has_season_week <- !is.null(season) && !is.null(week)
   has_game_date <- !is.null(game_date)
   
-  # FUTURE MODE: Require season and week, disallow game_date
-  if (mode == "future") {
+  # UPCOMING_GAME MODE: Require season and week, disallow game_date
+  if (mode == "upcoming_game") {
     if (!has_season_week) {
-      stop("Future mode requires both season and week to be specified. ",
-           "Cannot use date-based resolution in future mode.")
+      stop("upcoming_game mode requires both season and week to be specified. ",
+           "Cannot use date-based resolution in upcoming_game mode.")
     }
     if (has_game_date) {
-      stop("Future mode does not accept game_date parameter. ",
+      stop("upcoming_game mode does not accept game_date parameter. ",
            "Use season and week instead.")
     }
   }
   
-  # REPLAY MODE: Require either season/week or game_date
-  if (mode == "replay") {
+  # HYPOTHETICAL_MATCHUP MODE: Require season and week, disallow game_date
+  if (mode == "hypothetical_matchup") {
+    if (!has_season_week) {
+      stop("hypothetical_matchup mode requires both season and week to be specified. ",
+           "Cannot use date-based resolution in hypothetical_matchup mode.")
+    }
+    if (has_game_date) {
+      stop("hypothetical_matchup mode does not accept game_date parameter. ",
+           "Use season and week instead.")
+    }
+  }
+  
+  # HISTORICAL_REPLAY MODE: Require either season/week or game_date
+  if (mode == "historical_replay") {
     if (!has_season_week && !has_game_date) {
-      stop("Replay mode requires either (season, week) or game_date. ",
+      stop("historical_replay mode requires either (season, week) or game_date. ",
            "Resolution mode A (historical replay): provide season and week. ",
            "Resolution mode B (date-based): provide game_date.")
     }
@@ -97,25 +105,11 @@ simulate_player_game <- function(player_name,
     }
   }
   
-  # Load helpers and resolver
-  if (!exists("resolve_player_game")) {
-    if (file.exists("R/simulation/resolve_player_game.R")) {
-      source("R/simulation/resolve_player_game.R", local = TRUE)
-    } else {
-      stop("resolve_player_game function not found")
-    }
-  }
-  if (!exists("get_available_seasons_from_cache")) {
-    if (file.exists("R/utils/cache_helpers.R")) {
-      source("R/utils/cache_helpers.R", local = TRUE)
-    }
-  }
-  if (!exists("simulation_mode_policy")) {
-    if (file.exists("R/simulation/simulation_mode_policy.R")) {
-      source("R/simulation/simulation_mode_policy.R", local = TRUE)
-    } else {
-      stop("simulation_mode_policy function not found")
-    }
+  # Ensure bootstrap has been loaded
+  if (!exists("resolve_player_game") || !exists("get_available_seasons_from_cache") || 
+      !exists("simulation_mode_policy")) {
+    stop("Simulation bootstrap incomplete: Required functions not loaded. ",
+         "Source R/simulation/bootstrap_simulation.R before calling simulate_player_game().")
   }
   
   # Ensure cache_only is TRUE (no nflreadr calls during simulation)
@@ -128,25 +122,17 @@ simulate_player_game <- function(player_name,
   resolved <- NULL
   synthetic_feature_row <- NULL
   
-  if (mode == "future") {
-    # FUTURE MODE: Resolve player_id from directory, opponent/home_away from schedules
+  # Determine if this is an upcoming game (not in identity cache)
+  is_upcoming_game <- (mode == "upcoming_game" || mode == "hypothetical_matchup")
+  
+  if (is_upcoming_game) {
+    # UPCOMING_GAME / HYPOTHETICAL_MATCHUP MODE: Resolve player_id from directory, opponent/home_away from schedules
     # Do NOT require player_week_identity row for target week
     
-    # Load player directory to resolve player_id
-    if (!exists("read_player_directory_cache")) {
-      if (file.exists("R/data/build_weekly_player_layers.R")) {
-        source("R/data/build_weekly_player_layers.R", local = TRUE)
-      } else {
-        stop("R/data/build_weekly_player_layers.R is required for future mode")
-      }
-    }
-    
-    if (!exists("canonicalize_name")) {
-      if (file.exists("R/simulation/resolve_player_game.R")) {
-        source("R/simulation/resolve_player_game.R", local = TRUE)
-      } else {
-        stop("R/simulation/resolve_player_game.R is required for canonicalize_name")
-      }
+    # Ensure required functions are loaded
+    if (!exists("read_player_directory_cache") || !exists("canonicalize_name")) {
+      stop("Simulation bootstrap incomplete: read_player_directory_cache or canonicalize_name not loaded. ",
+           "Source R/simulation/bootstrap_simulation.R before calling simulate_player_game().")
     }
     
     player_dir <- read_player_directory_cache()
@@ -162,11 +148,11 @@ simulate_player_game <- function(player_name,
     
     if (nrow(name_matches) == 0) {
       stop("No player found with name '", player_name, 
-           "' in player directory. Cannot resolve player_id for future mode.")
+           "' in player directory. Cannot resolve player_id for ", mode, " mode.")
     }
     if (nrow(name_matches) > 1) {
       stop("Multiple players found with name '", player_name, 
-           "'. Cannot uniquely resolve player_id for future mode.")
+           "'. Cannot uniquely resolve player_id for ", mode, " mode.")
     }
     
     resolved_player_id <- name_matches$player_id[1]
@@ -176,9 +162,8 @@ simulate_player_game <- function(player_name,
     if (!is.null(position)) {
       # Get position from recent games
       if (!exists("read_rb_weekly_features_cache")) {
-        if (file.exists("R/data/build_weekly_player_layers.R")) {
-          source("R/data/build_weekly_player_layers.R", local = TRUE)
-        }
+        stop("Simulation bootstrap incomplete: read_rb_weekly_features_cache not loaded. ",
+             "Source R/simulation/bootstrap_simulation.R before calling simulate_player_game().")
       }
       rb_features_check <- read_rb_weekly_features_cache()
       player_games <- rb_features_check[rb_features_check$player_id == resolved_player_id, , drop = FALSE]
@@ -193,18 +178,14 @@ simulate_player_game <- function(player_name,
     
     # Load schedules to get opponent/home_away
     if (!exists("load_schedules")) {
-      if (file.exists("R/data/load_schedules.R")) {
-        source("R/data/load_schedules.R", local = TRUE)
-      } else {
-        stop("R/data/load_schedules.R is required for future game resolution")
-      }
+      stop("Simulation bootstrap incomplete: load_schedules not loaded. ",
+           "Source R/simulation/bootstrap_simulation.R before calling simulate_player_game().")
     }
     
     # Get player's team from recent games (same season, week < target_week)
     if (!exists("read_rb_weekly_features_cache")) {
-      if (file.exists("R/data/build_weekly_player_layers.R")) {
-        source("R/data/build_weekly_player_layers.R", local = TRUE)
-      }
+      stop("Simulation bootstrap incomplete: read_rb_weekly_features_cache not loaded. ",
+           "Source R/simulation/bootstrap_simulation.R before calling simulate_player_game().")
     }
     rb_features <- read_rb_weekly_features_cache()
     player_recent <- rb_features[
@@ -230,12 +211,8 @@ simulate_player_game <- function(player_name,
     
     # Load schedules and find game by team
     if (!exists("load_schedules")) {
-      if (file.exists("R/data/load_schedules.R")) {
-        source("R/data/load_schedules.R", local = TRUE)
-      } else {
-        stop("R/data/load_schedules.R is required for future mode. ",
-             "Cannot resolve opponent and home_away without schedule data.")
-      }
+      stop("Simulation bootstrap incomplete: load_schedules not loaded. ",
+           "Source R/simulation/bootstrap_simulation.R before calling simulate_player_game().")
     }
     
     schedules <- load_schedules(seasons = season, cache_only = cache_only)
@@ -276,7 +253,7 @@ simulate_player_game <- function(player_name,
            "' not found in schedule for season ", season, " week ", week)
     }
     
-    # Build resolved object for future mode
+    # Build resolved object for upcoming_game/hypothetical_matchup mode
     resolved <- list(
       player_id = resolved_player_id,
       player_name_canonical = resolved_player_name,
@@ -289,16 +266,13 @@ simulate_player_game <- function(player_name,
       game_date = NULL,
       game_id = NA_character_,
       game_key = NA_character_,
-      resolution_mode = "future"
+      resolution_mode = mode
     )
     
     # Build synthetic feature row
     if (!exists("build_future_rb_feature_row")) {
-      if (file.exists("R/simulation/build_future_rb_feature_row.R")) {
-        source("R/simulation/build_future_rb_feature_row.R", local = TRUE)
-      } else {
-        stop("R/simulation/build_future_rb_feature_row.R is required for future games")
-      }
+      stop("Simulation bootstrap incomplete: build_future_rb_feature_row not loaded. ",
+           "Source R/simulation/bootstrap_simulation.R before calling simulate_player_game().")
     }
     
     synthetic_feature_row <- build_future_rb_feature_row(
@@ -326,10 +300,8 @@ simulate_player_game <- function(player_name,
   
   # CRITICAL: Guardrail - ensure canonical names match (using same canonicalization function)
   if (!exists("canonicalize_name")) {
-    # Source resolve_player_game to get canonicalize_name function
-    if (file.exists("R/simulation/resolve_player_game.R")) {
-      source("R/simulation/resolve_player_game.R", local = TRUE)
-    }
+    stop("Simulation bootstrap incomplete: canonicalize_name not loaded. ",
+         "Source R/simulation/bootstrap_simulation.R before calling simulate_player_game().")
   }
   
   if (exists("canonicalize_name")) {
@@ -349,18 +321,16 @@ simulate_player_game <- function(player_name,
   
   # ENFORCE POSITION DETERMINISM: Validate position is uppercase and valid
   valid_positions <- c("QB", "RB", "WR", "TE", "K")
-  if (is.na(position) || position == "" || !position %in% valid_positions) {
-    stop("Invalid position '", position, "' for player '", player_name, 
+  if (is.null(position) || is.na(position) || !nzchar(position) || !position %in% valid_positions) {
+    position_str <- if (is.null(position)) "NULL" else if (is.na(position)) "NA" else as.character(position)
+    stop("Invalid position '", position_str, "' for player '", player_name, 
          "'. Position must be one of: ", paste(valid_positions, collapse = ", "),
-         ". Position cannot be NA or empty.")
+         ". Position cannot be NULL, NA, or empty.")
   }
   
   if (!exists("read_rb_weekly_features_cache")) {
-    if (file.exists("R/data/build_weekly_player_layers.R")) {
-      source("R/data/build_weekly_player_layers.R", local = TRUE)
-    } else {
-      stop("R/data/build_weekly_player_layers.R is required for simulation")
-    }
+    stop("Simulation bootstrap incomplete: read_rb_weekly_features_cache not loaded. ",
+         "Source R/simulation/bootstrap_simulation.R before calling simulate_player_game().")
   }
 
   rb_features_for_seasons <- read_rb_weekly_features_cache()
@@ -388,11 +358,8 @@ simulate_player_game <- function(player_name,
   # Route to position-specific simulation
   if (position == "RB") {
     if (!exists("run_rb_simulation")) {
-      if (file.exists("R/simulation/run_rb_simulation.R")) {
-        source("R/simulation/run_rb_simulation.R", local = TRUE)
-      } else {
-        stop("run_rb_simulation function not found")
-      }
+      stop("Simulation bootstrap incomplete: run_rb_simulation not loaded. ",
+           "Source R/simulation/bootstrap_simulation.R before calling simulate_player_game().")
     }
     
     result <- run_rb_simulation(
@@ -410,16 +377,16 @@ simulate_player_game <- function(player_name,
       home_away = resolved$home_away,
       mode_policy = policy,
       synthetic_feature_row = synthetic_feature_row,
-      is_future = (mode == "future")
+      is_future = is_upcoming_game
     )
     
     # Add synthetic flag to metadata
-    if (mode == "future") {
+    if (is_upcoming_game) {
       result$metadata$synthetic <- TRUE
-      result$metadata$simulation_mode <- "future"
+      result$metadata$simulation_mode <- mode
     } else {
       result$metadata$synthetic <- FALSE
-      result$metadata$simulation_mode <- "replay"
+      result$metadata$simulation_mode <- mode
     }
     
     return(result)

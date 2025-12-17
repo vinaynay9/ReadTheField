@@ -84,7 +84,7 @@ resolve_player_game <- function(player_name,
   }
 
   if (!is.null(game_date)) {
-    game_date <- as.Date(game_date)
+  game_date <- as.Date(game_date)
     if (is.na(game_date)) {
       stop("game_date must be a valid date")
     }
@@ -279,7 +279,7 @@ resolve_player_game <- function(player_name,
     chosen <- matches[1, ]
     resolution_mode <- "historical_replay"
     
-  } else {
+        } else {
     # RESOLUTION MODE B: Date-based (game_date provided)
     # Match on player_id + game_date (player_id already resolved, must be unique)
     
