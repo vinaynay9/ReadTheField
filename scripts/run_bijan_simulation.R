@@ -6,15 +6,13 @@
 # Configuration: Set target_player_name and target_date
 # Example: Bijan Robinson, 2025-12-11
 #
-# The system will automatically:
-#   - Detect player position (RB/WR/TE/QB/K)
-#   - Detect player's team
-#   - Detect opponent team
-#   - Detect season and week
-#   - Route to appropriate position-specific simulation
+# The system will:
+#   - Search players via resolve_player_search(query, season)
+#   - Require explicit selection (no auto-disambiguation)
+#   - Run RB simulation using gsis_id only
 #
 # Architecture:
-#   Layer 1: simulate_player_game() - fully automated (auto-detects everything)
+#   Layer 1: resolve_player_search() + run_rb_simulation() (pure computation)
 #   Layer 2: print_rb_simulation() - presentation (console output)
 #   Layer 3: write_rb_simulation() - persistence (file writing)
 
@@ -123,7 +121,7 @@ cat("All functions loaded successfully.\n\n")
 # Supports: --player=<name> --season=<year> --week=<num> --n_sims=<num>
 
 # Set defaults
-target_player_name <- "Bijan Robinson"
+target_player_query <- "Bijan Robinson"
 target_season <- 2024
 target_week <- 8
 n_sims <- 5000
@@ -133,7 +131,7 @@ args <- commandArgs(trailingOnly = TRUE)
 if (length(args) > 0) {
   for (arg in args) {
     if (grepl("^--player=", arg)) {
-      target_player_name <- sub("^--player=", "", arg)
+      target_player_query <- sub("^--player=", "", arg)
     } else if (grepl("^--season=", arg)) {
       target_season <- as.integer(sub("^--season=", "", arg))
     } else if (grepl("^--week=", arg)) {
@@ -146,16 +144,49 @@ if (length(args) > 0) {
 
 # Print resolved configuration
 cat("========================================\n")
-cat("Running:", target_player_name, "| season", target_season, "week", target_week, "| sims", n_sims, "\n")
+cat("Running search for:", target_player_query, "| season", target_season, "week", target_week, "| sims", n_sims, "\n")
 cat("========================================\n\n")
 
 # ============================================================================
-# LAYER 1: Pure Computation - Fully Automated
+# Player search (UI-equivalent flow)
 # ============================================================================
-# Run simulation - auto-detects position, team, opponent, season, week
 
-result <- simulate_player_game(
-  player_name = target_player_name,
+if (!exists("resolve_player_search")) {
+  stop("resolve_player_search not loaded. Ensure R/resolve/resolve_player_search.R is sourced.")
+}
+
+search_results <- resolve_player_search(
+  query = target_player_query,
+  season = target_season,
+  team = "ATL",
+  positions = c("RB")
+)
+
+if (nrow(search_results) == 0) {
+  stop("No matching players found for query '", target_player_query, "' in season ", target_season, ".")
+}
+
+if (nrow(search_results) != 1) {
+  stop(
+    sprintf(
+      "Expected 1 player after team disambiguation, found %d",
+      nrow(search_results)
+    ),
+    call. = FALSE
+  )
+}
+
+chosen <- search_results[1, ]
+chosen_gsis_id <- chosen$gsis_id
+
+cat("Selected: ", chosen$full_name, " (", chosen$position, " ", chosen$team, ")\n", sep = "")
+
+# ============================================================================
+# LAYER 1: Pure Computation - gsis_id only
+# ============================================================================
+
+result <- run_rb_simulation(
+  gsis_id = chosen_gsis_id,
   season = target_season,
   week = target_week,
   n_sims = n_sims

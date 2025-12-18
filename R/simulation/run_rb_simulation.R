@@ -17,9 +17,7 @@
 #
 # Usage:
 #   result <- run_rb_simulation(
-#     player_name = "B.Robinson",
-#     team = "ATL",
-#     opponent = "TB",
+#     gsis_id = "00-0037667",
 #     season = 2025,
 #     week = 15,
 #     n_sims = 5000
@@ -30,9 +28,7 @@
 #' Performs complete RB simulation workflow without any printing or file I/O.
 #' Returns structured result object containing all inputs, models, draws, and summaries.
 #'
-#' @param player_name Character, player name pattern(s) to match (e.g., "B.Robinson" or c("B.Robinson", "Bijan Robinson"))
-#' @param team Character, player's team abbreviation (e.g., "ATL")
-#' @param opponent Character, opponent team abbreviation (e.g., "TB")
+#' @param gsis_id Character, player gsis_id (required)
 #' @param season Integer, season year (e.g., 2025)
 #' @param week Integer, week number (e.g., 15)
 #' @param n_sims Integer, number of Monte Carlo simulations (default 5000)
@@ -44,21 +40,18 @@
 #'   - summary: data.frame with p25, p50, p75 for each stat
 #'   - diagnostics: list with model info, distribution stats, TD probabilities
 #'   - draws: data.frame with n_sims rows of simulated stat lines
-run_rb_simulation <- function(player_name,
-                              team,
-                              opponent,
+run_rb_simulation <- function(gsis_id,
                               season,
                               week,
                               n_sims = 5000,
                               game_date = NULL,
-                              player_id = NULL,
-                              game_id = NULL,
-                              game_key = NULL,
                               seasons_train = NULL,
-                              home_away = NULL,
                               mode_policy = NULL,
                               synthetic_feature_row = NULL,
                               is_future = FALSE) {
+  if (missing(gsis_id)) {
+    stop("run_rb_simulation requires gsis_id. Name-based resolution is not allowed.", call. = FALSE)
+  }
   
   # Initialize file-based diagnostic logging (project root)
   log_file <- "rb_debug.log"
@@ -72,7 +65,7 @@ run_rb_simulation <- function(player_name,
   
   log_msg("")
   log_msg("=== RB Simulation Start ===")
-  log_msg("REQUESTED: Player:", player_name, "| Team:", team, "| Opponent:", opponent)
+  log_msg("REQUESTED: gsis_id:", gsis_id)
   log_msg("REQUESTED: Season:", season, "| Week:", week)
   log_msg("CLI args are the source of truth - no overrides allowed")
   
@@ -106,12 +99,10 @@ run_rb_simulation <- function(player_name,
   }
   result$metadata$random_seed <- .Random.seed
   
-  # Ensure player_name is a vector for pattern matching
-  if (is.character(player_name) && length(player_name) == 1) {
-    player_name_patterns <- c(player_name)
-  } else {
-    player_name_patterns <- player_name
+  if (missing(gsis_id) || is.null(gsis_id) || length(gsis_id) == 0 || !nzchar(trimws(as.character(gsis_id)))) {
+    stop("gsis_id is required for run_rb_simulation")
   }
+  player_id <- as.character(gsis_id)
   
   # ============================================================================
   # STEP 1: Identify the correct game using resolved metadata (no schedule dependency)
@@ -132,21 +123,25 @@ run_rb_simulation <- function(player_name,
     is_valid_scalar(x) && is.character(x) && nzchar(x)
   }
   
-  # Determine game key if not provided
-  resolved_game_key <- if (is_valid_string(game_key)) {
-    game_key
-  } else if (exists("build_game_key")) {
-    build_game_key(season, week, game_date, team, opponent, game_id)
-  } else {
-    paste(season, week, game_date, team, opponent, sep = "_")
-  }
+  resolved_game_key <- NA_character_
   
-  # Training seasons: must be provided (determined by simulation mode policy)
-  # No ad-hoc filtering - all training window logic goes through policy
+  # Training seasons: compute from policy if not provided
   if (is.null(seasons_train) || length(seasons_train) == 0) {
-    stop("No training seasons provided to run_rb_simulation. ",
-         "Training seasons must be determined by simulation_mode_policy() ",
-         "and passed from simulate_player_game().")
+    if (!exists("simulation_mode_policy")) {
+      stop("No training seasons provided and simulation_mode_policy not loaded.")
+    }
+    if (!exists("get_available_seasons_from_cache")) {
+      stop("get_available_seasons_from_cache not loaded. Cannot determine training seasons.")
+    }
+    available_seasons <- get_available_seasons_from_cache()
+    mode_policy <- simulation_mode_policy(
+      mode = "historical_replay",
+      target_season = season,
+      target_week = week,
+      target_game_date = game_date,
+      available_seasons = available_seasons
+    )
+    seasons_train <- mode_policy$seasons_allowed
   }
   
   # ============================================================================
@@ -168,45 +163,36 @@ run_rb_simulation <- function(player_name,
     stop("No RB training rows available for seasons: ", paste(seasons_train, collapse = ", "))
   }
   
-  # Identify target game row using provided metadata
-  target_rows <- rb_data_all
-  if (!is.null(player_id)) {
-    target_rows <- target_rows[target_rows$player_id == player_id, ]
-  } else {
-    # fall back to player name patterns
-    target_rows <- target_rows[target_rows$player_name %in% player_name_patterns, ]
-    if (nrow(target_rows) == 0) {
-      target_rows <- rb_data_all[grepl(player_name_patterns[1], rb_data_all$player_name, ignore.case = TRUE), ]
+  if (is_future) {
+    if (is.null(synthetic_feature_row) || nrow(synthetic_feature_row) != 1) {
+      stop("Future simulation requires a single-row synthetic_feature_row.")
     }
-  }
-  
-  # Filter by game identifiers
-  if (is_valid_string(resolved_game_key)) {
-    target_rows <- target_rows[!is.na(target_rows$game_key) & target_rows$game_key == resolved_game_key, ]
-  }
-  if (nrow(target_rows) == 0 && is_valid_string(game_id)) {
-    target_rows <- rb_data_all[rb_data_all$game_id == game_id & (is.null(player_id) | rb_data_all$player_id == player_id), ]
-  }
-  if (nrow(target_rows) == 0 && !is.null(game_date) && !is.na(game_date)) {
+    if (!"player_id" %in% names(synthetic_feature_row)) {
+      stop("synthetic_feature_row must include player_id.")
+    }
+    if (as.character(synthetic_feature_row$player_id[1]) != player_id) {
+      stop("synthetic_feature_row player_id does not match gsis_id.")
+    }
+    identified_game_row <- synthetic_feature_row
+  } else {
+    # Identify target game row using gsis_id + season/week
     target_rows <- rb_data_all[
-      rb_data_all$gameday == game_date &
-      (is.null(player_id) | rb_data_all$player_id == player_id) &
-      rb_data_all$team == team, ]
+      rb_data_all$player_id == player_id &
+        rb_data_all$season == season &
+        rb_data_all$week == week,
+      , drop = FALSE
+    ]
+    
+    if (nrow(target_rows) == 0) {
+      stop("Target game not found in cached RB weekly features for gsis_id ", player_id,
+           " in season ", season, " week ", week,
+           ". Game may be unavailable in cached data or before data availability.")
+    }
+    
+    # Deterministic disambiguation
+    target_rows <- target_rows[order(target_rows$gameday, target_rows$game_id, target_rows$opponent), ]
+    identified_game_row <- target_rows[1, ]
   }
-  if (nrow(target_rows) == 0 && !is.na(season)) {
-    target_rows <- rb_data_all[rb_data_all$season == season & rb_data_all$week == week & rb_data_all$team == team, ]
-  }
-  
-  if (nrow(target_rows) == 0) {
-    stop("Target game not found in cached RB weekly features for player/team provided. ",
-         "Player: ", paste(player_name_patterns, collapse = ", "), 
-         ", Team: ", team, ", Season: ", season, ", Week: ", week,
-         ". Game may be unavailable in cached data or before data availability.")
-  }
-  
-  # Deterministic disambiguation
-  target_rows <- target_rows[order(target_rows$gameday, target_rows$game_id, target_rows$opponent), ]
-  identified_game_row <- target_rows[1, ]
   
   # CRITICAL: Verify identified game matches CLI args (detect drift early)
   if (!is.null(season) && !is.na(season) && !is.na(identified_game_row$season) && identified_game_row$season != season) {
@@ -218,7 +204,7 @@ run_rb_simulation <- function(player_name,
     stop("GAME IDENTIFICATION DRIFT: CLI requested week=", week,
          " but identified game has week=", identified_game_row$week, ". ",
          "This indicates a bug in game resolution logic. ",
-         "Player: ", paste(player_name_patterns, collapse = ", "), 
+         "gsis_id: ", player_id,
          ", Game found: season=", identified_game_row$season, ", week=", identified_game_row$week)
   }
   
@@ -233,11 +219,9 @@ run_rb_simulation <- function(player_name,
   # CRITICAL FIX: Respect CLI arguments - NO OVERRIDES
   # Extract game info with proper precedence: CLI args win, fallback to identified_game_row only when not provided
   
-  # game_id: Only from identified_game_row (no CLI arg for this)
-  game_id <- if (is_valid_string(identified_game_row$game_id)) {
+  # game_id: from identified_game_row if available
+  game_id <- if ("game_id" %in% names(identified_game_row) && is_valid_string(identified_game_row$game_id)) {
     identified_game_row$game_id
-  } else if (!is.null(game_id) && !is.na(game_id)) {
-    game_id
   } else {
     NA_character_
   }
@@ -278,11 +262,8 @@ run_rb_simulation <- function(player_name,
     log_msg("WARNING: No valid game_date found")
   }
   
-  # opponent: CLI arg wins, fallback to identified_game_row
-  if (!is.null(opponent) && !is.na(opponent) && nzchar(opponent)) {
-    player_opponent <- opponent
-    log_msg("Using CLI-provided opponent:", player_opponent)
-  } else if (is_valid_string(identified_game_row$opponent)) {
+  # opponent/team/home_away: from identified_game_row
+  if (is_valid_string(identified_game_row$opponent)) {
     player_opponent <- identified_game_row$opponent
     log_msg("Using identified_game_row opponent:", player_opponent)
   } else {
@@ -290,11 +271,7 @@ run_rb_simulation <- function(player_name,
     log_msg("WARNING: No valid opponent found")
   }
   
-  # team: CLI arg wins, fallback to identified_game_row
-  if (!is.null(team) && !is.na(team) && nzchar(team)) {
-    player_team <- team
-    log_msg("Using CLI-provided team:", player_team)
-  } else if (is_valid_string(identified_game_row$team)) {
+  if (is_valid_string(identified_game_row$team)) {
     player_team <- identified_game_row$team
     log_msg("Using identified_game_row team:", player_team)
   } else {
@@ -302,11 +279,7 @@ run_rb_simulation <- function(player_name,
     log_msg("WARNING: No valid team found")
   }
   
-  # home_away: CLI arg wins, fallback to identified_game_row
-  if (!is.null(home_away) && !is.na(home_away) && nzchar(home_away)) {
-    player_home_away <- home_away
-    log_msg("Using CLI-provided home_away:", player_home_away)
-  } else if (is_valid_string(identified_game_row$home_away)) {
+  if (is_valid_string(identified_game_row$home_away)) {
     player_home_away <- identified_game_row$home_away
     log_msg("Using identified_game_row home_away:", player_home_away)
   } else {
@@ -321,6 +294,17 @@ run_rb_simulation <- function(player_name,
   log_msg("RESOLVED: Game Date:", as.character(game_gameday), "| Game ID:", game_id)
   log_msg("RESOLVED: Home/Away:", player_home_away)
   
+  if (is.na(resolved_game_key) && exists("build_game_key")) {
+    resolved_game_key <- build_game_key(
+      game_season,
+      game_week,
+      game_gameday,
+      player_team,
+      player_opponent,
+      game_id
+    )
+  }
+  
   # Enforce CLI args when provided
   if (!is.null(season) && !is.na(season) && game_season != season) {
     stop("RESOLUTION MISMATCH: Requested season=", season, " but resolved game has season=", game_season, ". ",
@@ -330,14 +314,6 @@ run_rb_simulation <- function(player_name,
   if (!is.null(week) && !is.na(week) && game_week != week) {
     stop("RESOLUTION MISMATCH: Requested week=", week, " but resolved game has week=", game_week, ". ",
          "CLI arguments must be respected. This indicates a bug in game resolution logic.")
-  }
-  
-  if (!is.null(opponent) && !is.na(opponent) && nzchar(opponent) && !is.na(player_opponent) && player_opponent != opponent) {
-    log_msg("WARNING: Opponent mismatch - Requested:", opponent, "| Resolved:", player_opponent)
-  }
-  
-  if (!is.null(team) && !is.na(team) && nzchar(team) && !is.na(player_team) && player_team != team) {
-    log_msg("WARNING: Team mismatch - Requested:", team, "| Resolved:", player_team)
   }
   
   log_msg("Resolution validation: PASS")
@@ -414,81 +390,55 @@ run_rb_simulation <- function(player_name,
   }
   
   # Find target player row using primary keys: player_id, season, week
-  # This is the correct and most reliable way to identify a player-week row
-  target_player_row <- NULL
-  
-  # Validate that we have the required primary keys
-  if (is.null(player_id) || is.na(player_id) || player_id == "") {
-    stop("player_id is required but is NULL, NA, or empty. ",
-         "Cannot resolve target player without player_id. ",
-         "Player: ", paste(player_name_patterns, collapse = ", "),
-         ", Season: ", season, ", Week: ", week, ".")
-  }
-  
-  if (is.null(season) || is.na(season)) {
-    stop("season is required but is NULL or NA. ",
-         "Cannot resolve target player without season. ",
-         "Player ID: ", player_id, ", Week: ", week, ".")
-  }
-  
-  if (is.null(week) || is.na(week)) {
-    stop("week is required but is NULL or NA. ",
-         "Cannot resolve target player without week. ",
-         "Player ID: ", player_id, ", Season: ", season, ".")
-  }
-  
-  # Find target player row using primary keys
-  target_player_row <- rb_data_all[
-    rb_data_all$player_id == player_id &
-    rb_data_all$season == season &
-    rb_data_all$week == week,
-    , drop = FALSE
-  ]
-  
-  # Validate exactly 1 row found
-  if (nrow(target_player_row) == 0) {
-    # Check if player exists at all
-    player_exists <- any(rb_data_all$player_id == player_id, na.rm = TRUE)
-    if (!player_exists) {
-      stop("Player ID '", player_id, "' not found in RB weekly features cache. ",
-           "Player: ", paste(player_name_patterns, collapse = ", "), ". ",
-           "Player may not be a running back or data may be missing from cache.")
+  # For future simulations, use synthetic_feature_row instead of cache
+  if (is_future) {
+    target_player_row <- synthetic_feature_row
+  } else {
+    target_player_row <- rb_data_all[
+      rb_data_all$player_id == player_id &
+        rb_data_all$season == season &
+        rb_data_all$week == week,
+      , drop = FALSE
+    ]
+    
+    # Validate exactly 1 row found
+    if (nrow(target_player_row) == 0) {
+      # Check if player exists at all
+      player_exists <- any(rb_data_all$player_id == player_id, na.rm = TRUE)
+      if (!player_exists) {
+        stop("Player ID '", player_id, "' not found in RB weekly features cache. ",
+             "Player may not be a running back or data may be missing from cache.")
+      }
+      
+      # Check if season/week combination exists for this player
+      player_seasons <- unique(rb_data_all$season[rb_data_all$player_id == player_id])
+      player_weeks <- unique(rb_data_all$week[rb_data_all$player_id == player_id & rb_data_all$season == season])
+      
+      stop("Target player-week row not found. ",
+           "Player ID: ", player_id,
+           ", Season: ", season, ", Week: ", week, ". ",
+           "Available seasons for this player: ", 
+           if (length(player_seasons) > 0) paste(sort(player_seasons), collapse = ", ") else "none", ". ",
+           "Available weeks for season ", season, ": ",
+           if (length(player_weeks) > 0) paste(sort(player_weeks), collapse = ", ") else "none", ". ",
+           "Player may not have played in this game or data is unavailable.")
     }
     
-    # Check if season/week combination exists for this player
-    player_seasons <- unique(rb_data_all$season[rb_data_all$player_id == player_id])
-    player_weeks <- unique(rb_data_all$week[rb_data_all$player_id == player_id & rb_data_all$season == season])
-    
-    stop("Target player-week row not found. ",
-         "Player ID: ", player_id,
-         ", Player: ", paste(player_name_patterns, collapse = ", "),
-         ", Season: ", season, ", Week: ", week, ". ",
-         "Available seasons for this player: ", 
-         if (length(player_seasons) > 0) paste(sort(player_seasons), collapse = ", ") else "none", ". ",
-         "Available weeks for season ", season, ": ",
-         if (length(player_weeks) > 0) paste(sort(player_weeks), collapse = ", ") else "none", ". ",
-         "Player may not have played in this game or data is unavailable.")
-  }
-  
-  if (nrow(target_player_row) > 1) {
-    stop("Multiple rows found for target player-week. Data inconsistency. ",
-         "Player ID: ", player_id,
-         ", Season: ", season, ", Week: ", week, ". ",
-         "Found ", nrow(target_player_row), " rows. ",
-         "This should never happen - each (player_id, season, week) should be unique.")
+    if (nrow(target_player_row) > 1) {
+      stop("Multiple rows found for target player-week. Data inconsistency. ",
+           "Player ID: ", player_id,
+           ", Season: ", season, ", Week: ", week, ". ",
+           "Found ", nrow(target_player_row), " rows. ",
+           "This should never happen - each (player_id, season, week) should be unique.")
+    }
   }
   
   # Extract metadata from the single row
   target_player_id <- target_player_row$player_id[1]
   target_player_team <- target_player_row$team[1]
-  target_player_name <- target_player_row$player_name[1]
-  
-  # Update team if it doesn't match
-  if (length(target_player_team) > 1 || !target_player_team %in% c(team, player_team)) {
-    team <- target_player_team[1]
-    result$metadata$team <- team
-  }
-  
+  target_player_name_cached <- target_player_row$player_name[1]
+  target_player_name <- if (is_valid_string(target_player_name_cached)) target_player_name_cached else player_id
+
   result$metadata$player_id <- target_player_id
   result$metadata$player_name <- target_player_name
   
@@ -511,12 +461,12 @@ run_rb_simulation <- function(player_name,
   }
   
   # Filter to only games where player's team matches the target team
-  player_data_team <- player_data[player_data$team == team, ]
+  player_data_team <- player_data[player_data$team == player_team, ]
   
   if (nrow(player_data_team) == 0) {
     stop("Cannot proceed without games for target team. ",
          "Player ID: ", target_player_id,
-         ", Team: ", team,
+         ", Team: ", player_team,
          ", Games before target: ", nrow(player_data),
          ". Player may have changed teams or team data is unavailable.")
   }
@@ -601,18 +551,26 @@ run_rb_simulation <- function(player_name,
             ", week=", player_game_row$week[1])
   }
 
-  # Enforce minimum 3-game history rule
-  # Check if at least one 3-game rolling feature is non-NA
+  # Enforce minimum history rule (player_id only)
+  # Allow returning players with prior-season or computed priors, even if roll3 is NA
   rolling_cols_3 <- grep("_roll3$", names(player_game_row), value = TRUE)
   if (length(rolling_cols_3) == 0) {
     stop("No 3-game rolling features found. Cannot verify minimum history requirement.")
   }
   
   has_3_game_history <- any(!is.na(player_game_row[, rolling_cols_3, drop = FALSE]))
-  if (!has_3_game_history) {
+  prior_cols <- c(
+    "prev_season_carries_pg", "prev_season_targets_pg", "prev_season_ypc", "prev_season_ypt", "prev_season_games",
+    "carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
+    "carries_cum_mean", "targets_cum_mean", "receptions_cum_mean", "ypc_cum", "ypt_cum", "catch_rate_cum"
+  )
+  prior_cols <- intersect(prior_cols, names(player_game_row))
+  has_prior_history <- length(prior_cols) > 0 && any(!is.na(player_game_row[, prior_cols, drop = FALSE]))
+  
+  if (!has_3_game_history && !has_prior_history) {
     stop("Player '", target_player_name, "' (ID: ", target_player_id, 
-         ") does not have minimum 3-game history required for simulation. ",
-         "Player must have at least 3 prior games. ",
+         ") does not have sufficient historical data for simulation. ",
+         "Player must have at least 3 prior games or returning-player priors. ",
          "Current game: Season ", game_season, ", Week ", game_week, ". ",
          "Rookies or players with insufficient history are not supported.")
   }
@@ -623,9 +581,13 @@ run_rb_simulation <- function(player_name,
     "targets_roll3", "targets_roll5", "targets_roll7", "targets_roll10",
     "yards_per_carry_roll5", "yards_per_target_roll5", "catch_rate_roll5",
     "rush_tds_roll5", "rec_tds_roll5",
+    # Player priors and cumulative stats required by time-aware feature contract
+    "carries_cum_mean", "targets_cum_mean", "receptions_cum_mean",
+    "ypc_cum", "ypt_cum", "catch_rate_cum",
+    "carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
     "is_home",
-    "opp_rush_yards_allowed_roll5", "opp_sacks_roll5", 
-    "opp_tfl_roll5", "opp_points_allowed_roll5"
+    "opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
+    "opp_sacks_roll5", "opp_tfl_roll5", "opp_points_allowed_roll5"
   )
   
   available_feature_cols <- intersect(feature_cols, names(player_game_row))
@@ -770,7 +732,7 @@ run_rb_simulation <- function(player_name,
     stop("FEATURE ROW WEEK INVARIANT VIOLATED: CLI requested week=", week,
          " but feature_row has week=", player_feature_row$week, ". ",
          "This should NEVER happen - indicates week drift in feature row construction. ",
-         "Player: ", player_name, ", Season: ", season)
+         "Player ID: ", target_player_id, ", Season: ", season)
   }
   
   log_msg("=== Feature Row Validation ===")
@@ -817,6 +779,9 @@ run_rb_simulation <- function(player_name,
   # (rushing_yards, receiving_yards, total_touchdowns, total_yards)
   if (!exists("compute_final_rb_percentiles")) {
     source("R/simulation/simulate_rb_game.R", local = TRUE)
+    if (!exists("compute_final_rb_percentiles") && exists("compute_rb_percentiles")) {
+      compute_final_rb_percentiles <- compute_rb_percentiles
+    }
   }
   if (exists("compute_final_rb_percentiles")) {
     result$summary <- compute_final_rb_percentiles(result$draws)

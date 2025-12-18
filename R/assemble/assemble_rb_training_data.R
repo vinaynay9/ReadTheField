@@ -184,7 +184,12 @@ compute_decay_blended_priors <- function(df) {
   # Week 1: exp(0) = 1.0 (full prev season weight)
   # Week 4: exp(-0.75) ≈ 0.47
   # Week 8: exp(-1.75) ≈ 0.17
-  df$decay_weight <- exp(-DECAY_CONSTANT_K * (df$week - 1))
+  df$decay_weight <- ifelse(
+    is.na(df$week),
+    NA_real_,
+    exp(-DECAY_CONSTANT_K * (df$week - 1))
+  )
+  df$decay_weight <- ifelse(!is.na(df$week) & df$week < 5, df$decay_weight, 0)
   
   # Blend priors
   # carries_prior = decay_weight * prev_season + (1 - decay_weight) * season_to_date
@@ -306,44 +311,61 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
   features <- compute_decay_blended_priors(features)
   
   # Join defensive features (opponent context)
-  # Load cached defensive features if available
+  # Load cached defensive features (weekly, lagged)
   defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
   
-  if (file.exists(defense_weekly_features_path)) {
-    tryCatch({
-      if (!requireNamespace("arrow", quietly = TRUE)) {
-        warning("Package 'arrow' required to read defensive features. Defensive features will be missing.")
-      } else {
-        def_features <- arrow::read_parquet(defense_weekly_features_path)
-        
-        if (nrow(def_features) > 0) {
-          # Select defensive feature columns to join
-          def_cols <- c("season", "week", "defense_team",
-                       "opp_rush_yards_allowed_roll5",
-                       "opp_yards_per_rush_allowed_roll5",
-                       "opp_points_allowed_roll5",
-                       "opp_sacks_roll5",
-                       "opp_tfl_roll5")
-          
-          # Only join columns that exist
-          def_cols <- intersect(def_cols, names(def_features))
-          
-          # Ensure we have minimum required columns
-          if (all(c("season", "week", "defense_team") %in% def_cols)) {
-            # Join on opponent = defense_team, season, week
-            features <- merge(
-              features,
-              def_features[, def_cols, drop = FALSE],
-              by.x = c("season", "week", "opponent"),
-              by.y = c("season", "week", "defense_team"),
-              all.x = TRUE
-            )
-          }
-        }
-      }
-    }, error = function(e) {
-      warning(paste("Failed to join defensive features:", e$message, "Defensive features will be missing."))
-    })
+  if (!file.exists(defense_weekly_features_path)) {
+    stop("Missing defensive weekly features file: ", defense_weekly_features_path,
+         ". Run defensive feature refresh before assembling RB weekly features.")
+  }
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("Package 'arrow' is required to read defensive features. Install with install.packages('arrow').")
+  }
+  
+  def_features <- arrow::read_parquet(defense_weekly_features_path)
+  if (nrow(def_features) == 0) {
+    stop("Defensive weekly features are empty. Cannot proceed with opponent-aware RB features.")
+  }
+  
+  required_def_cols <- c("opp_yards_per_rush_allowed_roll5",
+                         "opp_rush_yards_allowed_roll5",
+                         "opp_points_allowed_roll5")
+  join_keys <- c("season", "week", "defense_team")
+  missing_def_cols <- setdiff(c(join_keys, required_def_cols), names(def_features))
+  if (length(missing_def_cols) > 0) {
+    stop("Defensive weekly features missing required columns: ",
+         paste(missing_def_cols, collapse = ", "),
+         ". Opponent-aware RB modeling requires these columns.")
+  }
+  
+  def_cols <- c(join_keys,
+                required_def_cols,
+                "opp_sacks_roll5",
+                "opp_tfl_roll5")
+  def_cols <- intersect(def_cols, names(def_features))
+  
+  # Guardrail: lagged weekly defense should be NA in week 1
+  week1_def <- def_features[def_features$week == 1, required_def_cols, drop = FALSE]
+  if (nrow(week1_def) > 0 && any(!is.na(as.matrix(week1_def)))) {
+    stop("Leakage detected: defensive roll5 features are non-NA in week 1. ",
+         "Opponent defensive features must be lagged (current game excluded).")
+  }
+  
+  # Join on opponent = defense_team, season, week
+  features <- merge(
+    features,
+    def_features[, def_cols, drop = FALSE],
+    by.x = c("season", "week", "opponent"),
+    by.y = c("season", "week", "defense_team"),
+    all.x = TRUE
+  )
+  
+  # Guardrail: ensure required opponent columns exist after join
+  missing_joined <- setdiff(required_def_cols, names(features))
+  if (length(missing_joined) > 0) {
+    stop("Opponent defensive columns missing after join: ",
+         paste(missing_joined, collapse = ", "),
+         ". This indicates a join/schema error.")
   }
   
   # Add RB v1 regime column based on week (Layer 3: before writing to parquet)
@@ -705,14 +727,15 @@ assemble_rb_training_data <- function(seasons) {
     if (nrow(def_game_stats) > 0) {
       def_features <- build_team_defense_features(def_game_stats)
       
-      # Join defensive features using opponent_team (defense) and game_id
+      # Join defensive features using opponent_team (defense) and week (weekly, lagged)
       # opponent_team in rb_data is the team the player is facing (the defense)
       message("Joining defensive features...")
       
       # Select defensive feature columns to join
-      def_cols <- c("game_id", "defense_team", 
+      def_cols <- c("season", "week", "defense_team", 
                    "opp_pass_yards_allowed_roll5",
                    "opp_rush_yards_allowed_roll5",
+                   "opp_yards_per_rush_allowed_roll5",
                    "opp_total_yards_allowed_roll5",
                    "opp_points_allowed_roll5",
                    "opp_sacks_roll5",
@@ -726,11 +749,21 @@ assemble_rb_training_data <- function(seasons) {
       # Only join columns that exist
       def_cols <- intersect(def_cols, names(def_features))
       
+      required_def_cols <- c("opp_yards_per_rush_allowed_roll5",
+                             "opp_rush_yards_allowed_roll5",
+                             "opp_points_allowed_roll5")
+      missing_def_cols <- setdiff(required_def_cols, def_cols)
+      if (length(missing_def_cols) > 0) {
+        stop("Defensive features missing required columns: ",
+             paste(missing_def_cols, collapse = ", "),
+             ". Opponent-aware RB modeling requires these columns.")
+      }
+      
       rb_data <- merge(
         rb_data,
         def_features[, def_cols, drop = FALSE],
-        by.x = c("game_id", "opponent"),
-        by.y = c("game_id", "defense_team"),
+        by.x = c("season", "week", "opponent"),
+        by.y = c("season", "week", "defense_team"),
         all.x = TRUE
       )
       
@@ -748,11 +781,11 @@ assemble_rb_training_data <- function(seasons) {
         }
       }
     } else {
-      warning("No defensive game stats available. Defensive features will be missing.")
+      stop("No defensive game stats available. Defensive features are required for RB v1.")
     }
   }, error = function(e) {
-    warning(paste("Failed to build/join defensive features:", e$message, 
-                 "Defensive features will be missing."))
+    stop(paste("Failed to build/join defensive features:", e$message,
+               "Defensive features are required for RB v1."))
   })
   
   # Final validation: Ensure no defensive features use same-game data
@@ -817,7 +850,8 @@ assemble_rb_training_data <- function(seasons) {
     "rush_tds_roll5", "rec_tds_roll5",
     # Defensive features (opponent context)
     "opp_pass_yards_allowed_roll5", "opp_rush_yards_allowed_roll5",
-    "opp_total_yards_allowed_roll5", "opp_points_allowed_roll5",
+    "opp_yards_per_rush_allowed_roll5", "opp_total_yards_allowed_roll5",
+    "opp_points_allowed_roll5",
     "opp_sacks_roll5", "opp_tfl_roll5",
     # Targets (post-game, for training) - RB v1 schema
     "target_carries", "target_rush_tds",
@@ -918,6 +952,7 @@ empty_rb_training_df <- function() {
     rec_tds_roll5 = double(0),
     # Defensive features (opponent context)
     opp_rush_yards_allowed_roll5 = double(0),
+    opp_yards_per_rush_allowed_roll5 = double(0),
     opp_points_allowed_roll5 = double(0),
     opp_sacks_roll5 = double(0),
     opp_tfl_roll5 = double(0),
@@ -929,4 +964,3 @@ empty_rb_training_df <- function() {
     stringsAsFactors = FALSE
   )
 }
-

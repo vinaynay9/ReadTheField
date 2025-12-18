@@ -1,5 +1,9 @@
 # Simulate RB Game (v1 Contract)
 #
+# IMPORTANT:
+# Rolling features are NEVER imputed.
+# NA values indicate insufficient history and are valid inputs.
+#
 # Monte Carlo simulation for RB player-game outcomes following RB v1 contract.
 # Simulation order:
 #   1. Sample carries (Negative Binomial or Poisson)
@@ -166,63 +170,79 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
     stop(error_msg)
   }
   
-  # Validate regime-specific models exist
+  # Determine prediction feature contract with graceful fallback for missing rolling history
+  feature_contracts <- get_rb_features_by_regime()
+  regime_order <- c("standard", "late", "mid", "early")
+  start_idx <- match(regime, regime_order)
+  candidate_regimes <- regime_order[seq(from = start_idx, to = length(regime_order))]
+  
+  prediction_regime <- NULL
+  required_features <- NULL
+  
+  for (cand in candidate_regimes) {
+    cand_features <- feature_contracts[[cand]]
+    if (is.null(cand_features)) next
+    missing_cols <- setdiff(cand_features, names(feature_row))
+    if (length(missing_cols) > 0) {
+      next
+    }
+    rolling_features <- grep("_roll[0-9]+$", cand_features, value = TRUE)
+    na_rolling <- rolling_features[sapply(rolling_features, function(f) is.na(feature_row[[f]][1]))]
+    strict_features <- setdiff(cand_features, c(rolling_features, "is_home"))
+    na_strict <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
+    if (length(na_rolling) > 0 || length(na_strict) > 0) {
+      next
+    }
+    prediction_regime <- cand
+    required_features <- cand_features
+    break
+  }
+  
+  if (is.null(prediction_regime)) {
+    stop(
+      "simulate_rb_game could not find a valid regime for prediction. ",
+      "Missing columns or NA strict features across regimes."
+    )
+  }
+  
+  # Validate presence of required columns for selected regime
+  missing_features <- setdiff(required_features, names(feature_row))
+  if (length(missing_features) > 0) {
+    error_msg <- paste(
+      "simulate_rb_game missing required feature columns: ",
+      paste(missing_features, collapse = ", ")
+    )
+    log_msg("FATAL:", error_msg)
+    stop(error_msg, call. = FALSE)
+  }
+  
+  # NOTE: Rolling features may be NA in early weeks or with limited history. This mirrors training-time behavior.
+  rolling_features <- grep("_roll[0-9]+$", required_features, value = TRUE)
+  strict_features <- setdiff(required_features, c(rolling_features, "is_home"))
+  na_features <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
+  if (length(na_features) > 0) {
+    error_msg <- paste(
+      "simulate_rb_game found NA in required non-rolling features: ",
+      paste(na_features, collapse = ", ")
+    )
+    log_msg("FATAL:", error_msg)
+    stop(error_msg, call. = FALSE)
+  }
+  
+  # Defensive guard against future-week leakage in feature names
+  if (any(grepl("_roll", names(feature_row)))) {
+    stopifnot(!any(grepl(paste0("week", week + 1), names(feature_row))))
+  }
+
+  # Validate regime-specific models exist for the selected prediction regime
   rb_targets <- get_rb_v1_targets()
-  required_model_keys <- sapply(rb_targets, function(t) get_model_key(t, regime))
+  required_model_keys <- sapply(rb_targets, function(t) get_model_key(t, prediction_regime))
   missing_models <- required_model_keys[!sapply(required_model_keys, function(k) !is.null(models_list[[k]]))]
   if (length(missing_models) > 0) {
-    error_msg <- paste("Missing required RB v1 models for regime '", regime, "': ", paste(missing_models, collapse = ", "),
+    error_msg <- paste("Missing required RB v1 models for regime '", prediction_regime, "': ", paste(missing_models, collapse = ", "),
          ". Cannot proceed with simulation.")
     log_msg("FATAL:", error_msg)
     stop(error_msg)
-  }
-  
-  # TIME-AWARE FIX: Determine features based on week-of-game, not regime
-  # This ensures prediction uses only features that existed at that time
-  # Regime selects which model coefficients to use, week selects which features exist
-  if (exists("get_rb_features_by_week")) {
-    required_features <- get_rb_features_by_week(week)
-  } else {
-    # Fallback: use regime-based features (legacy behavior)
-    feature_contracts <- get_rb_features_by_regime()
-    required_features <- feature_contracts[[regime]]
-    if (is.null(required_features)) {
-      error_msg <- paste("Unknown regime: ", regime, ". Valid regimes: ", paste(names(feature_contracts), collapse = ", "))
-      log_msg("FATAL:", error_msg)
-      stop(error_msg)
-    }
-  }
-  
-  # Validate week-based features are present (guardrail: schema enforcement)
-  missing_features <- setdiff(required_features, names(feature_row))
-  if (length(missing_features) > 0) {
-    error_msg <- paste("Missing required features for week ", week, " (regime '", regime, "'): ", 
-         paste(missing_features, collapse = ", "),
-         ". Cannot proceed with simulation. This indicates schema drift.")
-    log_msg("FATAL:", error_msg)
-    stop(error_msg)
-  }
-  
-  # Check for NA in required features (guardrail: data quality)
-  # CRITICAL: is_home is allowed to be NA (will be defaulted in prepare_prediction_data)
-  # CRITICAL: priors (carries_prior, targets_prior, ypc_prior, ypt_prior) are allowed to be NA (rookies, model uses intercept)
-  # CRITICAL: cumulative career priors (*_cum_mean, *_cum) are allowed to be NA (first career game)
-  # Only strict rolling features (roll3, roll5, roll7) must be non-NA for their respective weeks
-  optional_features <- c("is_home", "carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
-                         "carries_cum_mean", "targets_cum_mean", "ypc_cum", "ypt_cum", "catch_rate_cum", "receptions_cum_mean")
-  strict_rolling_features <- setdiff(required_features, optional_features)
-  
-  if (length(strict_rolling_features) > 0) {
-    na_features <- sapply(strict_rolling_features, function(f) {
-      f %in% names(feature_row) && is.na(feature_row[[f]][1])
-    })
-    if (any(na_features)) {
-      error_msg <- paste("NA values in required rolling features for week ", week, " (regime '", regime, "'): ", 
-           paste(strict_rolling_features[na_features], collapse = ", "),
-           ". All time-appropriate rolling features must be non-NA.")
-      log_msg("FATAL:", error_msg)
-      stop(error_msg)
-    }
   }
   
   # TIME-AWARE FIX: Prepare prediction data using week-based features only
@@ -236,10 +256,10 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   sim_rec_tds <- numeric(n_sims)
   
   # Get models for this regime
-  carries_model_key <- get_model_key("target_carries", regime)
-  receptions_model_key <- get_model_key("target_receptions", regime)
-  rush_tds_model_key <- get_model_key("target_rush_tds", regime)
-  rec_tds_model_key <- get_model_key("target_rec_tds", regime)
+  carries_model_key <- get_model_key("target_carries", prediction_regime)
+  receptions_model_key <- get_model_key("target_receptions", prediction_regime)
+  rush_tds_model_key <- get_model_key("target_rush_tds", prediction_regime)
+  rec_tds_model_key <- get_model_key("target_rec_tds", prediction_regime)
   
   carries_model <- models_list[[carries_model_key]]
   receptions_model <- models_list[[receptions_model_key]]
@@ -283,8 +303,30 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
     7.0
   }
   
-  sim_rush_yards <- sim_carries * ypc
-  sim_rec_yards <- sim_receptions * ypt
+  # Opponent-adjusted YPC (defensive context)
+  opp_ypc_allowed <- if ("opp_yards_per_rush_allowed_roll5" %in% names(feature_row) &&
+                         !is.na(feature_row$opp_yards_per_rush_allowed_roll5[1])) {
+    feature_row$opp_yards_per_rush_allowed_roll5[1]
+  } else {
+    NA_real_
+  }
+  baseline_ypc <- 4.3
+  defense_factor <- if (!is.na(opp_ypc_allowed)) opp_ypc_allowed / baseline_ypc else 1.0
+  defense_factor <- min(max(defense_factor, 0.75), 1.25)
+  ypc_adj <- ypc * defense_factor
+  
+  sim_rush_yards <- as.numeric(sim_carries) * ypc_adj
+  sim_rec_yards <- as.numeric(sim_receptions) * ypt
+  sim_rushing_yards <- as.numeric(sim_rush_yards)
+  sim_receiving_yards <- as.numeric(sim_rec_yards)
+  sim_total_yards <- sim_rushing_yards + sim_receiving_yards
+  
+  # Guardrails: ensure derived yardage is present and numeric
+  if (any(!is.finite(sim_rushing_yards)) || any(!is.finite(sim_receiving_yards))) {
+    error_msg <- "Derived rushing_yards or receiving_yards contain non-finite values."
+    log_msg("FATAL:", error_msg)
+    stop(error_msg)
+  }
   
   # Compile draws (RB v1 outcomes + derived yardage)
   result$draws <- data.frame(
@@ -293,7 +335,10 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
     rush_tds = sim_rush_tds,
     rec_tds = sim_rec_tds,
     rush_yards = sim_rush_yards,  # Derived
-    rec_yards = sim_rec_yards,     # Derived
+    rec_yards = sim_rec_yards,    # Derived
+    rushing_yards = sim_rushing_yards,
+    receiving_yards = sim_receiving_yards,
+    total_yards = sim_total_yards,
     stringsAsFactors = FALSE
   )
   
@@ -302,10 +347,17 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   log_msg(paste(names(result$draws), collapse = ", "))
   
   # Defensive check: ensure all vectors are non-NULL and correct length
-  required_outcomes <- c("carries", "receptions", "rush_tds", "rec_tds", "rush_yards", "rec_yards")
+  required_outcomes <- c("carries", "receptions", "rush_tds", "rec_tds",
+                         "rush_yards", "rec_yards", "rushing_yards",
+                         "receiving_yards", "total_yards")
   for (outcome in required_outcomes) {
     if (is.null(result$draws[[outcome]])) {
       error_msg <- paste("Simulation output '", outcome, "' is NULL. All outputs must be numeric vectors.")
+      log_msg("FATAL:", error_msg)
+      stop(error_msg)
+    }
+    if (!is.numeric(result$draws[[outcome]])) {
+      error_msg <- paste("Simulation output '", outcome, "' is not numeric. All outputs must be numeric vectors.")
       log_msg("FATAL:", error_msg)
       stop(error_msg)
     }
@@ -347,9 +399,8 @@ prepare_prediction_data <- function(feature_row, week = NULL, required_features 
     if (length(missing_features) > 0) {
       stop("Missing required features for week ", week, ": ", paste(missing_features, collapse = ", "))
     }
-    # Allow NA for priors and cumulative features (rookies / first career game)
-    optional_na_features <- c("carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
-                               "carries_cum_mean", "targets_cum_mean", "ypc_cum", "ypt_cum", "catch_rate_cum", "receptions_cum_mean")
+    rolling_features <- grep("_roll[0-9]+$", required_features, value = TRUE)
+    optional_na_features <- c(rolling_features, "is_home")
     strict_features <- setdiff(required_features, optional_na_features)
     na_features <- sapply(strict_features, function(f) f %in% names(df) && is.na(df[[f]][1]))
     if (any(na_features)) {
@@ -362,9 +413,8 @@ prepare_prediction_data <- function(feature_row, week = NULL, required_features 
     if (length(missing_features) > 0) {
       stop("Missing required features: ", paste(missing_features, collapse = ", "))
     }
-    # Allow NA for priors and cumulative features (rookies / first career game)
-    optional_na_features <- c("carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
-                               "carries_cum_mean", "targets_cum_mean", "ypc_cum", "ypt_cum", "catch_rate_cum", "receptions_cum_mean")
+    rolling_features <- grep("_roll[0-9]+$", required_features, value = TRUE)
+    optional_na_features <- c(rolling_features, "is_home")
     strict_features <- setdiff(required_features, optional_na_features)
     na_features <- sapply(strict_features, function(f) f %in% names(df) && is.na(df[[f]][1]))
     if (any(na_features)) {
@@ -383,9 +433,8 @@ prepare_prediction_data <- function(feature_row, week = NULL, required_features 
         if (length(missing_features) > 0) {
           stop("Missing required features for regime '", regime, "': ", paste(missing_features, collapse = ", "))
         }
-        # Allow NA for priors and cumulative features (rookies / first career game)
-        optional_na_features <- c("carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
-                                   "carries_cum_mean", "targets_cum_mean", "ypc_cum", "ypt_cum", "catch_rate_cum", "receptions_cum_mean")
+        rolling_features <- grep("_roll[0-9]+$", required_features, value = TRUE)
+        optional_na_features <- c(rolling_features, "is_home")
         strict_features <- setdiff(required_features, optional_na_features)
         na_features <- sapply(strict_features, function(f) f %in% names(df) && is.na(df[[f]][1]))
         if (any(na_features)) {
@@ -399,14 +448,6 @@ prepare_prediction_data <- function(feature_row, week = NULL, required_features 
   # Set defaults for optional features (use reasonable fallbacks)
   # TIME-AWARE: Only set defaults for features not in required_features
   default_values <- list(
-    carries_roll3 = 12,
-    carries_roll5 = 12,
-    carries_roll7 = 12,
-    targets_roll3 = 3,
-    targets_roll5 = 3,
-    targets_roll7 = 3,
-    yards_per_carry_roll5 = 4.0,
-    yards_per_target_roll5 = 7.0,
     is_home = 0
   )
   

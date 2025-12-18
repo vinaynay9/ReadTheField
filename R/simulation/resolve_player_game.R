@@ -28,6 +28,15 @@ canonicalize_name <- function(x) {
   x
 }
 
+#' Canonicalize full first+last name for strict matching
+#'
+#' @param first Character vector of first names
+#' @param last Character vector of last names
+#' @return Character vector of canonicalized "first last" names
+canonicalize_full_name <- function(first, last) {
+  canonicalize_name(paste(first, last))
+}
+
 #' Resolve player/game context from cached identity data (strict resolution with canonical names)
 #'
 #' Resolution modes:
@@ -50,6 +59,7 @@ resolve_player_game <- function(player_name,
                                 season = NULL,
                                 week = NULL,
                                 position = NULL,
+                                team = NULL,
                                 seasons = NULL,
                                 cache_only = TRUE) {
   
@@ -67,6 +77,22 @@ resolve_player_game <- function(player_name,
   if (is.na(player_name_canonical)) {
     stop("player_name cannot be canonicalized (empty after normalization)")
   }
+  
+  # Enforce full first+last name only (no abbreviated aliases)
+  name_parts <- strsplit(player_name_canonical, "\\s+")[[1]]
+  if (length(name_parts) < 2) {
+    stop("player_name must include full first and last name (e.g., 'Bijan Robinson'). ",
+         "Abbreviated aliases like 'B.Robinson' are not allowed.")
+  }
+  if (length(name_parts) > 2) {
+    stop("player_name must be full first and last name only (no middle names or initials). ",
+         "Input was: '", player_name_input, "'.")
+  }
+  if (nchar(name_parts[1]) == 1) {
+    stop("Abbreviated aliases like 'B.Robinson' are not allowed. ",
+         "Provide the full first and last name.")
+  }
+  player_name_full_canonical <- canonicalize_name(paste(name_parts[1], name_parts[2]))
 
   # Determine resolution mode
   has_season_week <- !is.null(season) && !is.null(week)
@@ -119,9 +145,10 @@ resolve_player_game <- function(player_name,
     stop("Player directory cache empty. Run scripts/refresh_weekly_cache.R to generate caches.")
   }
   
-  # Match on canonical name in player directory
+  # Match on canonical full first+last name in player directory
+  player_dir$canonical_full_name <- canonicalize_full_name(player_dir$first_name, player_dir$last_name)
   name_matches <- player_dir[
-    !is.na(player_dir$canonical_name) & player_dir$canonical_name == player_name_canonical,
+    !is.na(player_dir$canonical_full_name) & player_dir$canonical_full_name == player_name_full_canonical,
     , drop = FALSE
   ]
   
@@ -178,17 +205,71 @@ resolve_player_game <- function(player_name,
       }
     }
     
-    stop("No player found with canonical name '", player_name_canonical, 
+    stop("No player found with canonical full name '", player_name_full_canonical, 
          "' (input: '", player_name_input, "'). ",
-         "Player name matching is case-insensitive but requires exact canonical match.")
+         "Player name matching is case-insensitive but requires exact full first+last name.")
   }
   
   if (nrow(name_matches) > 1) {
-    stop("Multiple players found with canonical name '", player_name_canonical, 
-         "' (input: '", player_name_input, "'). ",
-         "Found ", nrow(name_matches), " matches. ",
-         "This indicates a data integrity issue in the player directory. ",
-         "Specify season/week to disambiguate.")
+    # Disambiguate using season/team context from identity cache
+    identity_check <- read_player_week_identity_cache()
+    identity_check$gameday <- as.Date(identity_check$gameday)
+    identity_check$game_date <- as.Date(identity_check$game_date)
+    
+    candidate_ids <- name_matches$player_id
+    identity_subset <- identity_check[identity_check$player_id %in% candidate_ids, , drop = FALSE]
+    
+    if (!is.null(season) && nrow(identity_subset) > 0) {
+      identity_subset <- identity_subset[!is.na(identity_subset$season) & identity_subset$season == season, , drop = FALSE]
+    }
+    if (!is.null(week) && nrow(identity_subset) > 0) {
+      identity_subset <- identity_subset[!is.na(identity_subset$week) & identity_subset$week == week, , drop = FALSE]
+    }
+    if (!is.null(team) && nrow(identity_subset) > 0) {
+      team_filter <- toupper(trimws(as.character(team)))
+      identity_subset <- identity_subset[!is.na(identity_subset$team) & identity_subset$team == team_filter, , drop = FALSE]
+    }
+    
+    if (nrow(identity_subset) > 0) {
+      narrowed_ids <- unique(identity_subset$player_id)
+      name_matches <- name_matches[name_matches$player_id %in% narrowed_ids, , drop = FALSE]
+    }
+    
+    if (nrow(name_matches) > 1) {
+      # Build ambiguity report
+      identity_all <- read_player_week_identity_cache()
+      identity_all$gameday <- as.Date(identity_all$gameday)
+      identity_all$game_date <- as.Date(identity_all$game_date)
+      
+      seasons_active <- aggregate(
+        season ~ player_id,
+        identity_all[identity_all$player_id %in% name_matches$player_id, , drop = FALSE],
+        FUN = function(x) {
+          x <- sort(unique(x[!is.na(x)]))
+          if (length(x) == 0) return(NA_character_)
+          paste0(min(x), "-", max(x))
+        }
+      )
+      
+      teams_active <- aggregate(
+        team ~ player_id,
+        identity_all[identity_all$player_id %in% name_matches$player_id, , drop = FALSE],
+        FUN = function(x) paste(unique(x[!is.na(x)]), collapse = "/")
+      )
+      
+      candidates <- merge(name_matches, seasons_active, by = "player_id", all.x = TRUE)
+      candidates <- merge(candidates, teams_active, by = "player_id", all.x = TRUE)
+      
+      candidate_lines <- paste(
+        candidates$full_name, "|", candidates$team, "|",
+        candidates$player_id, "|", candidates$season,
+        sep = " "
+      )
+      
+      stop("Multiple players found with full name '", player_name_full_canonical, 
+           "' (input: '", player_name_input, "'). ",
+           "Ambiguous candidates:\n- ", paste(candidate_lines, collapse = "\n- "))
+    }
   }
   
   # Resolved player_id (source of truth)

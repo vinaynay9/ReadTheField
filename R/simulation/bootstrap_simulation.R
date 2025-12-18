@@ -91,6 +91,13 @@ if (!exists("read_player_directory_cache")) {
     stop("Simulation bootstrap incomplete: R/data/build_weekly_player_layers.R not found")
   }
 }
+if (!exists("read_player_dim_cache")) {
+  if (file.exists("R/data/build_player_dim.R")) {
+    source("R/data/build_player_dim.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/data/build_player_dim.R not found")
+  }
+}
 
 if (!exists("read_player_week_identity_cache")) {
   if (file.exists("R/data/build_weekly_player_layers.R")) {
@@ -155,6 +162,13 @@ if (!exists("resolve_player_game")) {
     stop("Simulation bootstrap incomplete: R/simulation/resolve_player_game.R not found")
   }
 }
+if (!exists("resolve_player_search")) {
+  if (file.exists("R/resolve/resolve_player_search.R")) {
+    source("R/resolve/resolve_player_search.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/resolve/resolve_player_search.R not found")
+  }
+}
 
 if (!exists("canonicalize_name")) {
   if (file.exists("R/simulation/resolve_player_game.R")) {
@@ -212,6 +226,7 @@ required_functions <- c(
   "get_available_seasons_from_cache",
   "load_schedules",
   "read_player_directory_cache",
+  "read_player_dim_cache",
   "read_player_week_identity_cache",
   "read_rb_weekly_features_cache",
   "assemble_rb_weekly_features",
@@ -219,6 +234,7 @@ required_functions <- c(
   "simulate_rb_game",
   "validate_rb_models",
   "resolve_player_game",
+  "resolve_player_search",
   "canonicalize_name",
   "simulation_mode_policy",
   "build_future_rb_feature_row",

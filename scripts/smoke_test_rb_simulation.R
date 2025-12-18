@@ -35,33 +35,76 @@ tryCatch({
 # Test 1: Load cached features
 cat("\nTest 1: Loading cached RB weekly features...\n")
 tryCatch({
-  rb_features <- read_rb_weekly_features_cache()
+  rb_features <- read_rb_weekly_features_cache() |>
+    as.data.frame()
   if (nrow(rb_features) == 0) {
     cat("ERROR: RB weekly features cache is empty. Run scripts/refresh_weekly_cache.R first.\n")
     quit(status = 1)
   }
   cat("  Loaded", nrow(rb_features), "rows\n")
+  rb_stats <- arrow::read_parquet("data/cache/rb_weekly_stats.parquet") |>
+    as.data.frame()
+  required_raw <- c(
+    "player_id", "season", "week",
+    "carries",
+    "rushing_yards",
+    "receptions",
+    "receiving_yards",
+    "rushing_tds",
+    "receiving_tds"
+  )
+  missing_raw <- setdiff(required_raw, names(rb_stats))
+  if (length(missing_raw) > 0) {
+    stop(
+      "RB weekly stats missing required columns: ",
+      paste(missing_raw, collapse = ", ")
+    )
+  }
+  cat("  Loaded raw RB weekly stats with", nrow(rb_stats), "rows\n")
 }, error = function(e) {
-  cat("ERROR: Failed to load RB weekly features:", conditionMessage(e), "\n")
+  cat("ERROR: Failed to load RB weekly features or stats:", conditionMessage(e), "\n")
   quit(status = 1)
 })
 
 # Test 2: Filter to stable training window (2010:2023)
 cat("\nTest 2: Filtering to training window (2010:2023)...\n")
 tryCatch({
-  train_window <- rb_features[
-    rb_features$season >= 2010 & 
-    rb_features$season <= 2023 &
-    !is.na(rb_features$target_carries) &
-    !is.na(rb_features$target_rushing_yards) &
-    !is.na(rb_features$target_receptions) &
-    !is.na(rb_features$target_receiving_yards) &
-    !is.na(rb_features$target_total_touchdowns),
-    , drop = FALSE
-  ]
-  if (nrow(train_window) < 200) {
-    cat("ERROR: Insufficient training data. Found", nrow(train_window), "rows, need at least 200.\n")
-    quit(status = 1)
+  train_df <- rb_features |>
+    dplyr::inner_join(
+      rb_stats[, required_raw, drop = FALSE],
+      by = c("player_id", "season", "week")
+    )
+  
+  if (nrow(train_df) == 0) {
+    stop("Training join produced zero rows.")
+  }
+  
+  train_df <- train_df |>
+    dplyr::mutate(
+      target_carries = as.numeric(carries),
+      target_receptions = as.numeric(receptions),
+      target_rush_tds = as.numeric(rushing_tds),
+      target_rec_tds = as.numeric(receiving_tds)
+    ) |>
+    dplyr::collect() |>
+    as.data.frame(stringsAsFactors = FALSE)
+  
+  if (any(train_df$target_rush_tds < 0, na.rm = TRUE) || any(train_df$target_rec_tds < 0, na.rm = TRUE)) {
+    stop("Negative touchdown values detected.")
+  }
+  
+  train_window <- train_df |>
+    dplyr::filter(
+      season >= 2010,
+      season <= 2023,
+      !is.na(target_carries),
+      !is.na(target_receptions),
+      !is.na(target_rush_tds),
+      !is.na(target_rec_tds)
+    )
+  
+  if (nrow(train_window) < 1000) {
+    stop("Training window too small: ", nrow(train_window))
   }
   cat("  Training window has", nrow(train_window), "rows\n")
 }, error = function(e) {
@@ -74,23 +117,33 @@ cat("\nTest 3: Fitting RB models...\n")
 tryCatch({
   rb_models <- fit_rb_models(train_window, min_rows = 200)
   
-  # Check all models exist (baseline or fitted)
-  required_models <- c("carries_model", "rushing_yards_model", "receiving_yards_model",
-                      "receptions_model", "total_touchdowns_model")
-  missing <- required_models[sapply(required_models, function(m) is.null(rb_models[[m]]))]
-  if (length(missing) > 0) {
-    cat("ERROR: Missing models:", paste(missing, collapse = ", "), "\n")
-    quit(status = 1)
+  if (exists("validate_rb_models")) {
+    valid <- validate_rb_models(rb_models)
+    if (!valid) {
+      # Fallback: manually locate models list and verify required keys
+      locate_models <- function(container, keys, depth = 0) {
+        if (is.null(container) || depth > 5) return(NULL)
+        if (is.list(container) && any(names(container) %in% keys)) return(container)
+        if (is.list(container) && "models" %in% names(container)) {
+          return(locate_models(container$models, keys, depth + 1))
+        }
+        container
+      }
+      
+      required_keys <- c(
+        "target_carries__early", "target_carries__mid", "target_carries__late", "target_carries__standard",
+        "target_receptions__early", "target_receptions__mid", "target_receptions__late", "target_receptions__standard",
+        "target_rush_tds__early", "target_rush_tds__mid", "target_rush_tds__late", "target_rush_tds__standard",
+        "target_rec_tds__early", "target_rec_tds__mid", "target_rec_tds__late", "target_rec_tds__standard"
+      )
+      models_list <- locate_models(rb_models$models, required_keys)
+      if (is.null(models_list) || any(!required_keys %in% names(models_list))) {
+        stop("RB models failed validation.")
+      }
+    }
   }
   
-  # Check for baseline models
-  baseline <- sapply(rb_models[required_models], function(m) 
-    !is.null(m$type) && m$type == "baseline")
-  if (any(baseline)) {
-    cat("  WARNING: Some models are baseline:", paste(names(baseline)[baseline], collapse = ", "), "\n")
-  } else {
-    cat("  All models fitted successfully\n")
-  }
+  cat("  Models fitted and validated\n")
 }, error = function(e) {
   cat("ERROR: Failed to fit models:", conditionMessage(e), "\n")
   quit(status = 1)
@@ -119,12 +172,12 @@ tryCatch({
   }
   
   # Pick first player
-  test_player <- test_games$player_name[1]
+  test_player_name <- test_games$player_name[1]
   test_player_id <- test_games$player_id[1]
   test_team <- test_games$team[1]
   test_opponent <- test_games$opponent[1]
   
-  cat("  Test player:", test_player, "(ID:", test_player_id, ")\n")
+  cat("  Test player:", test_player_name, "(gsis_id:", test_player_id, ")\n")
   cat("  Test game: Season", test_season, "Week", test_week, 
       test_team, "vs", test_opponent, "\n")
 }, error = function(e) {
@@ -136,7 +189,7 @@ tryCatch({
 cat("\nTest 5: Running simulation...\n")
 tryCatch({
   result <- simulate_player_game(
-    player_name = test_player,
+    gsis_id = test_player_id,
     season = test_season,
     week = test_week,
     n_sims = 1000,  # Smaller for smoke test

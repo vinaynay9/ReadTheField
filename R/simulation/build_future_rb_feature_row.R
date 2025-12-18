@@ -215,6 +215,7 @@ build_future_rb_feature_row <- function(player_id,
             paste(missing_priors, collapse = ", "), 
             ". Early-season projections may collapse to baseline. ",
             "Run scripts/refresh_weekly_cache.R to populate priors.")
+  }
   
   # Ensure is_home is set correctly
   synthetic_row$is_home <- ifelse(home_away == "HOME", 1L, 0L)
@@ -228,4 +229,3 @@ build_future_rb_feature_row <- function(player_id,
   
   synthetic_row
 }
-

@@ -54,7 +54,7 @@ build_team_defense_features <- function(def_game_stats) {
     }
   }
   
-  # Ensure data is sorted by defense_team, then season, week, gameday
+  # Ensure data is sorted by defense_team, season, week, gameday
   def_game_stats <- def_game_stats[order(
     def_game_stats$defense_team,
     def_game_stats$season,
@@ -65,7 +65,7 @@ build_team_defense_features <- function(def_game_stats) {
   # Initialize result with input data
   result <- def_game_stats
   
-  # Group by defense_team and compute rolling features
+  # Group by defense_team and season, compute rolling features (season-boundary reset)
   message("Computing rolling defensive features...")
   
   teams <- unique(def_game_stats$defense_team)
@@ -85,82 +85,79 @@ build_team_defense_features <- function(def_game_stats) {
     result$opp_int_roll5 <- NA_real_
   }
   
-  # Process each team separately
+  # Process each team-season separately
   for (i in seq_along(teams)) {
     team <- teams[i]
     team_mask <- def_game_stats$defense_team == team
     team_data <- def_game_stats[team_mask, ]
     
-    if (nrow(team_data) == 0) next
-    
-    # Ensure team data is sorted by time
-    team_data <- team_data[order(team_data$season, team_data$week, team_data$gameday), ]
-    
-    # Compute rolling features using lagged windows
-    # Window = 5 (strict semantics: requires exactly 5 prior games)
-    
-    # Pass yards allowed
-    if ("pass_yards_allowed" %in% names(team_data)) {
-      result$opp_pass_yards_allowed_roll5[team_mask] <- lagged_roll_mean(
-        team_data$pass_yards_allowed,
-        window = 5
-      )
-    }
-    
-    # Rush yards allowed
-    if ("rush_yards_allowed" %in% names(team_data)) {
-      result$opp_rush_yards_allowed_roll5[team_mask] <- lagged_roll_mean(
-        team_data$rush_yards_allowed,
-        window = 5
-      )
-    }
-    
-    # Yards per rush allowed
-    if ("yards_per_rush_allowed" %in% names(team_data)) {
-      result$opp_yards_per_rush_allowed_roll5[team_mask] <- lagged_roll_mean(
-        team_data$yards_per_rush_allowed,
-        window = 5
-      )
-    }
-    
-    # Total yards allowed
-    if ("total_yards_allowed" %in% names(team_data)) {
-      result$opp_total_yards_allowed_roll5[team_mask] <- lagged_roll_mean(
-        team_data$total_yards_allowed,
-        window = 5
-      )
-    }
-    
-    # Points allowed
-    if ("points_allowed" %in% names(team_data)) {
-      result$opp_points_allowed_roll5[team_mask] <- lagged_roll_mean(
-        team_data$points_allowed,
-        window = 5
-      )
-    }
-    
-    # Sacks
-    if ("def_sacks" %in% names(team_data)) {
-      result$opp_sacks_roll5[team_mask] <- lagged_roll_mean(
-        as.numeric(team_data$def_sacks),
-        window = 5
-      )
-    }
-    
-    # TFL
-    if ("def_tfl" %in% names(team_data)) {
-      result$opp_tfl_roll5[team_mask] <- lagged_roll_mean(
-        as.numeric(team_data$def_tfl),
-        window = 5
-      )
-    }
-    
-    # Interceptions (optional)
-    if ("def_interceptions" %in% names(team_data) && "opp_int_roll5" %in% names(result)) {
-      result$opp_int_roll5[team_mask] <- lagged_roll_mean(
-        as.numeric(team_data$def_interceptions),
-        window = 5
-      )
+    seasons <- unique(team_data$season)
+    for (seas in seasons) {
+      season_mask <- team_data$season == seas
+      season_data <- team_data[season_mask, ]
+      
+      if (nrow(season_data) == 0) next
+      
+      # Ensure team-season data is sorted by time
+      season_data <- season_data[order(season_data$week, season_data$gameday), ]
+      season_idx <- which(team_mask)[season_mask]
+      
+      # Compute rolling features using lagged windows (window = 5)
+      if ("pass_yards_allowed" %in% names(season_data)) {
+        result$opp_pass_yards_allowed_roll5[season_idx] <- lagged_roll_mean(
+          season_data$pass_yards_allowed,
+          window = 5
+        )
+      }
+      
+      if ("rush_yards_allowed" %in% names(season_data)) {
+        result$opp_rush_yards_allowed_roll5[season_idx] <- lagged_roll_mean(
+          season_data$rush_yards_allowed,
+          window = 5
+        )
+      }
+      
+      if ("yards_per_rush_allowed" %in% names(season_data)) {
+        result$opp_yards_per_rush_allowed_roll5[season_idx] <- lagged_roll_mean(
+          season_data$yards_per_rush_allowed,
+          window = 5
+        )
+      }
+      
+      if ("total_yards_allowed" %in% names(season_data)) {
+        result$opp_total_yards_allowed_roll5[season_idx] <- lagged_roll_mean(
+          season_data$total_yards_allowed,
+          window = 5
+        )
+      }
+      
+      if ("points_allowed" %in% names(season_data)) {
+        result$opp_points_allowed_roll5[season_idx] <- lagged_roll_mean(
+          season_data$points_allowed,
+          window = 5
+        )
+      }
+      
+      if ("def_sacks" %in% names(season_data)) {
+        result$opp_sacks_roll5[season_idx] <- lagged_roll_mean(
+          as.numeric(season_data$def_sacks),
+          window = 5
+        )
+      }
+      
+      if ("def_tfl" %in% names(season_data)) {
+        result$opp_tfl_roll5[season_idx] <- lagged_roll_mean(
+          as.numeric(season_data$def_tfl),
+          window = 5
+        )
+      }
+      
+      if ("def_interceptions" %in% names(season_data) && "opp_int_roll5" %in% names(result)) {
+        result$opp_int_roll5[season_idx] <- lagged_roll_mean(
+          as.numeric(season_data$def_interceptions),
+          window = 5
+        )
+      }
     }
     
     if (i %% 10 == 0) {
@@ -195,9 +192,51 @@ build_team_defense_features <- function(def_game_stats) {
   }
   
   # Validation: Ensure defensive features are opponent-specific
-  # Check that defense_team matches the opponent in the joined data
-  # (This will be validated when joined to player data)
   message("Validation: Defensive features are opponent-specific (defense_team == opponent)")
+
+  # Enforce week 1 rolling features are NA (season-boundary reset)
+  rolling_cols <- grep("_roll[0-9]+$", names(result), value = TRUE)
+  if (length(rolling_cols) > 0) {
+    result <- result |>
+      dplyr::mutate(
+        dplyr::across(
+          dplyr::all_of(rolling_cols),
+          ~ dplyr::if_else(week == 1, NA_real_, .)
+        )
+      )
+    week1_rows <- result[result$week == 1, rolling_cols, drop = FALSE]
+    stopifnot(sum(!is.na(week1_rows)) == 0)
+  }
+
+  # Canonicalize defense_team column
+  if (!"defense_team" %in% names(result)) {
+    if ("team" %in% names(result)) {
+      result$defense_team <- result$team
+    } else if ("team_abbr" %in% names(result)) {
+      result$defense_team <- result$team_abbr
+    } else {
+      stop("Defensive features missing team identifier. Expected team or team_abbr.")
+    }
+  }
+
+  # Validate uniqueness
+  dup <- duplicated(result[, c("defense_team", "season", "week")])
+  if (any(dup)) {
+    stop("Duplicate defensive rows found for (defense_team, season, week).")
+  }
+
+  # Validate required columns
+  required <- c(
+    "defense_team", "season", "week",
+    "opp_yards_per_rush_allowed_roll5",
+    "opp_rush_yards_allowed_roll5",
+    "opp_points_allowed_roll5"
+  )
+  missing <- setdiff(required, names(result))
+  if (length(missing) > 0) {
+    stop("Defensive features missing required columns: ",
+         paste(missing, collapse = ", "))
+  }
   
   return(result)
 }

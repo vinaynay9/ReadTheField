@@ -3,119 +3,162 @@ Training rows: 36609
 High NA rates in required features:  is_home (100%), carries_roll7 (59.8%), targets_roll7 (59.8%) 
  
 Fitting: target_carries__early 
-  Features used: is_home 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior 
   Rows available: 6865 
-  Rows used: 6865 
-  Model: target_carries__early | Features: is_home | Rows available: 6865 | Rows used: 6865 | Fit: baseline | Fallback: TRUE 
+  Rows used: 4338 
+  Model: target_carries__early | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior | Rows available: 6865 | Rows used: 4338 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_carries__mid 
-  Features used: is_home, carries_roll3, targets_roll3 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3 
   Rows available: 4200 
-  Rows used: 2973 
-  Model: target_carries__mid | Features: is_home, carries_roll3, targets_roll3 | Rows available: 4200 | Rows used: 2973 | Fit: baseline | Fallback: TRUE 
+  Rows used: 2317 
+  Model: target_carries__mid | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3 | Rows available: 4200 | Rows used: 2317 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_carries__late 
-  Features used: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 
   Rows available: 4077 
-  Rows used: 2137 
-  Model: target_carries__late | Features: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5 | Rows available: 4077 | Rows used: 2137 | Fit: baseline | Fallback: TRUE 
+  Rows used: 1448 
+  Model: target_carries__late | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 | Rows available: 4077 | Rows used: 1448 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_carries__standard 
-  Features used: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 
   Rows available: 21467 
-  Rows used: 14710 
-  Model: target_carries__standard | Features: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7 | Rows available: 21467 | Rows used: 14710 | Fit: baseline | Fallback: TRUE 
+  Rows used: 10457 
+  Model: target_carries__standard | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 | Rows available: 21467 | Rows used: 10457 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_receptions__early 
-  Features used: is_home 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior 
   Rows available: 6865 
-  Rows used: 6865 
-  Model: target_receptions__early | Features: is_home | Rows available: 6865 | Rows used: 6865 | Fit: baseline | Fallback: TRUE 
+  Rows used: 4338 
+  Model: target_receptions__early | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior | Rows available: 6865 | Rows used: 4338 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_receptions__mid 
-  Features used: is_home, carries_roll3, targets_roll3 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3 
   Rows available: 4200 
-  Rows used: 2973 
-  Model: target_receptions__mid | Features: is_home, carries_roll3, targets_roll3 | Rows available: 4200 | Rows used: 2973 | Fit: baseline | Fallback: TRUE 
+  Rows used: 2317 
+  Model: target_receptions__mid | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3 | Rows available: 4200 | Rows used: 2317 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_receptions__late 
-  Features used: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 
   Rows available: 4077 
-  Rows used: 2137 
-  Model: target_receptions__late | Features: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5 | Rows available: 4077 | Rows used: 2137 | Fit: baseline | Fallback: TRUE 
+  Rows used: 1448 
+  Model: target_receptions__late | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 | Rows available: 4077 | Rows used: 1448 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_receptions__standard 
-  Features used: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 
   Rows available: 21467 
-  Rows used: 14710 
-  Model: target_receptions__standard | Features: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7 | Rows available: 21467 | Rows used: 14710 | Fit: baseline | Fallback: TRUE 
+  Rows used: 10457 
+  Model: target_receptions__standard | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 | Rows available: 21467 | Rows used: 10457 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_rush_tds__early 
-  Features used: is_home 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior 
   Rows available: 6865 
-  Rows used: 6865 
-  Model: target_rush_tds__early | Features: is_home | Rows available: 6865 | Rows used: 6865 | Fit: baseline | Fallback: TRUE 
+  Rows used: 4338 
+  Model: target_rush_tds__early | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior | Rows available: 6865 | Rows used: 4338 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_rush_tds__mid 
-  Features used: is_home, carries_roll3, targets_roll3 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3 
   Rows available: 4200 
-  Rows used: 2973 
-  Model: target_rush_tds__mid | Features: is_home, carries_roll3, targets_roll3 | Rows available: 4200 | Rows used: 2973 | Fit: baseline | Fallback: TRUE 
+  Rows used: 2317 
+  Model: target_rush_tds__mid | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3 | Rows available: 4200 | Rows used: 2317 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_rush_tds__late 
-  Features used: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 
   Rows available: 4077 
-  Rows used: 2137 
-  Model: target_rush_tds__late | Features: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5 | Rows available: 4077 | Rows used: 2137 | Fit: baseline | Fallback: TRUE 
+  Rows used: 1448 
+  Model: target_rush_tds__late | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 | Rows available: 4077 | Rows used: 1448 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_rush_tds__standard 
-  Features used: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 
   Rows available: 21467 
-  Rows used: 14710 
-  Model: target_rush_tds__standard | Features: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7 | Rows available: 21467 | Rows used: 14710 | Fit: baseline | Fallback: TRUE 
+  Rows used: 10457 
+  Model: target_rush_tds__standard | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 | Rows available: 21467 | Rows used: 10457 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_rec_tds__early 
-  Features used: is_home 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior 
   Rows available: 6865 
-  Rows used: 6865 
-  Model: target_rec_tds__early | Features: is_home | Rows available: 6865 | Rows used: 6865 | Fit: baseline | Fallback: TRUE 
+  Rows used: 4338 
+  Model: target_rec_tds__early | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior | Rows available: 6865 | Rows used: 4338 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_rec_tds__mid 
-  Features used: is_home, carries_roll3, targets_roll3 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3 
   Rows available: 4200 
-  Rows used: 2973 
-  Model: target_rec_tds__mid | Features: is_home, carries_roll3, targets_roll3 | Rows available: 4200 | Rows used: 2973 | Fit: baseline | Fallback: TRUE 
+  Rows used: 2317 
+  Model: target_rec_tds__mid | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3 | Rows available: 4200 | Rows used: 2317 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_rec_tds__late 
-  Features used: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 
   Rows available: 4077 
-  Rows used: 2137 
-  Model: target_rec_tds__late | Features: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5 | Rows available: 4077 | Rows used: 2137 | Fit: baseline | Fallback: TRUE 
+  Rows used: 1448 
+  Model: target_rec_tds__late | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 | Rows available: 4077 | Rows used: 1448 | Fit: poisson | Fallback: FALSE 
  
 Fitting: target_rec_tds__standard 
-  Features used: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7 
+  Dropping zero-variance features:  is_home 
+  Features used: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 
   Rows available: 21467 
-  Rows used: 14710 
-  Model: target_rec_tds__standard | Features: is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7 | Rows available: 21467 | Rows used: 14710 | Fit: baseline | Fallback: TRUE 
+  Rows used: 10457 
+  Model: target_rec_tds__standard | Features: carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5 | Rows available: 21467 | Rows used: 10457 | Fit: poisson | Fallback: FALSE 
  
 === Fitting Summary === 
 Total models: 16 
-Fitted: 0 
-Baseline (fallback): 16 
+Fitted: 16 
+Baseline (fallback): 0 
  
 Time-aware feature usage by regime: 
-   early :  is_home  ( 6865  rows) 
-   mid :  is_home, carries_roll3, targets_roll3  ( 2973  rows) 
-   late :  is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5  ( 2137  rows) 
-   standard :  is_home, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7  ( 14710  rows) 
+   early :  carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior  ( 4338  rows) 
+   mid :  carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3  ( 2317  rows) 
+   late :  carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5  ( 1448  rows) 
+   standard :  carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_points_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5  ( 10457  rows) 
+=== Feature Row Validation === 
+Feature row week: 8 | Metadata week: 8 | CLI week: 8 | Match: OK 
+=== simulate_rb_game: Week Extraction === 
+Extracted week from feature_row:  8 
+Determined regime for week  8 :  standard 
 Simulating for week 8 -> regime: standard 
 Simulation draws columns: 
-carries, receptions, rush_tds, rec_tds, rush_yards, rec_yards 
+carries, receptions, rush_tds, rec_tds, rush_yards, rec_yards, rushing_yards, receiving_yards, total_yards 
 Simulation draws columns (before resolution):
-carries, receptions, rush_tds, rec_tds, rush_yards, rec_yards 
+carries, receptions, rush_tds, rec_tds, rush_yards, rec_yards, rushing_yards, receiving_yards, total_yards 
 Simulation draws columns (after resolution):
-carries, receptions, rush_tds, rec_tds, rush_yards, rec_yards, rushing_yards, receiving_yards, total_touchdowns 
+carries, receptions, rush_tds, rec_tds, rush_yards, rec_yards, rushing_yards, receiving_yards, total_yards, total_touchdowns 
+=== Post-Resolution Diagnostics === 
+carries: 0% NA, mean=9.23, sd=2.98 
+rushing_yards: 0% NA, mean=44.02, sd=14.19 
+receiving_yards: 0% NA, mean=8.52, sd=6.79 
+total_yards: 0% NA, mean=52.54, sd=15.5 
+total_touchdowns: 0% NA, mean=0.36, sd=0.59 
  
 === RB Simulation Start === 
-Player: Bijan Robinson | Team: ATL | Opponent: PHI 
-Season: 2024 | Week: 2 
+REQUESTED: gsis_id: 00-0038542 
+REQUESTED: Season: 2024 | Week: 2 
+CLI args are the source of truth - no overrides allowed 
+=== Game Identification === 
+Identified game: season= 2024 , week= 2 
+Game key: 2024_wk02_nodate_ATL_PHI_00-0038542 
+Using CLI-provided season: 2024 
+Using CLI-provided week: 2 
+WARNING: No valid game_date found 
+Using identified_game_row opponent: PHI 
+Using identified_game_row team: ATL 
+WARNING: No valid home_away found 
+=== Resolution Validation === 
+RESOLVED: Season: 2024 | Week: 2 
+RESOLVED: Team: ATL | Opponent: PHI 
+RESOLVED: Game Date: NA | Game ID: NA 
+RESOLVED: Home/Away: NA 
+Resolution validation: PASS 

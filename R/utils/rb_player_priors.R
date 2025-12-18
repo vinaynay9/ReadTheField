@@ -123,6 +123,54 @@ add_rb_player_priors <- function(df) {
     }
   }
   
+  # Apply decayed previous-season priors for returning players in weeks 1-4
+  if (all(c("week", "prev_season_carries_pg", "prev_season_ypc") %in% names(df))) {
+    decay_k <- 0.25
+    if ("decay_weight" %in% names(df)) {
+      decay_weight <- df$decay_weight
+    } else {
+      decay_weight <- ifelse(
+        is.na(df$week),
+        NA_real_,
+        exp(-decay_k * (df$week - 1))
+      )
+      decay_weight <- ifelse(!is.na(df$week) & df$week < 5, decay_weight, 0)
+    }
+    
+    season_carries <- if ("season_to_date_carries_pg" %in% names(df)) {
+      df$season_to_date_carries_pg
+    } else {
+      df$carries_cum_mean
+    }
+    season_ypc <- if ("season_to_date_ypc" %in% names(df)) {
+      df$season_to_date_ypc
+    } else {
+      df$ypc_cum
+    }
+    
+    has_prev <- !is.na(df$prev_season_carries_pg) & !is.na(df$prev_season_ypc)
+    if ("prev_season_games" %in% names(df)) {
+      has_prev <- has_prev & df$prev_season_games > 0
+    }
+    use_idx <- !is.na(df$week) & df$week < 5 & has_prev
+    
+    if (any(use_idx)) {
+      blended_carries <- ifelse(
+        !is.na(df$prev_season_carries_pg) & !is.na(season_carries),
+        decay_weight * df$prev_season_carries_pg + (1 - decay_weight) * season_carries,
+        ifelse(!is.na(df$prev_season_carries_pg), df$prev_season_carries_pg, season_carries)
+      )
+      blended_ypc <- ifelse(
+        !is.na(df$prev_season_ypc) & !is.na(season_ypc),
+        decay_weight * df$prev_season_ypc + (1 - decay_weight) * season_ypc,
+        ifelse(!is.na(df$prev_season_ypc), df$prev_season_ypc, season_ypc)
+      )
+      
+      df$carries_cum_mean[use_idx] <- blended_carries[use_idx]
+      df$ypc_cum[use_idx] <- blended_ypc[use_idx]
+    }
+  }
+  
   return(df)
 }
 

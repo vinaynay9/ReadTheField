@@ -476,6 +476,39 @@ build_team_defense_game_stats <- function(seasons) {
     warning(paste("Found", sum(duplicates), "duplicate team-game combinations in defensive stats"))
   }
   
+  # Build and write weekly defensive roll5 features (leakage-safe)
+  if (!exists("build_team_defense_features")) {
+    if (file.exists("R/features/build_team_defense_features.R")) {
+      source("R/features/build_team_defense_features.R", local = TRUE)
+    } else {
+      stop("build_team_defense_features function not found. Cannot build weekly defensive features.")
+    }
+  }
+  
+  def_weekly_features <- build_team_defense_features(result)
+  if (is.null(def_weekly_features) || nrow(def_weekly_features) == 0) {
+    stop("Defensive weekly features are empty before writing. Cannot create defense_weekly_features.parquet.")
+  }
+  
+  # Keep only roll5 features and keys; rename defense_team -> team
+  roll5_cols <- grep("_roll5$", names(def_weekly_features), value = TRUE)
+  required_cols <- c("season", "week", "defense_team")
+  missing_required <- setdiff(required_cols, names(def_weekly_features))
+  if (length(missing_required) > 0) {
+    stop("Defensive weekly features missing required keys: ", paste(missing_required, collapse = ", "))
+  }
+  
+  def_weekly_features <- def_weekly_features[, c(required_cols, roll5_cols), drop = FALSE]
+  names(def_weekly_features)[names(def_weekly_features) == "defense_team"] <- "team"
+  
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("Package 'arrow' is required to write defensive weekly features.")
+  }
+  
+  defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
+  dir.create(dirname(defense_weekly_features_path), recursive = TRUE, showWarnings = FALSE)
+  arrow::write_parquet(def_weekly_features, defense_weekly_features_path)
+  
   return(result)
 }
 

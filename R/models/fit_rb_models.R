@@ -26,6 +26,8 @@ library(dplyr)
 #' @param is_count Logical, whether this is a count outcome
 #' @return List with baseline model structure
 create_baseline_model <- function(target_name, y, is_count = FALSE) {
+  # Ensure target is a numeric vector (guard against list/data.frame columns)
+  y <- as.numeric(y)
   y_clean <- y[!is.na(y) & is.finite(y)]
   if (length(y_clean) == 0) {
     y_clean <- c(0)  # Fallback if all NA
@@ -56,6 +58,10 @@ create_baseline_model <- function(target_name, y, is_count = FALSE) {
 #' @param target_name Character, name of target
 #' @return Fitted model or baseline model
 fit_count_model_robust <- function(y, data, formula_str, target_name) {
+  # Ensure target is numeric to avoid list/data.frame columns from tibbles
+  y <- as.numeric(y)
+  data[[target_name]] <- y
+  
   fit <- NULL
   fit_type <- "none"
   converged <- FALSE
@@ -130,6 +136,10 @@ fit_count_model_robust <- function(y, data, formula_str, target_name) {
 #' @param target_name Character, name of target
 #' @return Fitted model or baseline model
 fit_continuous_model_robust <- function(y, data, formula_str, target_name) {
+  # Ensure target is numeric to avoid list/data.frame columns from tibbles
+  y <- as.numeric(y)
+  data[[target_name]] <- y
+  
   fit <- NULL
   fit_type <- "none"
   converged <- FALSE
@@ -415,11 +425,33 @@ fit_rb_models <- function(training_data, min_rows = 200) {
         stop("Unknown regime: ", regime, ". Valid regimes: ", paste(rb_regimes, collapse = ", "))
       }
       
+      # Enforce carries model feature requirements (player usage priors + opponent defense when available)
+      if (target == "target_carries") {
+        if (!any(c("carries_prior", "carries_cum_mean") %in% required_features)) {
+          stop("Carries model feature contract missing player usage priors. ",
+               "Expected carries_prior and/or carries_cum_mean for regime: ", regime)
+        }
+        if (regime %in% c("late", "standard")) {
+          required_def <- c("opp_yards_per_rush_allowed_roll5",
+                            "opp_rush_yards_allowed_roll5",
+                            "opp_points_allowed_roll5")
+          missing_def <- setdiff(required_def, required_features)
+          if (length(missing_def) > 0) {
+            stop("Carries model feature contract missing opponent defense features for regime ",
+                 regime, ": ", paste(missing_def, collapse = ", "))
+          }
+        }
+      }
+      
       # Filter to rows matching this regime and target non-NA
       # CRITICAL: Only filter by this specific target, NOT all targets
       training_data_regime <- training_data %>%
         filter(rb_regime == regime) %>%
         filter(!is.na(.data[[target]]))
+      
+      # Drop tibble list-cols and enforce base data.frame for modeling stability
+      training_data_regime <- as.data.frame(training_data_regime, stringsAsFactors = FALSE)
+      training_data_regime[[target]] <- as.numeric(training_data_regime[[target]])
       
       n_rows_available <- nrow(training_data_regime)
       
@@ -427,6 +459,7 @@ fit_rb_models <- function(training_data, min_rows = 200) {
       # Default is_home to 0 if missing (allow NA values)
       if ("is_home" %in% names(training_data_regime)) {
         training_data_regime$is_home[is.na(training_data_regime$is_home)] <- 0
+        training_data_regime$is_home <- as.numeric(training_data_regime$is_home)
       }
       
       # TIME-AWARE FIX: Only require features that exist at that week
@@ -440,6 +473,23 @@ fit_rb_models <- function(training_data, min_rows = 200) {
         stop("Missing required features for ", model_key, ": ", paste(missing_features, collapse = ", "),
              ". Time-aware feature contract must be satisfied. ",
              "Available feature columns (sample): ", paste(available_cols_sample, collapse = ", "))
+      }
+      
+      # Drop zero-variance features (e.g., is_home all NA/0) to avoid rank-deficient fits
+      zero_var_features <- c()
+      for (feat in required_features) {
+        vals <- training_data_regime[[feat]]
+        vals <- vals[!is.na(vals)]
+        if (length(unique(vals)) <= 1) {
+          zero_var_features <- c(zero_var_features, feat)
+        }
+      }
+      if (length(zero_var_features) > 0) {
+        log_msg("  Dropping zero-variance features: ", paste(zero_var_features, collapse = ", "))
+        required_features <- setdiff(required_features, zero_var_features)
+      }
+      if (length(required_features) == 0) {
+        stop("All required features dropped due to zero variance for ", model_key, ". Cannot fit model.")
       }
       
       # CRITICAL FIX: Filter only on rolling features (not is_home or player priors)
@@ -526,6 +576,10 @@ fit_rb_models <- function(training_data, min_rows = 200) {
       
       # Fit model
       fit_result <- fit_count_model_robust(y, training_data_regime, formula_str, target)
+      if (!is.null(fit_result$type) && fit_result$type == "baseline") {
+        stop("Model fitting failed for ", model_key, " despite sufficient data. ",
+             "Refusing baseline fallback; investigate feature quality or model specification.")
+      }
       result$models[[model_key]] <- fit_result
       
       # Update diagnostics
@@ -589,6 +643,20 @@ fit_rb_models <- function(training_data, min_rows = 200) {
 #' @return Logical, TRUE if all required models exist (baseline or fitted)
 validate_rb_models <- function(rb_models, regime = NULL) {
   if (is.null(rb_models)) return(FALSE)
+
+  # Helper to locate the actual model list even if nested under $models
+  locate_models <- function(container, required_keys) {
+    if (is.null(container) || !is.list(container)) return(container)
+    # Direct hit
+    if (!is.null(names(container)) && any(names(container) %in% required_keys)) {
+      return(container)
+    }
+    # Nested under $models
+    if ("models" %in% names(container) && !is.null(container$models)) {
+      return(locate_models(container$models, required_keys))
+    }
+    container
+  }
   
   # Load regime system if needed
   if (file.exists("R/utils/rb_regime_v1.R")) {
@@ -600,7 +668,16 @@ validate_rb_models <- function(rb_models, regime = NULL) {
   
   # Check if using new regime-based structure
   if (!is.null(rb_models$models)) {
-    models_list <- rb_models$models
+    # Build required keys for this validation
+    if (exists("get_rb_v1_targets") && exists("get_rb_regimes") && exists("get_model_key")) {
+      rb_targets <- get_rb_v1_targets()
+      rb_regimes <- if (!is.null(regime)) regime else get_rb_regimes()
+      required_keys <- as.vector(outer(rb_targets, rb_regimes, function(t, r) get_model_key(t, r)))
+    } else {
+      required_keys <- character(0)
+    }
+
+    models_list <- locate_models(rb_models$models, required_keys)
     if (!is.null(regime)) {
       # Check specific regime
       if (exists("get_rb_v1_targets") && exists("get_model_key")) {

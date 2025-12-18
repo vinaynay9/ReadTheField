@@ -374,6 +374,24 @@ build_rb_weekly_stats <- function(seasons,
   rb_dataset$rushing_yards <- ifelse(is.na(rb_dataset$rushing_yards), 0, rb_dataset$rushing_yards)
   rb_dataset$receiving_yards <- ifelse(is.na(rb_dataset$receiving_yards), 0, rb_dataset$receiving_yards)
 
+  # Canonical opponent / defense mapping
+  rb_dataset$defense_team <- rb_dataset$opponent
+
+  # Drop rows without real opponents (bye / inactive / malformed)
+  invalid <- is.na(rb_dataset$defense_team) | rb_dataset$defense_team == ""
+  if (any(invalid)) {
+    warning(
+      sprintf(
+        "Dropping %d RB weekly rows without opponent (bye/inactive)",
+        sum(invalid)
+      ),
+      call. = FALSE
+    )
+    rb_dataset <- rb_dataset[!invalid, , drop = FALSE]
+  }
+
+  stopifnot(!any(is.na(rb_dataset$defense_team)))
+
   rownames(rb_dataset) <- NULL
 
   if (write_cache) {

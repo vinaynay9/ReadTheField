@@ -1,0 +1,306 @@
+ # Build Player Dimension Table
+ #
+ # Creates a season-level player dimension cache for UI and search.
+ # One row per (gsis_id, season) for offensive skill positions + kickers.
+ #
+ # Dependencies:
+ #   - nflreadr
+ #   - arrow
+ #
+ # Usage:
+ #   player_dim <- build_player_dim(seasons = 2021:2024, write_cache = TRUE)
+ 
+player_dim_path <- file.path("data", "processed", "player_dim.parquet")
+
+# Schema utilities
+canonicalize_names <- function(df) {
+  names(df) <- tolower(names(df))
+  names(df) <- gsub("[^a-z0-9_]+", "_", names(df))
+  df
+}
+
+rename_aliases <- function(df) {
+  alias_map <- c(
+    "gsisid" = "gsis_id",
+    "gsis_player_id" = "gsis_id",
+    "player_gsis_id" = "gsis_id",
+    "fullname" = "full_name",
+    "player_name" = "full_name",
+    "name" = "full_name",
+    "firstname" = "first_name",
+    "lastname" = "last_name",
+    "lname" = "last_name",
+    "pos" = "position",
+    "team_abbr" = "team",
+    "recent_team" = "team",
+    "current_team" = "team",
+    "headshot" = "headshot_url",
+    "headshoturi" = "headshot_url",
+    "headshot_url_small" = "headshot_url"
+  )
+  hits <- intersect(names(alias_map), names(df))
+  if (length(hits) > 0) {
+    names(df)[match(hits, names(df))] <- unname(alias_map[hits])
+  }
+  df
+}
+
+coalesce_cols <- function(df, out, candidates) {
+  candidates <- intersect(candidates, names(df))
+  if (length(candidates) == 0) {
+    df[[out]] <- NA
+    return(df)
+  }
+  
+  # Extract column vectors explicitly
+  values <- lapply(candidates, function(col) df[[col]])
+  
+  # Coalesce manually across vectors
+  df[[out]] <- Reduce(
+    function(x, y) dplyr::coalesce(x, y),
+    values
+  )
+  df
+}
+
+assert_required_cols <- function(df, required, context = "data frame") {
+  missing <- setdiff(required, names(df))
+  if (length(missing) > 0) {
+    stop(
+      sprintf(
+        "%s missing required columns: %s\nAvailable columns: %s",
+        context,
+        paste(missing, collapse = ", "),
+        paste(names(df), collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+}
+
+ #' Build player dimension table
+ #'
+ #' @param seasons Integer vector of seasons to include
+ #' @param write_cache Logical, if TRUE write to parquet cache
+ #' @return data.frame with one row per (gsis_id, season)
+ build_player_dim <- function(seasons, write_cache = TRUE) {
+   
+   if (missing(seasons) || length(seasons) == 0) {
+     stop("seasons is required to build player_dim")
+   }
+   
+   seasons <- as.integer(seasons)
+   seasons <- seasons[!is.na(seasons)]
+   if (length(seasons) == 0) {
+     stop("seasons must contain valid integers")
+   }
+   
+   if (!requireNamespace("nflreadr", quietly = TRUE)) {
+     stop("Package 'nflreadr' is required to build player_dim.")
+   }
+   
+   if (!requireNamespace("arrow", quietly = TRUE)) {
+     stop("Package 'arrow' is required to build player_dim.")
+   }
+   
+   players <- nflreadr::load_players()
+   if (is.null(players) || nrow(players) == 0) {
+     stop("nflreadr::load_players() returned empty result. Cannot build player_dim.")
+   }
+   
+   rosters <- nflreadr::load_rosters(seasons = seasons)
+   if (is.null(rosters) || nrow(rosters) == 0) {
+     stop("nflreadr::load_rosters() returned empty result. Cannot build player_dim.")
+   }
+   
+   # Normalize player identifiers
+   if (!"gsis_id" %in% names(players)) {
+     if ("player_id" %in% names(players)) {
+       players$gsis_id <- players$player_id
+     } else if ("player_gsis_id" %in% names(players)) {
+       players$gsis_id <- players$player_gsis_id
+     } else {
+       stop("Cannot find gsis_id in load_players() output.")
+     }
+   }
+   
+   if (!"gsis_id" %in% names(rosters)) {
+     if ("player_id" %in% names(rosters)) {
+       rosters$gsis_id <- rosters$player_id
+     } else if ("player_gsis_id" %in% names(rosters)) {
+       rosters$gsis_id <- rosters$player_gsis_id
+     } else {
+       stop("Cannot find gsis_id in load_rosters() output.")
+     }
+   }
+   
+   # Normalize name fields
+   if (!"display_name" %in% names(players)) {
+     if ("full_name" %in% names(players)) {
+       players$display_name <- players$full_name
+     } else if ("name" %in% names(players)) {
+       players$display_name <- players$name
+     } else {
+       stop("Cannot find display_name in load_players() output.")
+     }
+   }
+   
+   if (!"first_name" %in% names(players) || !"last_name" %in% names(players)) {
+     stop("load_players() output must include first_name and last_name.")
+   }
+   
+   # Normalize headshot URL
+   headshot_col <- NULL
+   for (col in c("headshot_url", "headshot", "headshot_url_nfl")) {
+     if (col %in% names(players)) {
+       headshot_col <- col
+       break
+     }
+   }
+   if (is.null(headshot_col)) {
+     stop("No headshot URL column found in load_players() output.")
+   }
+   
+   # Normalize roster fields
+   if (!"season" %in% names(rosters)) {
+     stop("load_rosters() output must include season.")
+   }
+   if (!"team" %in% names(rosters)) {
+     stop("load_rosters() output must include team.")
+   }
+   if (!"position" %in% names(rosters)) {
+     stop("load_rosters() output must include position.")
+   }
+   
+   rosters$season <- as.integer(rosters$season)
+   rosters$team <- toupper(trimws(as.character(rosters$team)))
+   rosters$position <- toupper(trimws(as.character(rosters$position)))
+   
+   allowed_positions <- c("QB", "RB", "WR", "TE", "K")
+   rosters <- rosters[rosters$position %in% allowed_positions, , drop = FALSE]
+   
+   if (nrow(rosters) == 0) {
+     stop("Roster filter produced zero rows for allowed positions.")
+   }
+   
+   # Build season-level roster dim (one row per gsis_id, season)
+   roster_dim <- aggregate(
+     list(team = rosters$team, position = rosters$position),
+     by = list(gsis_id = as.character(rosters$gsis_id),
+               season = rosters$season),
+     FUN = function(x) {
+       x <- x[!is.na(x)]
+       if (length(x) == 0) return(NA_character_)
+       tail(x, 1)
+     }
+   )
+   
+   # Join player directory fields
+   player_dir <- data.frame(
+     gsis_id = as.character(players$gsis_id),
+     full_name = as.character(players$display_name),
+     first_name = as.character(players$first_name),
+     last_name = as.character(players$last_name),
+     display_name = as.character(players$display_name),
+     headshot_url = as.character(players[[headshot_col]]),
+     stringsAsFactors = FALSE
+   )
+   
+   player_dim <- merge(roster_dim, player_dir, by = "gsis_id", all.x = TRUE)
+   
+  # Active flag (presence on roster for season)
+  player_dim$active <- TRUE
+  
+  # Schema normalization and validation
+  required_cols <- c("gsis_id", "season", "team", "position")
+  optional_cols <- c(
+    "full_name",
+    "first_name",
+    "last_name",
+    "display_name",
+    "headshot_url",
+    "has_headshot",
+    "active"
+  )
+  
+  player_dim <- player_dim |>
+    canonicalize_names() |>
+    rename_aliases()
+  
+  player_dim <- coalesce_cols(player_dim, "gsis_id", c("gsis_id"))
+  player_dim <- coalesce_cols(player_dim, "season", c("season", "year"))
+  player_dim <- coalesce_cols(player_dim, "team", c("team", "team_abbr", "recent_team", "current_team"))
+  player_dim <- coalesce_cols(player_dim, "position", c("position", "pos"))
+  
+  if (!("first_name" %in% names(player_dim))) player_dim$first_name <- NA_character_
+  if (!("last_name" %in% names(player_dim))) player_dim$last_name <- NA_character_
+  if (!("full_name" %in% names(player_dim))) player_dim$full_name <- NA_character_
+  
+  player_dim$full_name <- dplyr::coalesce(
+    player_dim$full_name,
+    dplyr::if_else(
+      !is.na(player_dim$first_name) & !is.na(player_dim$last_name),
+      paste(player_dim$first_name, player_dim$last_name),
+      NA_character_
+    )
+  )
+  
+  if (!("headshot_url" %in% names(player_dim))) {
+    player_dim$headshot_url <- NA_character_
+  }
+  player_dim$has_headshot <- !is.na(player_dim$headshot_url)
+  
+  if (!("active" %in% names(player_dim))) {
+    player_dim$active <- TRUE
+  }
+  
+  assert_required_cols(player_dim, required_cols, context = "player_dim build output")
+  
+  player_dim <- dplyr::as_tibble(player_dim) |>
+    dplyr::select(dplyr::any_of(c(required_cols, optional_cols)))
+  
+  # Validation: one row per (gsis_id, season)
+  dupes <- player_dim |>
+    dplyr::count(gsis_id, season) |>
+    dplyr::filter(n > 1)
+  if (nrow(dupes) > 0) {
+    stop(
+      paste(
+        "Duplicate (gsis_id, season) rows in player_dim.",
+        paste(capture.output(print(dupes)), collapse = "\n")
+      ),
+      call. = FALSE
+    )
+  }
+  
+  # Headshot availability (presentation only)
+  missing_headshot <- player_dim |>
+    dplyr::filter(active, is.na(headshot_url))
+  if (nrow(missing_headshot) > 0) {
+    warning(
+      sprintf(
+        "Active players missing headshot_url: %s",
+        paste(missing_headshot$gsis_id, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+   
+   if (write_cache) {
+     dir.create(dirname(player_dim_path), recursive = TRUE, showWarnings = FALSE)
+     arrow::write_parquet(player_dim, player_dim_path)
+   }
+   
+   player_dim
+ }
+ 
+ read_player_dim_cache <- function() {
+   if (!requireNamespace("arrow", quietly = TRUE)) {
+     stop("Package 'arrow' is required to read player_dim cache.")
+   }
+   if (!file.exists(player_dim_path)) {
+     stop("player_dim cache not found at ", player_dim_path, 
+          ". Run scripts/refresh_weekly_cache.R to generate it.")
+   }
+   arrow::read_parquet(player_dim_path)
+ }
