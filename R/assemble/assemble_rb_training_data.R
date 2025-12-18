@@ -1,5 +1,241 @@
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(magrittr)
+})
+
 # Assemble RB Training Data
 # ...
+
+# =============================================================================
+# Decayed Previous-Season Priors
+# =============================================================================
+
+# Decay constant for exponential decay: decay_weight = exp(-k * (W-1))
+# k = 0.25 gives:
+#   week 1: ~0.78, week 4: ~0.47, week 8: ~0.17
+# This provides strong signal early season, fading by mid-season
+DECAY_CONSTANT_K <- 0.25
+
+#' Compute previous-season summary statistics by player
+#'
+#' For each player-season, computes aggregated stats from previous season.
+#' These provide player role/usage signal for early season weeks.
+#'
+#' @param df data.frame with player_id, season, week, carries, targets, rushing_yards/rush_yards, receiving_yards/rec_yards
+#' @return data.frame with columns:
+#'   - player_id, season
+#'   - prev_season_carries_pg, prev_season_targets_pg
+#'   - prev_season_ypc, prev_season_ypt
+#'   - prev_season_games (for shrinkage)
+compute_prev_season_priors <- function(df) {
+  
+  # Handle both naming conventions (rushing_yards vs rush_yards)
+  if (!"rushing_yards" %in% names(df) && "rush_yards" %in% names(df)) {
+    df$rushing_yards <- df$rush_yards
+  }
+  if (!"receiving_yards" %in% names(df) && "rec_yards" %in% names(df)) {
+    df$receiving_yards <- df$rec_yards
+  }
+  
+  # Ensure columns exist
+  if (!"rushing_yards" %in% names(df)) {
+    df$rushing_yards <- 0
+  }
+  if (!"receiving_yards" %in% names(df)) {
+    df$receiving_yards <- 0
+  }
+  
+  # Compute per-season aggregates (ALL games in each season fully aggregated)
+  season_stats <- df %>%
+    group_by(player_id, season) %>%
+    summarise(
+      games = n(),
+      carries_sum = sum(carries, na.rm = TRUE),
+      targets_sum = sum(targets, na.rm = TRUE),
+      rushing_yards_sum = sum(rushing_yards, na.rm = TRUE),
+      receiving_yards_sum = sum(receiving_yards, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      carries_pg = carries_sum / games,
+      targets_pg = targets_sum / games,
+      ypc = ifelse(carries_sum > 0, rushing_yards_sum / carries_sum, NA_real_),
+      ypt = ifelse(targets_sum > 0, receiving_yards_sum / targets_sum, NA_real_)
+    )
+  
+  # Join previous season stats to current season
+  # For season S, get stats from season S-1
+  prev_season_stats <- season_stats %>%
+    mutate(next_season = season + 1) %>%
+    select(
+      player_id,
+      season = next_season,
+      prev_season_carries_pg = carries_pg,
+      prev_season_targets_pg = targets_pg,
+      prev_season_ypc = ypc,
+      prev_season_ypt = ypt,
+      prev_season_games = games
+    )
+  
+  prev_season_stats
+}
+
+#' Compute season-to-date lagged priors within season
+#'
+#' For each player-week, computes cumulative per-game averages from
+#' all prior games in the current season (lagged).
+#'
+#' @param df data.frame with player_id, season, week, carries, targets, rushing_yards/rush_yards, receiving_yards/rec_yards
+#' @return data.frame with added columns:
+#'   - season_to_date_carries_pg, season_to_date_targets_pg
+#'   - season_to_date_ypc, season_to_date_ypt
+#'   - season_to_date_games
+compute_season_to_date_priors <- function(df) {
+  
+  # Handle both naming conventions (rushing_yards vs rush_yards)
+  if (!"rushing_yards" %in% names(df) && "rush_yards" %in% names(df)) {
+    df$rushing_yards <- df$rush_yards
+  }
+  if (!"receiving_yards" %in% names(df) && "rec_yards" %in% names(df)) {
+    df$receiving_yards <- df$rec_yards
+  }
+  
+  # Ensure columns exist
+  if (!"rushing_yards" %in% names(df)) {
+    df$rushing_yards <- 0
+  }
+  if (!"receiving_yards" %in% names(df)) {
+    df$receiving_yards <- 0
+  }
+  
+  # Sort by player, season, week
+  df <- df[order(df$player_id, df$season, df$week), ]
+  
+  # Initialize columns
+  df$season_to_date_carries_pg <- NA_real_
+  df$season_to_date_targets_pg <- NA_real_
+  df$season_to_date_ypc <- NA_real_
+  df$season_to_date_ypt <- NA_real_
+  df$season_to_date_games <- NA_integer_
+  
+  # Compute per player-season
+  player_seasons <- unique(df[, c("player_id", "season")])
+  
+  for (i in seq_len(nrow(player_seasons))) {
+    pid <- player_seasons$player_id[i]
+    seas <- player_seasons$season[i]
+    
+    idx <- which(df$player_id == pid & df$season == seas)
+    
+    if (length(idx) == 0) next
+    
+    # Initialize accumulators
+    cum_games <- 0
+    cum_carries <- 0
+    cum_targets <- 0
+    cum_rushing_yards <- 0
+    cum_receiving_yards <- 0
+    
+    for (j in seq_along(idx)) {
+      row_idx <- idx[j]
+      
+      # Compute lagged per-game averages (using games BEFORE current)
+      if (cum_games > 0) {
+        df$season_to_date_carries_pg[row_idx] <- cum_carries / cum_games
+        df$season_to_date_targets_pg[row_idx] <- cum_targets / cum_games
+        df$season_to_date_ypc[row_idx] <- if (cum_carries > 0) cum_rushing_yards / cum_carries else NA_real_
+        df$season_to_date_ypt[row_idx] <- if (cum_targets > 0) cum_receiving_yards / cum_targets else NA_real_
+        df$season_to_date_games[row_idx] <- cum_games
+      } else {
+        # First game of season: no prior games
+        df$season_to_date_games[row_idx] <- 0L
+      }
+      
+      # Update accumulators with current game (LAG)
+      curr_carries <- df$carries[row_idx]
+      curr_targets <- df$targets[row_idx]
+      curr_rushing_yards <- df$rushing_yards[row_idx]
+      curr_receiving_yards <- df$receiving_yards[row_idx]
+      
+      if (!is.na(curr_carries)) cum_carries <- cum_carries + curr_carries
+      if (!is.na(curr_targets)) cum_targets <- cum_targets + curr_targets
+      if (!is.na(curr_rushing_yards)) cum_rushing_yards <- cum_rushing_yards + curr_rushing_yards
+      if (!is.na(curr_receiving_yards)) cum_receiving_yards <- cum_receiving_yards + curr_receiving_yards
+      
+      cum_games <- cum_games + 1
+    }
+  }
+  
+  df
+}
+
+#' Compute decay-blended priors
+#'
+#' Blends previous-season priors with season-to-date priors using
+#' exponential decay: decay_weight = exp(-k * (W-1))
+#'
+#' @param df data.frame with week, prev_season_*, and season_to_date_* columns
+#' @return data.frame with added columns:
+#'   - carries_prior, targets_prior, ypc_prior, ypt_prior
+compute_decay_blended_priors <- function(df) {
+  
+  # Compute decay weight by week
+  # decay_weight = exp(-k * (W-1))
+  # Week 1: exp(0) = 1.0 (full prev season weight)
+  # Week 4: exp(-0.75) ≈ 0.47
+  # Week 8: exp(-1.75) ≈ 0.17
+  df$decay_weight <- exp(-DECAY_CONSTANT_K * (df$week - 1))
+  
+  # Blend priors
+  # carries_prior = decay_weight * prev_season + (1 - decay_weight) * season_to_date
+  
+  # Handle edge cases:
+  # 1. If prev_season missing, use season_to_date only
+  # 2. If season_to_date missing (week 1), use prev_season only
+  # 3. If both missing, set NA
+  
+  df$carries_prior <- ifelse(
+    !is.na(df$prev_season_carries_pg) & !is.na(df$season_to_date_carries_pg),
+    df$decay_weight * df$prev_season_carries_pg + (1 - df$decay_weight) * df$season_to_date_carries_pg,
+    ifelse(
+      !is.na(df$prev_season_carries_pg),
+      df$prev_season_carries_pg,
+      df$season_to_date_carries_pg
+    )
+  )
+  
+  df$targets_prior <- ifelse(
+    !is.na(df$prev_season_targets_pg) & !is.na(df$season_to_date_targets_pg),
+    df$decay_weight * df$prev_season_targets_pg + (1 - df$decay_weight) * df$season_to_date_targets_pg,
+    ifelse(
+      !is.na(df$prev_season_targets_pg),
+      df$prev_season_targets_pg,
+      df$season_to_date_targets_pg
+    )
+  )
+  
+  df$ypc_prior <- ifelse(
+    !is.na(df$prev_season_ypc) & !is.na(df$season_to_date_ypc),
+    df$decay_weight * df$prev_season_ypc + (1 - df$decay_weight) * df$season_to_date_ypc,
+    ifelse(
+      !is.na(df$prev_season_ypc),
+      df$prev_season_ypc,
+      df$season_to_date_ypc
+    )
+  )
+  
+  df$ypt_prior <- ifelse(
+    !is.na(df$prev_season_ypt) & !is.na(df$season_to_date_ypt),
+    df$decay_weight * df$prev_season_ypt + (1 - df$decay_weight) * df$season_to_date_ypt,
+    ifelse(
+      !is.na(df$prev_season_ypt),
+      df$prev_season_ypt,
+      df$season_to_date_ypt
+    )
+  )
+  
+  df
+}
 
 
 #' Assemble RB weekly features using pre-filtered RB stats
@@ -42,15 +278,78 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
   }
 
   features <- build_rb_features(stats)
-  # RB v1 contract: create target columns with v1 names
+  
+  # Compute decayed previous-season priors (for early-season signal)
+  # These provide player role/usage signal when rolling windows are sparse or NA
+  prev_season_priors <- compute_prev_season_priors(stats)
+  features <- features %>%
+    left_join(prev_season_priors, by = c("player_id", "season"))
+  
+  # Compute season-to-date priors (lagged cumulative within season)
+  features <- compute_season_to_date_priors(features)
+  
+  # Compute decay-blended priors
+  features <- compute_decay_blended_priors(features)
+  
+  # Join defensive features (opponent context)
+  # Load cached defensive features if available
+  defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
+  
+  if (file.exists(defense_weekly_features_path)) {
+    tryCatch({
+      if (!requireNamespace("arrow", quietly = TRUE)) {
+        warning("Package 'arrow' required to read defensive features. Defensive features will be missing.")
+      } else {
+        def_features <- arrow::read_parquet(defense_weekly_features_path)
+        
+        if (nrow(def_features) > 0) {
+          # Select defensive feature columns to join
+          def_cols <- c("season", "week", "defense_team",
+                       "opp_rush_yards_allowed_roll5",
+                       "opp_yards_per_rush_allowed_roll5",
+                       "opp_points_allowed_roll5",
+                       "opp_sacks_roll5",
+                       "opp_tfl_roll5")
+          
+          # Compute yards per rush allowed if not present
+          if (!"opp_yards_per_rush_allowed_roll5" %in% names(def_features)) {
+            if ("opp_rush_yards_allowed_roll5" %in% names(def_features) && "rush_yards_allowed" %in% names(def_features)) {
+              # This would need rush attempts, which we may not have
+              # Skip for now
+              def_cols <- setdiff(def_cols, "opp_yards_per_rush_allowed_roll5")
+            } else {
+              def_cols <- setdiff(def_cols, "opp_yards_per_rush_allowed_roll5")
+            }
+          }
+          
+          # Only join columns that exist
+          def_cols <- intersect(def_cols, names(def_features))
+          
+          # Ensure we have minimum required columns
+          if (all(c("season", "week", "defense_team") %in% def_cols)) {
+            # Join on opponent = defense_team, season, week
+            features <- merge(
+              features,
+              def_features[, def_cols, drop = FALSE],
+              by.x = c("season", "week", "opponent"),
+              by.y = c("season", "week", "defense_team"),
+              all.x = TRUE
+            )
+          }
+        }
+      }
+    }, error = function(e) {
+      warning(paste("Failed to join defensive features:", e$message, "Defensive features will be missing."))
+    })
+  }
+  
+  # RB v1 contract: create target columns with v1 names (NO yardage targets)
   features$target_carries <- features$carries
-  features$target_rushing_yards <- features$rushing_yards
   features$target_receptions <- features$receptions
-  features$target_receiving_yards <- features$receiving_yards
-  # Keep split TDs temporarily for computing total_touchdowns
   features$target_rush_tds <- features$rushing_tds
   features$target_rec_tds <- features$receiving_tds
-  features$target_total_touchdowns <- features$target_rush_tds + features$target_rec_tds
+  # Note: Yardage targets (target_rush_yards, target_rec_yards) are NOT in RB v1
+  # Yardage should be derived downstream (e.g., carries * YPC) if needed
 
   drop_cols <- c(
     "carries", "rushing_yards", "rushing_tds",
@@ -109,6 +408,50 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
              "Check build_rb_features() grouping logic.")
       }
     }
+  }
+  
+  # Add RB v1 regime column based on week (Layer 3: before writing to parquet)
+  # Ensure week is numeric
+  if (!is.numeric(features$week)) {
+    features$week <- as.integer(features$week)
+  }
+  
+  # Add regime using case_when
+  if (!requireNamespace("dplyr", quietly = TRUE)) {
+    stop("Package 'dplyr' is required for regime assignment. Install with install.packages('dplyr').")
+  }
+  
+  features <- features %>%
+    dplyr::mutate(
+      rb_regime = dplyr::case_when(
+        week <= 3 ~ "early",
+        week <= 5 ~ "mid",
+        week <= 7 ~ "late",
+        TRUE ~ "standard"
+      )
+    )
+  
+  # Ensure rb_regime is character
+  features$rb_regime <- as.character(features$rb_regime)
+  
+  # Add player-specific priors (cumulative career statistics)
+  # These provide player role signal in early season weeks when rolling windows are NA
+  if (file.exists("R/utils/rb_player_priors.R")) {
+    source("R/utils/rb_player_priors.R", local = TRUE)
+  }
+  if (exists("add_rb_player_priors")) {
+    features <- add_rb_player_priors(features)
+  }
+  
+  # Validate RB v1 target schema
+  if (file.exists("R/utils/rb_schema_v1.R")) {
+    source("R/utils/rb_schema_v1.R", local = TRUE)
+    validate_rb_v1_target_schema(features, strict = TRUE)
+  }
+  
+  # Guardrail: ensure rb_regime column exists before returning
+  if (!"rb_regime" %in% names(features)) {
+    stop("rb_regime column missing after feature assembly. This should not occur.")
   }
   
   features
@@ -275,6 +618,18 @@ assemble_rb_training_data <- function(seasons) {
   message("Computing rolling features...")
   rb_data <- build_rb_features(rb_data)
   
+  # Compute decayed previous-season priors (for early-season signal)
+  message("Computing decayed previous-season priors...")
+  prev_season_priors <- compute_prev_season_priors(rb_data)
+  rb_data <- rb_data %>%
+    left_join(prev_season_priors, by = c("player_id", "season"))
+  
+  # Compute season-to-date priors (lagged cumulative within season)
+  rb_data <- compute_season_to_date_priors(rb_data)
+  
+  # Compute decay-blended priors
+  rb_data <- compute_decay_blended_priors(rb_data)
+  
   # Build and join defensive features
   # Defensive features represent opponent defensive context (what the opponent allows)
   message("Building defensive features...")
@@ -354,18 +709,41 @@ assemble_rb_training_data <- function(seasons) {
   # This is guaranteed by lagged rolling windows, but we document it
   message("Validation: All defensive features use lagged windows (current game excluded)")
   
-  # Rename target columns to be explicit
+  # Rename target columns to be explicit (RB v1 schema: NO yardage targets)
   # The current-game stats are targets (what we're predicting)
   # The rolling features are predictors (computed from prior games only)
   rb_data$target_carries <- rb_data$carries
-  rb_data$target_rush_yards <- rb_data$rush_yards
   rb_data$target_rush_tds <- rb_data$rush_tds
   rb_data$target_targets <- rb_data$targets
   rb_data$target_receptions <- rb_data$receptions
-  rb_data$target_rec_yards <- rb_data$rec_yards
   rb_data$target_rec_tds <- rb_data$rec_tds
+  # Note: target_rush_yards and target_rec_yards are NOT in RB v1 schema
+  # Yardage should be derived downstream if needed (e.g., carries * YPC)
   
-  # Select and order final columns
+  # Add RB v1 regime column based on week
+  if (file.exists("R/utils/rb_regime_v1.R")) {
+    source("R/utils/rb_regime_v1.R", local = TRUE)
+    rb_data$rb_regime <- determine_rb_regime(rb_data$week)
+  } else {
+    # Fallback regime assignment
+    rb_data$rb_regime <- ifelse(rb_data$week <= 3, "early",
+                                ifelse(rb_data$week <= 5, "mid",
+                                      ifelse(rb_data$week <= 7, "late", "standard")))
+  }
+  
+  # Add player-specific priors (cumulative career statistics)
+  # These provide player role signal in early season weeks when rolling windows are NA
+  if (file.exists("R/utils/rb_player_priors.R")) {
+    source("R/utils/rb_player_priors.R", local = TRUE)
+  }
+  if (exists("add_rb_player_priors")) {
+    message("Adding player priors (lagged cumulative statistics)...")
+    rb_data <- add_rb_player_priors(rb_data)
+  } else {
+    warning("add_rb_player_priors not found. Player priors will be missing.")
+  }
+  
+  # Select and order final columns (RB v1 schema: NO yardage targets)
   final_cols <- c(
     # Identifiers
     "game_id", "game_key", "player_id", "season", "week", "gameday",
@@ -373,9 +751,17 @@ assemble_rb_training_data <- function(seasons) {
     "player_name", "team", "position", "opponent", "home_away", "is_home",
     # Optional metadata
     "stadium", "surface",
-    # Features (pre-game, lagged)
-    "carries_roll3", "carries_roll5",
-    "targets_roll3", "targets_roll5",
+    # Features (pre-game, lagged) - Player priors (cumulative career stats)
+    "carries_cum_mean", "targets_cum_mean", "receptions_cum_mean",
+    "ypc_cum", "ypt_cum", "catch_rate_cum",
+    # Features (pre-game, lagged) - Decayed previous-season priors (early-season signal)
+    "carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
+    "prev_season_carries_pg", "prev_season_targets_pg", "prev_season_ypc", "prev_season_ypt", "prev_season_games",
+    "season_to_date_carries_pg", "season_to_date_targets_pg", "season_to_date_ypc", "season_to_date_ypt", "season_to_date_games",
+    "decay_weight",
+    # Features (pre-game, lagged) - RB v1: roll3, roll5, roll7
+    "carries_roll3", "carries_roll5", "carries_roll7",
+    "targets_roll3", "targets_roll5", "targets_roll7",
     "rush_yards_roll3", "rec_yards_roll3",
     "yards_per_carry_roll5", "yards_per_target_roll5", "catch_rate_roll5",
     "rush_tds_roll5", "rec_tds_roll5",
@@ -383,18 +769,32 @@ assemble_rb_training_data <- function(seasons) {
     "opp_pass_yards_allowed_roll5", "opp_rush_yards_allowed_roll5",
     "opp_total_yards_allowed_roll5", "opp_points_allowed_roll5",
     "opp_sacks_roll5", "opp_tfl_roll5",
-    # Targets (post-game, for training)
-    "target_carries", "target_rush_yards", "target_rush_tds",
-    "target_targets", "target_receptions", "target_rec_yards", "target_rec_tds"
+    # Targets (post-game, for training) - RB v1 schema
+    "target_carries", "target_rush_tds",
+    "target_targets", "target_receptions", "target_rec_tds",
+    # Regime (for regime-based modeling)
+    "rb_regime"
   )
   
   # Only keep columns that exist
   available_cols <- intersect(final_cols, names(rb_data))
   rb_data <- rb_data[, available_cols, drop = FALSE]
   
+  # Guardrail: ensure rb_regime column is preserved after column selection
+  if (!"rb_regime" %in% names(rb_data)) {
+    stop("rb_regime column missing after training data assembly. ",
+         "Regime-based modeling requires rb_regime to be preserved through assembly.")
+  }
+  
   # Final sort
   rb_data <- rb_data[order(rb_data$season, rb_data$week, rb_data$gameday, rb_data$player_id), ]
   rownames(rb_data) <- NULL
+  
+  # Validate RB v1 target schema
+  if (file.exists("R/utils/rb_schema_v1.R")) {
+    source("R/utils/rb_schema_v1.R", local = TRUE)
+    validate_rb_v1_target_schema(rb_data, strict = TRUE)
+  }
   
   message(paste("Assembled", nrow(rb_data), "RB training records"))
   
@@ -420,6 +820,14 @@ empty_rb_training_df <- function() {
     is_home = integer(0),
     stadium = character(0),
     surface = character(0),
+    # Player priors (cumulative career statistics)
+    carries_cum_mean = double(0),
+    targets_cum_mean = double(0),
+    receptions_cum_mean = double(0),
+    ypc_cum = double(0),
+    ypt_cum = double(0),
+    catch_rate_cum = double(0),
+    # Rolling window features
     carries_roll3 = double(0),
     carries_roll5 = double(0),
     targets_roll3 = double(0),
@@ -432,18 +840,14 @@ empty_rb_training_df <- function() {
     rush_tds_roll5 = double(0),
     rec_tds_roll5 = double(0),
     # Defensive features (opponent context)
-    opp_pass_yards_allowed_roll5 = double(0),
     opp_rush_yards_allowed_roll5 = double(0),
-    opp_total_yards_allowed_roll5 = double(0),
     opp_points_allowed_roll5 = double(0),
     opp_sacks_roll5 = double(0),
     opp_tfl_roll5 = double(0),
     target_carries = integer(0),
-    target_rush_yards = double(0),
     target_rush_tds = integer(0),
     target_targets = integer(0),
     target_receptions = integer(0),
-    target_rec_yards = double(0),
     target_rec_tds = integer(0),
     stringsAsFactors = FALSE
   )

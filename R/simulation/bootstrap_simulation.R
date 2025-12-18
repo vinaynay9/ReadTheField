@@ -10,6 +10,37 @@
 # RStudio, global environment, or prior scripts.
 
 # ============================================================================
+# RB V1 SCHEMA (CRITICAL: LOAD FIRST)
+# ============================================================================
+
+# Load RB v1 schema (required for all RB simulations)
+if (file.exists("R/utils/rb_schema_v1.R")) {
+  source("R/utils/rb_schema_v1.R", local = TRUE)
+} else {
+  stop("Missing R/utils/rb_schema_v1.R — RB v1 schema is required for simulation")
+}
+
+# Hard guardrail
+if (!exists("get_rb_v1_targets")) {
+  stop("RB v1 schema not loaded: get_rb_v1_targets() missing")
+}
+
+# Load RB v1 regime system (required for time-aware modeling)
+if (file.exists("R/utils/rb_regime_v1.R")) {
+  source("R/utils/rb_regime_v1.R", local = TRUE)
+} else {
+  stop("Missing R/utils/rb_regime_v1.R — RB v1 regime system is required for simulation")
+}
+
+# Hard guardrail
+if (!exists("get_rb_regimes")) {
+  stop("RB v1 regime system not loaded: get_rb_regimes() missing")
+}
+if (!exists("get_model_key")) {
+  stop("RB v1 regime system not loaded: get_model_key() missing")
+}
+
+# ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
 
@@ -174,6 +205,9 @@ if (!exists("simulate_player_game")) {
 # ============================================================================
 
 required_functions <- c(
+  "get_rb_v1_targets",
+  "get_rb_regimes",
+  "get_model_key",
   "build_game_key",
   "get_available_seasons_from_cache",
   "load_schedules",

@@ -201,6 +201,12 @@ resolve_player_game <- function(player_name,
     stop("Player identity cache empty. Run scripts/refresh_weekly_cache.R to generate caches.")
   }
 
+  # Initialize .row_id if it doesn't exist (for row reference tracking)
+  if (!".row_id" %in% names(identity)) {
+    identity <- identity %>%
+      dplyr::mutate(.row_id = dplyr::row_number())
+  }
+
   identity$gameday <- as.Date(identity$gameday)
   identity$game_date <- as.Date(identity$game_date)
   
@@ -319,8 +325,19 @@ resolve_player_game <- function(player_name,
   }
 
   # Extract resolved values
-  resolved_season <- as.integer(chosen$season)
-  resolved_week <- as.integer(chosen$week)
+  # CRITICAL: Use CLI-provided season/week when available (source of truth)
+  # Only fall back to chosen row if CLI args were not provided
+  resolved_season <- if (has_season_week && !is.null(season) && !is.na(season)) {
+    as.integer(season)
+  } else {
+    as.integer(chosen$season)
+  }
+  
+  resolved_week <- if (has_season_week && !is.null(week) && !is.na(week)) {
+    as.integer(week)
+  } else {
+    as.integer(chosen$week)
+  }
   
   resolved_game_date <- if (!is.na(chosen$game_date)) {
     as.Date(chosen$game_date)

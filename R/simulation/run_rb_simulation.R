@@ -60,6 +60,22 @@ run_rb_simulation <- function(player_name,
                               synthetic_feature_row = NULL,
                               is_future = FALSE) {
   
+  # Initialize file-based diagnostic logging (project root)
+  log_file <- "rb_debug.log"
+  if (!file.exists(log_file)) {
+    cat("", file = log_file)
+  }
+  
+  log_msg <- function(...) {
+    cat(paste(...), "\n", file = log_file, append = TRUE)
+  }
+  
+  log_msg("")
+  log_msg("=== RB Simulation Start ===")
+  log_msg("REQUESTED: Player:", player_name, "| Team:", team, "| Opponent:", opponent)
+  log_msg("REQUESTED: Season:", season, "| Week:", week)
+  log_msg("CLI args are the source of truth - no overrides allowed")
+  
   # Initialize result structure
   result <- list(
     metadata = list(
@@ -196,43 +212,117 @@ run_rb_simulation <- function(player_name,
     resolved_game_key <- identified_game_row$game_key
   }
   
-  # Extract game info (explicit initialization to avoid NULL in ifelse)
-  # Initialize with fallback values, then overwrite if available
-  game_id <- if (is.null(game_id)) NA_character_ else game_id
-  if (is_valid_string(identified_game_row$game_id)) {
-    game_id <- identified_game_row$game_id
+  # CRITICAL FIX: Respect CLI arguments - NO OVERRIDES
+  # Extract game info with proper precedence: CLI args win, fallback to identified_game_row only when not provided
+  
+  # game_id: Only from identified_game_row (no CLI arg for this)
+  game_id <- if (is_valid_string(identified_game_row$game_id)) {
+    identified_game_row$game_id
+  } else if (!is.null(game_id) && !is.na(game_id)) {
+    game_id
+  } else {
+    NA_character_
   }
   
-  game_season <- if (is.null(season) || is.na(season)) NA_integer_ else season
-  if (is_valid_scalar(identified_game_row$season) && !is.na(identified_game_row$season)) {
+  # season: CLI arg wins, fallback to identified_game_row only if CLI arg missing
+  if (!is.null(season) && !is.na(season)) {
+    game_season <- as.integer(season)
+    log_msg("Using CLI-provided season:", game_season)
+  } else if (is_valid_scalar(identified_game_row$season) && !is.na(identified_game_row$season)) {
     game_season <- as.integer(identified_game_row$season)
+    log_msg("Using identified_game_row season:", game_season)
+  } else {
+    game_season <- NA_integer_
+    log_msg("WARNING: No valid season found")
   }
   
-  game_week <- if (is.null(week) || is.na(week)) NA_integer_ else week
-  if (is_valid_scalar(identified_game_row$week) && !is.na(identified_game_row$week)) {
+  # week: CLI arg wins, fallback to identified_game_row only if CLI arg missing
+  if (!is.null(week) && !is.na(week)) {
+    game_week <- as.integer(week)
+    log_msg("Using CLI-provided week:", game_week)
+  } else if (is_valid_scalar(identified_game_row$week) && !is.na(identified_game_row$week)) {
     game_week <- as.integer(identified_game_row$week)
+    log_msg("Using identified_game_row week:", game_week)
+  } else {
+    game_week <- NA_integer_
+    log_msg("WARNING: No valid week found")
   }
   
-  game_gameday <- if (is.null(game_date) || is.na(game_date)) as.Date(NA) else game_date
-  if (is_valid_scalar(identified_game_row$gameday) && !is.na(identified_game_row$gameday)) {
+  # game_date: CLI arg wins, fallback to identified_game_row
+  if (!is.null(game_date) && !is.na(game_date)) {
+    game_gameday <- as.Date(game_date)
+    log_msg("Using CLI-provided game_date:", as.character(game_gameday))
+  } else if (is_valid_scalar(identified_game_row$gameday) && !is.na(identified_game_row$gameday)) {
     game_gameday <- as.Date(identified_game_row$gameday)
+    log_msg("Using identified_game_row gameday:", as.character(game_gameday))
+  } else {
+    game_gameday <- as.Date(NA)
+    log_msg("WARNING: No valid game_date found")
   }
   
-  # Determine opponent / home-away (explicit initialization to avoid NULL in ifelse)
-  player_opponent <- if (is.null(opponent) || is.na(opponent) || !nzchar(opponent)) NA_character_ else opponent
-  if (is_valid_string(identified_game_row$opponent)) {
+  # opponent: CLI arg wins, fallback to identified_game_row
+  if (!is.null(opponent) && !is.na(opponent) && nzchar(opponent)) {
+    player_opponent <- opponent
+    log_msg("Using CLI-provided opponent:", player_opponent)
+  } else if (is_valid_string(identified_game_row$opponent)) {
     player_opponent <- identified_game_row$opponent
+    log_msg("Using identified_game_row opponent:", player_opponent)
+  } else {
+    player_opponent <- NA_character_
+    log_msg("WARNING: No valid opponent found")
   }
   
-  player_team <- if (is.null(team) || is.na(team) || !nzchar(team)) NA_character_ else team
-  if (is_valid_string(identified_game_row$team)) {
+  # team: CLI arg wins, fallback to identified_game_row
+  if (!is.null(team) && !is.na(team) && nzchar(team)) {
+    player_team <- team
+    log_msg("Using CLI-provided team:", player_team)
+  } else if (is_valid_string(identified_game_row$team)) {
     player_team <- identified_game_row$team
+    log_msg("Using identified_game_row team:", player_team)
+  } else {
+    player_team <- NA_character_
+    log_msg("WARNING: No valid team found")
   }
   
-  player_home_away <- if (is.null(home_away) || is.na(home_away) || !nzchar(home_away)) NA_character_ else home_away
-  if (is_valid_string(identified_game_row$home_away)) {
+  # home_away: CLI arg wins, fallback to identified_game_row
+  if (!is.null(home_away) && !is.na(home_away) && nzchar(home_away)) {
+    player_home_away <- home_away
+    log_msg("Using CLI-provided home_away:", player_home_away)
+  } else if (is_valid_string(identified_game_row$home_away)) {
     player_home_away <- identified_game_row$home_away
+    log_msg("Using identified_game_row home_away:", player_home_away)
+  } else {
+    player_home_away <- NA_character_
+    log_msg("WARNING: No valid home_away found")
   }
+  
+  # CRITICAL ASSERTIONS: Verify resolved values match requested values
+  log_msg("=== Resolution Validation ===")
+  log_msg("RESOLVED: Season:", game_season, "| Week:", game_week)
+  log_msg("RESOLVED: Team:", player_team, "| Opponent:", player_opponent)
+  log_msg("RESOLVED: Game Date:", as.character(game_gameday), "| Game ID:", game_id)
+  log_msg("RESOLVED: Home/Away:", player_home_away)
+  
+  # Enforce CLI args when provided
+  if (!is.null(season) && !is.na(season) && game_season != season) {
+    stop("RESOLUTION MISMATCH: Requested season=", season, " but resolved game has season=", game_season, ". ",
+         "CLI arguments must be respected. This indicates a bug in game resolution logic.")
+  }
+  
+  if (!is.null(week) && !is.na(week) && game_week != week) {
+    stop("RESOLUTION MISMATCH: Requested week=", week, " but resolved game has week=", game_week, ". ",
+         "CLI arguments must be respected. This indicates a bug in game resolution logic.")
+  }
+  
+  if (!is.null(opponent) && !is.na(opponent) && nzchar(opponent) && !is.na(player_opponent) && player_opponent != opponent) {
+    log_msg("WARNING: Opponent mismatch - Requested:", opponent, "| Resolved:", player_opponent)
+  }
+  
+  if (!is.null(team) && !is.na(team) && nzchar(team) && !is.na(player_team) && player_team != team) {
+    log_msg("WARNING: Team mismatch - Requested:", team, "| Resolved:", player_team)
+  }
+  
+  log_msg("Resolution validation: PASS")
   
   # Store metadata
   result$metadata$game_id <- game_id
@@ -537,15 +627,31 @@ run_rb_simulation <- function(player_name,
   # Store model diagnostics
   result$diagnostics$model_diagnostics <- rb_models$diagnostics
   
-  # Check for baseline models and warn
-  baseline_models <- sapply(rb_models[1:5], function(m) !is.null(m$type) && m$type == "baseline")
-  if (any(baseline_models)) {
-    baseline_names <- names(rb_models[1:5])[baseline_models]
-    warning("RB simulation: ", sum(baseline_models), " model(s) using baseline: ", 
-            paste(baseline_names, collapse = ", "))
-    result$diagnostics$baseline_models <- baseline_names
+  # Check for baseline models and warn (regime-based structure)
+  # Models are now in rb_models$models with keys like "target_carries__early"
+  if (!is.null(rb_models$models)) {
+    # New regime-based structure
+    baseline_models <- sapply(rb_models$models, function(m) !is.null(m$type) && m$type == "baseline")
+    if (any(baseline_models)) {
+      baseline_names <- names(rb_models$models)[baseline_models]
+      warning("RB simulation: ", sum(baseline_models), " model(s) using baseline: ", 
+              paste(head(baseline_names, 5), collapse = ", "),
+              if (length(baseline_names) > 5) paste0(" (and ", length(baseline_names) - 5, " more)") else "")
+      result$diagnostics$baseline_models <- baseline_names
+    } else {
+      result$diagnostics$baseline_models <- character(0)
+    }
   } else {
-    result$diagnostics$baseline_models <- character(0)
+    # Legacy structure (should not occur with regime-based modeling)
+    baseline_models <- sapply(rb_models[1:5], function(m) !is.null(m$type) && m$type == "baseline")
+    if (any(baseline_models)) {
+      baseline_names <- names(rb_models[1:5])[baseline_models]
+      warning("RB simulation: ", sum(baseline_models), " model(s) using baseline: ", 
+              paste(baseline_names, collapse = ", "))
+      result$diagnostics$baseline_models <- baseline_names
+    } else {
+      result$diagnostics$baseline_models <- character(0)
+    }
   }
   result$diagnostics$training_data_range <- list(
     min_date = min(rb_data_pre$gameday),
@@ -569,33 +675,45 @@ run_rb_simulation <- function(player_name,
   def_cols <- c("opp_rush_yards_allowed_roll5", "opp_sacks_roll5", 
                 "opp_tfl_roll5", "opp_points_allowed_roll5")
   
-  def_in_rush_yds <- FALSE
-  def_features_rush_yds <- character(0)
-  if (!is.null(rb_models$rushing_yards_model) && 
-      (is.null(rb_models$rushing_yards_model$type) || rb_models$rushing_yards_model$type != "baseline")) {
-    tryCatch({
-      model_vars <- all.vars(formula(rb_models$rushing_yards_model))
-      def_features_rush_yds <- intersect(def_cols, model_vars)
-      def_in_rush_yds <- length(def_features_rush_yds) > 0
-    }, error = function(e) {
-      # If formula access fails, assume no defensive features
-      def_features_rush_yds <<- character(0)
-      def_in_rush_yds <<- FALSE
-    })
-  }
-  
-  result$diagnostics$model_features <- list(
-    rushing_yards_defensive = def_features_rush_yds
-  )
-  
-  # Check for NULL models (RB v1: exactly 5 models)
+  # Check for NULL models (RB v1: regime-based structure)
   # Note: Models may be baseline, but should never be NULL
-  null_models <- names(rb_models)[sapply(rb_models[1:5], is.null)]
-  if (length(null_models) > 0) {
-    stop("NULL models detected: ", paste(null_models, collapse = ", "),
-         ". All 5 RB v1 models must exist (fitted or baseline). Cannot proceed with simulation.")
+  # With regime-based modeling, models are in rb_models$models with keys like "target_carries__early"
+  # The simulation will select the appropriate model based on the game's regime
+  if (!is.null(rb_models$models)) {
+    # New regime-based structure: check that at least one model exists per target
+    if (file.exists("R/utils/rb_regime_v1.R")) {
+      source("R/utils/rb_regime_v1.R", local = TRUE)
+    }
+    rb_targets <- get_rb_v1_targets()
+    rb_regimes <- get_rb_regimes()
+    
+    # Check that for each target, at least one regime model exists
+    missing_targets <- character(0)
+    for (target in rb_targets) {
+      target_models <- sapply(rb_regimes, function(r) {
+        model_key <- get_model_key(target, r)
+        !is.null(rb_models$models[[model_key]])
+      })
+      if (!any(target_models)) {
+        missing_targets <- c(missing_targets, target)
+      }
+    }
+    
+    if (length(missing_targets) > 0) {
+      stop("Missing models for targets: ", paste(missing_targets, collapse = ", "),
+           ". At least one regime model must exist per target (fitted or baseline). Cannot proceed with simulation.")
+    }
+    result$diagnostics$null_models <- character(0)
+  } else {
+    # Legacy structure check (should not occur with regime-based modeling)
+    required_models <- c("carries_model", "receptions_model", "rush_tds_model", "rec_tds_model")
+    null_models <- required_models[sapply(required_models, function(m) is.null(rb_models[[m]]))]
+    if (length(null_models) > 0) {
+      stop("NULL models detected: ", paste(null_models, collapse = ", "),
+           ". All 4 RB v1 models must exist (fitted or baseline). Cannot proceed with simulation.")
+    }
+    result$diagnostics$null_models <- character(0)
   }
-  result$diagnostics$null_models <- character(0)
   
   # ============================================================================
   # STEP 6: Run Monte Carlo simulation
@@ -605,6 +723,32 @@ run_rb_simulation <- function(player_name,
   if (!exists("simulate_rb_game")) {
     stop("Simulation bootstrap incomplete: simulate_rb_game not loaded. ",
          "Source R/simulation/bootstrap_simulation.R before calling run_rb_simulation().")
+  }
+
+  # Enforce schema: feature_row must include week for time-aware modeling
+  # CRITICAL: Use game_week (the validated/resolved week), not the raw parameter
+  player_feature_row$week <- game_week
+  if (!"week" %in% names(player_feature_row) || is.na(player_feature_row$week)) {
+    stop("run_rb_simulation failed to attach 'week' to feature_row. This is a schema bug.")
+  }
+  
+  # Additional assertion: feature_row week must match metadata
+  if (player_feature_row$week != result$metadata$week) {
+    stop("INVARIANT VIOLATION: feature_row$week (", player_feature_row$week, 
+         ") does not match metadata$week (", result$metadata$week, "). ",
+         "This should never happen - indicates a resolution bug.")
+  }
+  
+  log_msg("Feature row week:", player_feature_row$week, "| Metadata week:", result$metadata$week, "| Match: OK")
+  
+  # Enforce contextual defaults (is_home must not be NA)
+  if ("is_home" %in% names(player_feature_row)) {
+    player_feature_row$is_home[is.na(player_feature_row$is_home)] <- 0
+  }
+  
+  # Guardrail: Ensure is_home is not NA after defaulting
+  if ("is_home" %in% names(player_feature_row) && is.na(player_feature_row$is_home)) {
+    stop("Prediction feature_row has NA is_home after defaulting. This is a bug.")
   }
   
   # Run simulation
@@ -622,8 +766,34 @@ run_rb_simulation <- function(player_name,
   result$summary <- sim_result$summary
   result$draws <- sim_result$draws
 
+  # Resolve simulation schema to canonical names
+  # This standardizes column names (rush_yards -> rushing_yards, etc.)
+  # and creates derived columns (total_touchdowns, total_yards)
+  if (file.exists("R/utils/rb_schema_v1.R")) {
+    source("R/utils/rb_schema_v1.R", local = TRUE)
+  }
+  if (exists("resolve_rb_simulation_schema")) {
+    result$draws <- resolve_rb_simulation_schema(result$draws)
+  } else {
+    stop("resolve_rb_simulation_schema not found. Cannot standardize simulation output schema.")
+  }
+
   # Compute additional diagnostics from draws
-  draws_df <- sim_result$draws
+  draws_df <- result$draws
+  
+  # Log diagnostic summary after schema resolution
+  log_msg("=== Post-Resolution Diagnostics ===")
+  required_outputs <- c("carries", "rushing_yards", "receiving_yards", "total_yards", "total_touchdowns")
+  for (col in required_outputs) {
+    if (col %in% names(draws_df)) {
+      na_pct <- round(100 * sum(is.na(draws_df[[col]])) / nrow(draws_df), 2)
+      col_mean <- mean(draws_df[[col]], na.rm = TRUE)
+      col_sd <- sd(draws_df[[col]], na.rm = TRUE)
+      log_msg(paste0(col, ": ", na_pct, "% NA, mean=", round(col_mean, 2), ", sd=", round(col_sd, 2)))
+    } else {
+      log_msg(paste0(col, ": MISSING"))
+    }
+  }
   
   # Summary statistics: mean and percentiles for all outcome variables (RB v1 contract)
   outcome_vars <- c("carries", "rushing_yards", "receptions", "receiving_yards", "total_touchdowns")
@@ -664,7 +834,8 @@ run_rb_simulation <- function(player_name,
   p75_carries <- result$summary$p75[result$summary$stat == "carries"]
   p25_carries <- result$summary$p25[result$summary$stat == "carries"]
   median_carries <- result$summary$p50[result$summary$stat == "carries"]
-  median_rush_yds <- result$summary$p50[result$summary$stat == "rushing_yards"]
+  # Note: summary uses raw names (rush_yards) from compute_rb_percentiles()
+  median_rush_yds <- result$summary$p50[result$summary$stat == "rush_yards"]
   
   result$diagnostics$sanity_warnings <- list(
     p75_carries_gt_30 = p75_carries > 30,

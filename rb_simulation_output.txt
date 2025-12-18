@@ -1,4 +1,4 @@
-Simulation started at 2025-12-16 21:33:35.319207 
+Simulation started at 2025-12-17 18:28:34.862689 
 Output will be saved to: rb_simulation_output.txt 
 
 
@@ -14,26 +14,26 @@ Date         Opponent  Carries     Rush Yds  Targets  Receptions    Rec Yds  Tot
 
 Projected Stat Line (Median):
 --------------------------------------------------------------------------------
-   Carries: 0 
-   Rush yards: 0 
-   Receptions: 0 
-   Receiving yards: 0 
-   Total TDs: 0 
-   PPR Fantasy Points: 0 
+   Carries: 8 
+   Rush yards: NA 
+   Receptions: 1 
+   Receiving yards: NA 
+   Total TDs: NA 
+   PPR Fantasy Points: 1 
 
 Confidence Intervals (25th / 50th / 75th Percentiles):
 --------------------------------------------------------------------------------
-   Carries: 0 / 0 / 0 
-   Rush yards: 0 / 0 / 0 
-   Receptions: 0 / 0 / 0 
-   Receiving yards: 0 / 0 / 0 
-   Total TDs: 0 / 0 / 0 
-   PPR Fantasy Points: NA / 0 / NA 
+   Carries: 6 / 8 / 10 
+   Rush yards: NA / NA / NA 
+   Receptions: 0 / 1 / 2 
+   Receiving yards: NA / NA / NA 
+   Total TDs: NA / NA / NA 
+   PPR Fantasy Points: NA / 1 / NA 
 
 Touchdown Probabilities:
 --------------------------------------------------------------------------------
-   Probability of 0 TDs: 98.8% 
-   Probability of ≥1 TD: 1.2% 
+   Probability of 0 TDs: 97.7% 
+   Probability of ≥1 TD: 2.3% 
    Probability of ≥2 TDs: 0.0% 
 
 ================================================================================ 
@@ -61,21 +61,27 @@ Training Data Used:
 Model Information:
 --------------------------------------------------------------------------------
    Model fitting diagnostics:
-     carries: baseline (0 rows)
-     rushing_yards: baseline (0 rows)
-     receptions: baseline (0 rows)
-     receiving_yards: baseline (0 rows)
-     total_touchdowns: baseline (0 rows)
    WARNING: The following models fell back to baseline:
-     - carries_model 
-     - rushing_yards_model 
-     - receiving_yards_model 
-     - receptions_model 
-     - total_touchdowns_model 
+     - target_carries__early 
+     - target_carries__mid 
+     - target_carries__late 
+     - target_carries__standard 
+     - target_receptions__early 
+     - target_receptions__mid 
+     - target_receptions__late 
+     - target_receptions__standard 
+     - target_rush_tds__early 
+     - target_rush_tds__mid 
+     - target_rush_tds__late 
+     - target_rush_tds__standard 
+     - target_rec_tds__early 
+     - target_rec_tds__mid 
+     - target_rec_tds__late 
+     - target_rec_tds__standard 
 
 Defensive Features Used in Models:
 --------------------------------------------------------------------------------
-   Rush yards model: No defensive features
+   Defensive feature information not available
 
 Defensive Context Values (Opponent's Last 5 Games):
 --------------------------------------------------------------------------------
@@ -86,8 +92,8 @@ Defensive Context Values (Opponent's Last 5 Games):
 
 Simulation Distribution Statistics:
 --------------------------------------------------------------------------------
-   Carries - Mean: 0.01 , SD: 0.1 
-   Rush yards - Mean: 0.04 , SD: 0.06 
+   Carries - Mean: 7.97 , SD: 2.88 
+   Rush yards - Mean: 35.68 , SD: 12.88 
 
 ================================================================================ 
 Technical diagnostics complete.

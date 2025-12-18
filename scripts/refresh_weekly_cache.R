@@ -88,15 +88,69 @@ if (nrow(rb_features) == 0) {
 
 cat("  Built RB weekly features cache with", nrow(rb_features), "rows\n")
 
+# Build defensive weekly features (opponent context)
+cat("  Computing defensive weekly features...\n")
+
+if (!exists("build_team_defense_game_stats")) {
+  if (file.exists("R/data/build_team_defense_game_stats.R")) {
+    source("R/data/build_team_defense_game_stats.R")
+  } else {
+    stop("Missing R/data/build_team_defense_game_stats.R")
+  }
+}
+
+if (!exists("build_team_defense_features")) {
+  if (file.exists("R/features/build_team_defense_features.R")) {
+    source("R/features/build_team_defense_features.R")
+  } else {
+    stop("Missing R/features/build_team_defense_features.R")
+  }
+}
+
+tryCatch({
+  def_game_stats <- build_team_defense_game_stats(seasons = seasons_to_refresh)
+  
+  if (nrow(def_game_stats) > 0) {
+    def_features <- build_team_defense_features(def_game_stats)
+    
+    defense_weekly_path <- file.path("data", "processed", "defense_weekly_features.parquet")
+    dir.create(dirname(defense_weekly_path), recursive = TRUE, showWarnings = FALSE)
+    arrow::write_parquet(def_features, defense_weekly_path)
+    
+    cat("  Built defensive weekly features cache with", nrow(def_features), "rows\n")
+    
+    # Validation: Check for Week 1 leakage
+    week1_def <- def_features[def_features$week == 1, ]
+    if (nrow(week1_def) > 0) {
+      rolling_def_cols <- grep("_roll[0-9]+$", names(def_features), value = TRUE)
+      week1_nonNA <- sum(!is.na(week1_def[, rolling_def_cols, drop = FALSE]))
+      if (week1_nonNA > 0) {
+        stop("Week 1 defensive rolling features contain non-NA values. This indicates leakage.")
+      }
+    }
+    cat("  Validated: Week 1 defensive features are NA (leakage-safe)\n")
+    
+  } else {
+    warning("No defensive game stats available. Defensive features will be missing.")
+  }
+}, error = function(e) {
+  warning(paste("Failed to build defensive features:", e$message, "Defensive features will be missing."))
+})
+
 # Get cache paths for output
 player_directory_path <- file.path("data", "cache", "player_directory.parquet")
 player_week_identity_path <- file.path("data", "cache", "player_week_identity.parquet")
 rb_weekly_stats_path <- file.path("data", "cache", "rb_weekly_stats.parquet")
 rb_weekly_features_path <- file.path("data", "processed", "rb_weekly_features.parquet")
+defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
 
 cat("\nWeekly caches refreshed. Files:")
 cat("\n  -", player_directory_path)
 cat("\n  -", player_week_identity_path)
 cat("\n  -", rb_weekly_stats_path)
-cat("\n  -", rb_weekly_features_path, "\n")
+cat("\n  -", rb_weekly_features_path)
+if (file.exists(defense_weekly_features_path)) {
+  cat("\n  -", defense_weekly_features_path)
+}
+cat("\n")
 

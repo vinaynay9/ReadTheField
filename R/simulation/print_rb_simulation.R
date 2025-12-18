@@ -209,32 +209,57 @@ print_rb_simulation <- function(result) {
   cat("Defensive Context Values (Opponent's Last 5 Games):\n")
   cat(rep("-", 80), "\n", sep = "")
   
+  # Determine if defensive features should be available based on week
+  week <- metadata$week
+  def_available <- !is.null(week) && !is.na(week) && week >= 6
+  na_reason <- if (!def_available) " (NA: early season, need 5 prior games)" else ""
+  
   if ("opp_rush_yards_allowed_roll5" %in% names(defensive_context)) {
     val <- defensive_context$opp_rush_yards_allowed_roll5
-    cat("   Opponent rush yards allowed (avg):", safe_num(val, digits = 1, default = "(missing)"), "\n")
+    val_str <- if (is.na(val) && !def_available) {
+      paste0("NA", na_reason)
+    } else {
+      safe_num(val, digits = 1, default = "NA (data missing)")
+    }
+    cat("   Opponent rush yards allowed (avg):", val_str, "\n")
   } else {
-    cat("   Opponent rush yards allowed (avg): (missing)\n")
+    cat("   Opponent rush yards allowed (avg): (not computed)\n")
   }
   
   if ("opp_sacks_roll5" %in% names(defensive_context)) {
     val <- defensive_context$opp_sacks_roll5
-    cat("   Opponent sacks (avg):", safe_num(val, digits = 1, default = "(missing)"), "\n")
+    val_str <- if (is.na(val) && !def_available) {
+      paste0("NA", na_reason)
+    } else {
+      safe_num(val, digits = 1, default = "NA (data missing)")
+    }
+    cat("   Opponent sacks (avg):", val_str, "\n")
   } else {
-    cat("   Opponent sacks (avg): (missing)\n")
+    cat("   Opponent sacks (avg): (not computed)\n")
   }
   
   if ("opp_tfl_roll5" %in% names(defensive_context)) {
     val <- defensive_context$opp_tfl_roll5
-    cat("   Opponent tackles for loss (avg):", safe_num(val, digits = 1, default = "(missing)"), "\n")
+    val_str <- if (is.na(val) && !def_available) {
+      paste0("NA", na_reason)
+    } else {
+      safe_num(val, digits = 1, default = "NA (data missing)")
+    }
+    cat("   Opponent tackles for loss (avg):", val_str, "\n")
   } else {
-    cat("   Opponent tackles for loss (avg): (missing)\n")
+    cat("   Opponent tackles for loss (avg): (not computed)\n")
   }
   
   if ("opp_points_allowed_roll5" %in% names(defensive_context)) {
     val <- defensive_context$opp_points_allowed_roll5
-    cat("   Opponent points allowed (avg):", safe_num(val, digits = 1, default = "(missing)"), "\n")
+    val_str <- if (is.na(val) && !def_available) {
+      paste0("NA", na_reason)
+    } else {
+      safe_num(val, digits = 1, default = "NA (data missing)")
+    }
+    cat("   Opponent points allowed (avg):", val_str, "\n")
   } else {
-    cat("   Opponent points allowed (avg): (missing)\n")
+    cat("   Opponent points allowed (avg): (not computed)\n")
   }
   
   cat("\n")

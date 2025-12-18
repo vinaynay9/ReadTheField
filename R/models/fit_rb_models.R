@@ -1,18 +1,23 @@
 # Fit RB Models (v1 Contract) - Robust with Fallbacks
 #
 # Fits statistical models for RB simulation following the RB v1 contract.
-# Models exactly 5 outcomes: carries, rushing_yards, receiving_yards, receptions, total_touchdowns
+# Models exactly 4 outcomes: carries, receptions, rush_tds, rec_tds
+# NOTE: Yardage targets (rush_yards, rec_yards) are NOT in RB v1 schema.
+# Yardage should be derived downstream if needed (e.g., carries * YPC).
 #
 # Features:
+#   - Per-target training (no intersection across targets)
 #   - Robust fitting with multiple fallback strategies
 #   - Baseline models when fitting fails
 #   - Comprehensive data validation
 #   - Detailed diagnostics
 #
-# Dependencies: MASS (optional, for glm.nb)
+# Dependencies: dplyr, MASS (optional, for glm.nb)
 #
 # Usage:
 #   rb_models <- fit_rb_models(rb_training_data, min_rows = 200)
+
+library(dplyr)
 
 #' Create a baseline model object
 #'
@@ -261,29 +266,59 @@ validate_target_data <- function(data, target_name, feature_cols, min_rows = 200
   list(data = data_clean, y = y_clean, diagnostics = diagnostics)
 }
 
-#' Fit all RB models from training data (RB v1 contract)
+#' Fit all RB models from training data (RB v1 contract with regimes)
 #'
-#' Fits exactly 5 models for RB simulation outcomes with robust fallbacks.
-#' Returns a list of fitted models (or baseline models if fitting fails).
+#' Fits models per target per regime for RB simulation outcomes with robust fallbacks.
+#' Each (target, regime) combination trains on its own valid subset.
+#' Returns a list of fitted models keyed as "target__regime" (e.g., "target_carries__early").
 #'
-#' @param training_data data.frame with feature and target columns
+#' @param training_data data.frame with feature and target columns, including rb_regime
 #' @param min_rows Integer, minimum rows required for fitting (default 200)
 #' @return Named list with:
-#'   - carries_model: fitted or baseline model
-#'   - rushing_yards_model: fitted or baseline model
-#'   - receiving_yards_model: fitted or baseline model
-#'   - receptions_model: fitted or baseline model
-#'   - total_touchdowns_model: fitted or baseline model
-#'   - diagnostics: list with per-target diagnostics
+#'   - Models keyed as "target__regime" (e.g., "target_carries__early")
+#'   - diagnostics: list with per-(target, regime) diagnostics
 fit_rb_models <- function(training_data, min_rows = 200) {
+  
+  # Initialize file-based diagnostic logging (project root)
+  log_file <- "rb_debug.log"
+  cat("", file = log_file)  # Clear file on each run
+  
+  log_msg <- function(...) {
+    cat(paste(...), "\n", file = log_file, append = TRUE)
+  }
+  
+  # Load schema validation and regime system
+  if (file.exists("R/utils/rb_schema_v1.R")) {
+    source("R/utils/rb_schema_v1.R", local = TRUE)
+  } else {
+    stop("Missing R/utils/rb_schema_v1.R — cannot load RB v1 schema")
+  }
+  
+  # CRITICAL: Hard dependency check for get_rb_v1_targets
+  if (!exists("get_rb_v1_targets")) {
+    stop("Missing get_rb_v1_targets function. Cannot load RB v1 schema.")
+  }
+  
+  if (file.exists("R/utils/rb_regime_v1.R")) {
+    source("R/utils/rb_regime_v1.R", local = TRUE)
+    # Ensure get_rb_features_by_week is available for time-aware feature selection
+    if (!exists("get_rb_features_by_week")) {
+      stop("get_rb_features_by_week function not found. Time-aware feature contracts require this function.")
+    }
+    # Ensure get_rb_regimes and get_model_key are available
+    if (!exists("get_rb_regimes")) {
+      stop("get_rb_regimes function not found. Regime system requires this function.")
+    }
+    if (!exists("get_model_key")) {
+      stop("get_model_key function not found. Model key generation requires this function.")
+    }
+  } else {
+    stop("Missing R/utils/rb_regime_v1.R — cannot load RB v1 regime system")
+  }
   
   # Initialize result structure
   result <- list(
-    carries_model = NULL,
-    rushing_yards_model = NULL,
-    receiving_yards_model = NULL,
-    receptions_model = NULL,
-    total_touchdowns_model = NULL,
+    models = list(),
     diagnostics = list()
   )
   
@@ -292,218 +327,302 @@ fit_rb_models <- function(training_data, min_rows = 200) {
     stop("Empty training data provided. Cannot fit RB models.")
   }
   
-  # Check for required outcome columns (RB v1 contract)
-  required_outcomes <- c("target_carries", "target_rushing_yards", "target_receiving_yards",
-                        "target_receptions", "target_total_touchdowns")
-  missing_outcomes <- setdiff(required_outcomes, names(training_data))
-  if (length(missing_outcomes) > 0) {
-    stop("Missing required RB v1 outcome columns: ", paste(missing_outcomes, collapse = ", "))
+  # Hard check: rb_regime column must exist (fail loudly if missing)
+  if (!"rb_regime" %in% names(training_data)) {
+    stop("Missing rb_regime column in training data. Regime-based modeling requires rb_regime. ",
+         "Ensure rb_regime is added in Layer 3 feature assembly and preserved through training data assembly.")
   }
   
-  message(paste("Fitting RB v1 models on", nrow(training_data), "training rows"))
-  
-  # 1. Fit carries model
-  message("Fitting carries model...")
-  carries_valid <- validate_target_data(
-    training_data, 
-    "target_carries", 
-    c("carries_roll3", "carries_roll5", "is_home"),
-    min_rows = min_rows,
-    min_positive = 20
-  )
-  result$diagnostics$carries <- carries_valid$diagnostics
-  
-  if (carries_valid$diagnostics$n_rows_used >= min_rows && 
-      !is.na(carries_valid$diagnostics$var_y) && 
-      carries_valid$diagnostics$var_y > 0) {
-    result$carries_model <- fit_count_model_robust(
-      carries_valid$y,
-      carries_valid$data,
-      "target_carries ~ carries_roll3 + carries_roll5 + is_home",
-      "target_carries"
-    )
-    if (!is.null(result$carries_model$fit_type)) {
-      result$diagnostics$carries$fit_type <- result$carries_model$fit_type
-      result$diagnostics$carries$converged <- result$carries_model$converged
-      result$diagnostics$carries$warnings <- c(result$diagnostics$carries$warnings, result$carries_model$warnings)
-    }
+  # Validate RB v1 target schema
+  if (exists("validate_rb_v1_target_schema")) {
+    validate_rb_v1_target_schema(training_data, strict = TRUE)
   } else {
-    result$carries_model <- create_baseline_model("target_carries", carries_valid$y, is_count = TRUE)
-    result$diagnostics$carries$fit_type <- "baseline"
+    # Fallback validation
+    required_outcomes <- get_rb_v1_targets()
+    missing_outcomes <- setdiff(required_outcomes, names(training_data))
+    if (length(missing_outcomes) > 0) {
+      stop("Missing required RB v1 outcome columns: ", paste(missing_outcomes, collapse = ", "))
+    }
   }
   
-  # 2. Fit rushing_yards model
-  message("Fitting rushing_yards model...")
-  rush_yds_valid <- validate_target_data(
-    training_data,
-    "target_rushing_yards",
-    c("target_carries", "yards_per_carry_roll5", "is_home"),
-    min_rows = min_rows,
-    min_positive = 0
-  )
-  result$diagnostics$rushing_yards <- rush_yds_valid$diagnostics
+  # Validate regime column exists
+  if (!"rb_regime" %in% names(training_data)) {
+    stop("Missing rb_regime column in training data. Regime-based modeling requires rb_regime.")
+  }
   
-  if (rush_yds_valid$diagnostics$n_rows_used >= min_rows && 
-      !is.na(rush_yds_valid$diagnostics$var_y) && 
-      rush_yds_valid$diagnostics$var_y > 0) {
-    # Try with defensive features if available
-    def_features <- c("opp_rush_yards_allowed_roll5", "opp_tfl_roll5", "opp_sacks_roll5")
-    available_def <- intersect(def_features, names(rush_yds_valid$data))
-    
-    formula_str <- "target_rushing_yards ~ target_carries + yards_per_carry_roll5 + is_home"
-    if (length(available_def) > 0) {
-      def_complete <- !apply(rush_yds_valid$data[, available_def, drop = FALSE], 1, function(x) all(is.na(x)))
-      rush_yds_data_def <- rush_yds_valid$data[def_complete, ]
-      rush_yds_y_def <- rush_yds_valid$y[def_complete]
+  # Validate regimes are valid
+  valid_regimes <- get_rb_regimes()
+  invalid_regimes <- setdiff(unique(training_data$rb_regime), valid_regimes)
+  if (length(invalid_regimes) > 0) {
+    stop("Invalid regimes found: ", paste(invalid_regimes, collapse = ", "),
+         ". Valid regimes: ", paste(valid_regimes, collapse = ", "))
+  }
+  
+  log_msg("=== RB Model Fitting Diagnostics ===")
+  log_msg("Training rows:", nrow(training_data))
+  
+  # Get RB v1 targets and regimes
+  rb_targets <- get_rb_v1_targets()
+  rb_regimes <- get_rb_regimes()
+  feature_contracts <- get_rb_features_by_regime()
+  
+  # Diagnostic: Check that all required features exist across all regimes
+  all_required_features <- unique(unlist(feature_contracts))
+    missing_global_features <- setdiff(all_required_features, names(training_data))
+    if (length(missing_global_features) > 0) {
+      log_msg("WARNING: Some required features are missing from training data: ", 
+            paste(missing_global_features, collapse = ", "))
+      log_msg("Available columns (sample): ", 
+            paste(head(setdiff(names(training_data), c("player_id", "season", "week", "rb_regime")), 20), collapse = ", "))
+    }
+  
+  # Diagnostic: Check NA rates for required features (log to file)
+  if (length(all_required_features) > 0) {
+    existing_features <- intersect(all_required_features, names(training_data))
+    if (length(existing_features) > 0) {
+      na_rates <- sapply(existing_features, function(f) {
+        sum(is.na(training_data[[f]])) / nrow(training_data) * 100
+      })
+      high_na_features <- names(na_rates)[na_rates > 50]
+      if (length(high_na_features) > 0) {
+        log_msg("High NA rates in required features: ", 
+                paste(paste0(high_na_features, " (", round(na_rates[high_na_features], 1), "%)"), collapse = ", "))
+      }
+    }
+  }
+  
+  # Train each target per regime (nested loops)
+  # TIME-AWARE MODELING: Features are determined by week-of-game, not regime alone
+  # Regime controls which coefficients to use, week controls which features exist
+  # Each regime model uses the minimum feature set that exists for ALL weeks in that regime
+  # This ensures causal consistency: we never require features that didn't exist at that time
+  for (target in rb_targets) {
+    for (regime in rb_regimes) {
+      model_key <- get_model_key(target, regime)
+      log_msg("")
+      log_msg("Fitting:", model_key)
       
-      if (nrow(rush_yds_data_def) >= min_rows) {
-        formula_str <- paste0(formula_str, " + ", paste(available_def, collapse = " + "))
-        result$rushing_yards_model <- fit_continuous_model_robust(
-          rush_yds_y_def,
-          rush_yds_data_def,
-          formula_str,
-          "target_rushing_yards"
+      # TIME-AWARE FIX: Use centralized feature contract from rb_regime_v1.R
+      # This ensures causal consistency and includes defensive features where appropriate
+      # Early regime (weeks 1-3): player priors + is_home (no rolling features exist yet)
+      # Mid regime (weeks 4-5): priors + is_home + roll3 (roll5 not available until week 6)
+      # Late regime (weeks 6-7): priors + is_home + roll3 + roll5 + defensive roll5
+      # Standard regime (weeks 8+): priors + is_home + all rolling features + defensive roll5
+      feature_contracts <- get_rb_features_by_regime()
+      required_features <- feature_contracts[[regime]]
+      
+      if (is.null(required_features)) {
+        stop("Unknown regime: ", regime, ". Valid regimes: ", paste(rb_regimes, collapse = ", "))
+      }
+      
+      # Filter to rows matching this regime and target non-NA
+      # CRITICAL: Only filter by this specific target, NOT all targets
+      training_data_regime <- training_data %>%
+        filter(rb_regime == regime) %>%
+        filter(!is.na(.data[[target]]))
+      
+      n_rows_available <- nrow(training_data_regime)
+      
+      # CRITICAL FIX: is_home is a context feature, not a learned signal
+      # Default is_home to 0 if missing (allow NA values)
+      if ("is_home" %in% names(training_data_regime)) {
+        training_data_regime$is_home[is.na(training_data_regime$is_home)] <- 0
+      }
+      
+      # TIME-AWARE FIX: Only require features that exist at that week
+      # Check which features exist in the data
+      available_features <- intersect(required_features, names(training_data_regime))
+      missing_features <- setdiff(required_features, available_features)
+      
+      if (length(missing_features) > 0) {
+        # Diagnostic: show what columns ARE available
+        available_cols_sample <- head(setdiff(names(training_data_regime), c("player_id", "season", "week", "rb_regime", rb_targets)), 20)
+        stop("Missing required features for ", model_key, ": ", paste(missing_features, collapse = ", "),
+             ". Time-aware feature contract must be satisfied. ",
+             "Available feature columns (sample): ", paste(available_cols_sample, collapse = ", "))
+      }
+      
+      # CRITICAL FIX: Filter only on rolling features (not is_home or player priors)
+      # is_home is optional and has been defaulted above
+      # Player priors (cum_mean, _cum) are also optional (available for established players)
+      non_rolling_features <- c("is_home", grep("_cum", required_features, value = TRUE))
+      rolling_features <- setdiff(required_features, non_rolling_features)
+      
+      if (length(rolling_features) > 0) {
+        # Filter to rows where rolling features are non-NA
+        training_data_regime <- training_data_regime %>%
+          filter(if_all(all_of(rolling_features), ~ !is.na(.)))
+      }
+      # Note: is_home is NOT filtered - it's optional and defaulted to 0 if missing
+      
+      n_rows_final <- nrow(training_data_regime)
+      
+      # Diagnostic: Log features used and row counts to file
+      log_msg("  Features used:", paste(required_features, collapse = ", "))
+      log_msg("  Rows available:", n_rows_available)
+      log_msg("  Rows used:", n_rows_final)
+      
+      # Determine model type based on target
+      is_count <- TRUE  # All RB v1 targets are counts
+      min_positive <- if (grepl("_tds$", target)) 10 else 20
+      
+      # Build formula from regime-specific features
+      formula_str <- paste0(target, " ~ ", paste(required_features, collapse = " + "))
+      
+      # Store diagnostics with time-aware feature information
+      result$diagnostics[[model_key]] <- list(
+        target = target,
+        regime = regime,
+        features_used = required_features,  # TIME-AWARE: Show which features were used
+        n_rows_available = n_rows_available,
+        n_rows_final = n_rows_final,
+        fit_type = "none",
+        converged = FALSE,
+        warnings = character(0),
+        fallback_used = FALSE
       )
-    } else {
-        result$rushing_yards_model <- fit_continuous_model_robust(
-          rush_yds_valid$y,
-          rush_yds_valid$data,
-          "target_rushing_yards ~ target_carries + yards_per_carry_roll5 + is_home",
-          "target_rushing_yards"
-        )
+      
+      # Check minimum rows
+      if (n_rows_final < min_rows) {
+        log_msg("  Insufficient rows:", n_rows_final, "<", min_rows, "- Using baseline")
+        y <- training_data_regime[[target]]
+        result$models[[model_key]] <- create_baseline_model(target, y, is_count = is_count)
+        result$diagnostics[[model_key]]$fit_type <- "baseline"
+        result$diagnostics[[model_key]]$fallback_used <- TRUE
+        log_msg("  Model:", model_key, "| Features:", paste(required_features, collapse = ", "),
+                 "| Rows available:", n_rows_available, "| Rows used:", n_rows_final,
+                 "| Fit: baseline | Fallback: TRUE")
+        next
       }
-    } else {
-      result$rushing_yards_model <- fit_continuous_model_robust(
-        rush_yds_valid$y,
-        rush_yds_valid$data,
-        formula_str,
-        "target_rushing_yards"
-      )
-    }
-    
-    if (!is.null(result$rushing_yards_model$fit_type)) {
-      result$diagnostics$rushing_yards$fit_type <- result$rushing_yards_model$fit_type
-      result$diagnostics$rushing_yards$converged <- result$rushing_yards_model$converged
-      result$diagnostics$rushing_yards$warnings <- c(result$diagnostics$rushing_yards$warnings, result$rushing_yards_model$warnings)
-    }
-  } else {
-    result$rushing_yards_model <- create_baseline_model("target_rushing_yards", rush_yds_valid$y, is_count = FALSE)
-    result$diagnostics$rushing_yards$fit_type <- "baseline"
-  }
-  
-  # 3. Fit receptions model
-  message("Fitting receptions model...")
-  rec_valid <- validate_target_data(
-    training_data,
-    "target_receptions",
-    c("targets_roll3", "targets_roll5", "is_home"),
-    min_rows = min_rows,
-    min_positive = 20
-  )
-  result$diagnostics$receptions <- rec_valid$diagnostics
-  
-  if (rec_valid$diagnostics$n_rows_used >= min_rows && 
-      !is.na(rec_valid$diagnostics$var_y) && 
-      rec_valid$diagnostics$var_y > 0) {
-    result$receptions_model <- fit_count_model_robust(
-      rec_valid$y,
-      rec_valid$data,
-      "target_receptions ~ targets_roll3 + targets_roll5 + is_home",
-      "target_receptions"
-    )
-    if (!is.null(result$receptions_model$fit_type)) {
-      result$diagnostics$receptions$fit_type <- result$receptions_model$fit_type
-      result$diagnostics$receptions$converged <- result$receptions_model$converged
-      result$diagnostics$receptions$warnings <- c(result$diagnostics$receptions$warnings, result$receptions_model$warnings)
+      
+      # Validate target variance
+      y <- training_data_regime[[target]]
+      var_y <- var(y, na.rm = TRUE)
+      if (is.na(var_y) || var_y == 0) {
+        log_msg("  Zero variance - Using baseline")
+        result$models[[model_key]] <- create_baseline_model(target, y, is_count = is_count)
+        result$diagnostics[[model_key]]$fit_type <- "baseline"
+        result$diagnostics[[model_key]]$fallback_used <- TRUE
+        log_msg("  Model:", model_key, "| Features:", paste(required_features, collapse = ", "),
+                 "| Rows available:", n_rows_available, "| Rows used:", n_rows_final,
+                 "| Fit: baseline | Fallback: TRUE")
+        next
       }
-    } else {
-    result$receptions_model <- create_baseline_model("target_receptions", rec_valid$y, is_count = TRUE)
-    result$diagnostics$receptions$fit_type <- "baseline"
-  }
-  
-  # 4. Fit receiving_yards model
-  message("Fitting receiving_yards model...")
-  rec_yds_valid <- validate_target_data(
-    training_data,
-    "target_receiving_yards",
-    c("target_receptions", "yards_per_target_roll5", "is_home"),
-    min_rows = min_rows,
-    min_positive = 0
-  )
-  result$diagnostics$receiving_yards <- rec_yds_valid$diagnostics
-  
-  if (rec_yds_valid$diagnostics$n_rows_used >= min_rows && 
-      !is.na(rec_yds_valid$diagnostics$var_y) && 
-      rec_yds_valid$diagnostics$var_y > 0) {
-    result$receiving_yards_model <- fit_continuous_model_robust(
-      rec_yds_valid$y,
-      rec_yds_valid$data,
-      "target_receiving_yards ~ target_receptions + yards_per_target_roll5 + is_home",
-      "target_receiving_yards"
-    )
-    if (!is.null(result$receiving_yards_model$fit_type)) {
-      result$diagnostics$receiving_yards$fit_type <- result$receiving_yards_model$fit_type
-      result$diagnostics$receiving_yards$converged <- result$receiving_yards_model$converged
-      result$diagnostics$receiving_yards$warnings <- c(result$diagnostics$receiving_yards$warnings, result$receiving_yards_model$warnings)
+      
+      # For count models, check minimum positive values
+      if (is_count) {
+        n_positive <- sum(y > 0, na.rm = TRUE)
+        if (n_positive < min_positive) {
+          log_msg("  Insufficient positive values:", n_positive, "<", min_positive, "- Using baseline")
+          result$models[[model_key]] <- create_baseline_model(target, y, is_count = TRUE)
+          result$diagnostics[[model_key]]$fit_type <- "baseline"
+          result$diagnostics[[model_key]]$fallback_used <- TRUE
+          log_msg("  Model:", model_key, "| Features:", paste(required_features, collapse = ", "),
+                   "| Rows available:", n_rows_available, "| Rows used:", n_rows_final,
+                   "| Fit: baseline | Fallback: TRUE")
+          next
+        }
       }
-    } else {
-    result$receiving_yards_model <- create_baseline_model("target_receiving_yards", rec_yds_valid$y, is_count = FALSE)
-    result$diagnostics$receiving_yards$fit_type <- "baseline"
-  }
-  
-  # 5. Fit total_touchdowns model
-  message("Fitting total_touchdowns model...")
-  td_valid <- validate_target_data(
-    training_data,
-    "target_total_touchdowns",
-    c("target_carries", "target_receptions", "is_home"),
-    min_rows = min_rows,
-    min_positive = 20
-  )
-  result$diagnostics$total_touchdowns <- td_valid$diagnostics
-  
-  if (td_valid$diagnostics$n_rows_used >= min_rows && 
-      !is.na(td_valid$diagnostics$var_y) && 
-      td_valid$diagnostics$var_y > 0) {
-    result$total_touchdowns_model <- fit_count_model_robust(
-      td_valid$y,
-      td_valid$data,
-      "target_total_touchdowns ~ target_carries + target_receptions + is_home",
-      "target_total_touchdowns"
-    )
-    if (!is.null(result$total_touchdowns_model$fit_type)) {
-      result$diagnostics$total_touchdowns$fit_type <- result$total_touchdowns_model$fit_type
-      result$diagnostics$total_touchdowns$converged <- result$total_touchdowns_model$converged
-      result$diagnostics$total_touchdowns$warnings <- c(result$diagnostics$total_touchdowns$warnings, result$total_touchdowns_model$warnings)
+      
+      # Fit model
+      fit_result <- fit_count_model_robust(y, training_data_regime, formula_str, target)
+      result$models[[model_key]] <- fit_result
+      
+      # Update diagnostics
+      if (!is.null(fit_result$fit_type)) {
+        result$diagnostics[[model_key]]$fit_type <- fit_result$fit_type
+        result$diagnostics[[model_key]]$converged <- fit_result$converged
+        result$diagnostics[[model_key]]$warnings <- fit_result$warnings
+      }
+      
+      if (!is.null(fit_result$type) && fit_result$type == "baseline") {
+        result$diagnostics[[model_key]]$fallback_used <- TRUE
+        log_msg("  Model:", model_key, "| Features:", paste(required_features, collapse = ", "),
+                 "| Rows available:", n_rows_available, "| Rows used:", n_rows_final,
+                 "| Fit: baseline | Fallback: TRUE")
+      } else {
+        log_msg("  Model:", model_key, "| Features:", paste(required_features, collapse = ", "),
+                 "| Rows available:", n_rows_available, "| Rows used:", n_rows_final,
+                 "| Fit:", fit_result$fit_type, "| Fallback: FALSE")
+        if (length(fit_result$warnings) > 0) {
+          log_msg("  Warnings:", paste(fit_result$warnings, collapse = "; "))
+        }
+      }
     }
-    } else {
-    result$total_touchdowns_model <- create_baseline_model("target_total_touchdowns", td_valid$y, is_count = TRUE)
-    result$diagnostics$total_touchdowns$fit_type <- "baseline"
   }
   
-  # Summary
-  baseline_models <- sapply(result[1:5], function(m) !is.null(m$type) && m$type == "baseline")
-  n_baseline <- sum(baseline_models)
-  if (n_baseline > 0) {
-    baseline_names <- names(result[1:5])[baseline_models]
-    warning("RB model fitting: ", n_baseline, " model(s) fell back to baseline: ", 
-            paste(baseline_names, collapse = ", "))
-  }
+  # Summary with time-aware feature information
+  n_models <- length(result$models)
+  n_baseline <- sum(sapply(result$models, function(m) !is.null(m$type) && m$type == "baseline"))
+  n_fitted <- n_models - n_baseline
   
-  message(paste("Fitting complete: ", 5 - n_baseline, " fitted, ", n_baseline, " baseline"))
+  log_msg("")
+  log_msg("=== Fitting Summary ===")
+  log_msg("Total models:", n_models)
+  log_msg("Fitted:", n_fitted)
+  log_msg("Baseline (fallback):", n_baseline)
+  
+  # TIME-AWARE: Log summary of features used per regime
+  log_msg("")
+  log_msg("Time-aware feature usage by regime:")
+  for (regime in rb_regimes) {
+    regime_models <- names(result$models)[grepl(paste0("__", regime, "$"), names(result$models))]
+    if (length(regime_models) > 0) {
+      # Get features used for first model in this regime (all should use same features)
+      first_model_key <- regime_models[1]
+      if (first_model_key %in% names(result$diagnostics)) {
+        features_used <- result$diagnostics[[first_model_key]]$features_used
+        n_rows_used <- result$diagnostics[[first_model_key]]$n_rows_final
+        log_msg("  ", regime, ": ", paste(features_used, collapse = ", "), 
+                 " (", n_rows_used, " rows)")
+      }
+    }
+  }
   
   return(result)
 }
 
-#' Check if RB models are valid for simulation (RB v1 contract)
+#' Check if RB models are valid for simulation (RB v1 contract with regimes)
 #'
-#' @param rb_models List returned by fit_rb_models
+#' @param rb_models List returned by fit_rb_models (with models in $models sublist)
+#' @param regime Character regime name (optional, for specific regime check)
 #' @return Logical, TRUE if all required models exist (baseline or fitted)
-validate_rb_models <- function(rb_models) {
+validate_rb_models <- function(rb_models, regime = NULL) {
   if (is.null(rb_models)) return(FALSE)
   
-  required <- c("carries_model", "rushing_yards_model", "receiving_yards_model",
-                "receptions_model", "total_touchdowns_model")
+  # Load regime system if needed
+  if (file.exists("R/utils/rb_regime_v1.R")) {
+    source("R/utils/rb_regime_v1.R", local = TRUE)
+  }
+  if (file.exists("R/utils/rb_schema_v1.R")) {
+    source("R/utils/rb_schema_v1.R", local = TRUE)
+  }
   
-  all(sapply(required, function(m) !is.null(rb_models[[m]])))
+  # Check if using new regime-based structure
+  if (!is.null(rb_models$models)) {
+    models_list <- rb_models$models
+    if (!is.null(regime)) {
+      # Check specific regime
+      if (exists("get_rb_v1_targets") && exists("get_model_key")) {
+        rb_targets <- get_rb_v1_targets()
+        required_keys <- sapply(rb_targets, function(t) get_model_key(t, regime))
+        return(all(sapply(required_keys, function(k) !is.null(models_list[[k]]))))
+      }
+    } else {
+      # Check all regimes
+      if (exists("get_rb_v1_targets") && exists("get_rb_regimes") && exists("get_model_key")) {
+        rb_targets <- get_rb_v1_targets()
+        rb_regimes <- get_rb_regimes()
+        required_keys <- as.vector(outer(rb_targets, rb_regimes, function(t, r) get_model_key(t, r)))
+        return(all(sapply(required_keys, function(k) !is.null(models_list[[k]]))))
+      }
+    }
+  } else {
+    # Legacy structure (non-regime)
+    required <- c("carries_model", "receptions_model", "rush_tds_model", "rec_tds_model")
+    return(all(sapply(required, function(m) !is.null(rb_models[[m]]))))
+  }
+  
+  # Fallback: if we can't validate, return FALSE
+  return(FALSE)
 }

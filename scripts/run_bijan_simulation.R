@@ -117,12 +117,37 @@ tryCatch({
 cat("All functions loaded successfully.\n\n")
 
 # ============================================================================
-# CONFIGURATION: Set target player and game
+# ARGUMENT PARSING: Command-line overrides
 # ============================================================================
-# Simply specify player name and game date - everything else is auto-detected!
+# Parse command-line arguments for runtime configuration
+# Supports: --player=<name> --season=<year> --week=<num> --n_sims=<num>
+
+# Set defaults
 target_player_name <- "Bijan Robinson"
 target_season <- 2024
 target_week <- 8
+n_sims <- 5000
+
+# Parse command-line arguments
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) > 0) {
+  for (arg in args) {
+    if (grepl("^--player=", arg)) {
+      target_player_name <- sub("^--player=", "", arg)
+    } else if (grepl("^--season=", arg)) {
+      target_season <- as.integer(sub("^--season=", "", arg))
+    } else if (grepl("^--week=", arg)) {
+      target_week <- as.integer(sub("^--week=", "", arg))
+    } else if (grepl("^--n_sims=", arg)) {
+      n_sims <- as.integer(sub("^--n_sims=", "", arg))
+    }
+  }
+}
+
+# Print resolved configuration
+cat("========================================\n")
+cat("Running:", target_player_name, "| season", target_season, "week", target_week, "| sims", n_sims, "\n")
+cat("========================================\n\n")
 
 # ============================================================================
 # LAYER 1: Pure Computation - Fully Automated
@@ -133,7 +158,7 @@ result <- simulate_player_game(
   player_name = target_player_name,
   season = target_season,
   week = target_week,
-  n_sims = 5000
+  n_sims = n_sims
 )
 
 # ============================================================================
