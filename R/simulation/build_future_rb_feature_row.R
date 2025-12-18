@@ -45,6 +45,19 @@ build_future_rb_feature_row <- function(player_id,
                                        home_away,
                                        game_date = NULL) {
   
+  # Initialize logging
+  log_file <- "rb_debug.log"
+  if (!file.exists(log_file)) {
+    cat("", file = log_file)
+  }
+  log_msg <- function(...) {
+    cat(paste(...), "\n", file = log_file, append = TRUE)
+  }
+  
+  log_msg("=== build_future_rb_feature_row ===")
+  log_msg("INPUTS: player_id=", player_id, ", season=", season, ", week=", week)
+  log_msg("INPUTS: team=", team, ", opponent=", opponent, ", home_away=", home_away)
+  
   # Validate inputs
   if (missing(player_id) || is.null(player_id) || length(player_id) == 0) {
     stop("player_id is required for future feature row construction")
@@ -140,12 +153,20 @@ build_future_rb_feature_row <- function(player_id,
   synthetic_row <- last_game
   
   # Update game-specific fields for the future game
-  synthetic_row$season <- season
-  synthetic_row$week <- week
-  synthetic_row$team <- team
-  synthetic_row$opponent <- opponent
-  synthetic_row$home_away <- home_away
+  # CRITICAL: These are CLI-provided values and must be used exactly as provided
+  synthetic_row$season <- as.integer(season)
+  synthetic_row$week <- as.integer(week)
+  synthetic_row$team <- as.character(team)
+  synthetic_row$opponent <- as.character(opponent)
+  synthetic_row$home_away <- as.character(home_away)
   synthetic_row$is_home <- ifelse(home_away == "HOME", 1L, 0L)
+  
+  # CRITICAL INVARIANT: Verify synthetic row has correct week
+  if (is.na(synthetic_row$week) || synthetic_row$week != week) {
+    stop("SYNTHETIC ROW WEEK INVARIANT VIOLATED: Requested week=", week,
+         " but synthetic_row has week=", synthetic_row$week, ". ",
+         "This should NEVER happen - indicates bug in synthetic row construction.")
+  }
   
   if (!is.null(game_date) && !is.na(game_date)) {
     synthetic_row$game_date <- as.Date(game_date)
@@ -170,21 +191,40 @@ build_future_rb_feature_row <- function(player_id,
   }
   
   # Validate required feature columns exist
+  # Core rolling features (available weeks 4+)
   required_features <- c(
     "carries_roll3", "carries_roll5", "targets_roll3", "targets_roll5",
     "yards_per_carry_roll5", "yards_per_target_roll5", "catch_rate_roll5",
     "is_home"
   )
+  
+  # Decayed priors (critical for early-season realism, available all weeks)
+  # These should always be present since they're computed in assemble_rb_weekly_features
+  prior_features <- c("carries_prior", "targets_prior", "ypc_prior", "ypt_prior")
+  
   missing_features <- setdiff(required_features, names(synthetic_row))
+  missing_priors <- setdiff(prior_features, names(synthetic_row))
+  
   if (length(missing_features) > 0) {
     stop("Missing required feature columns in synthetic row: ", 
          paste(missing_features, collapse = ", "))
   }
   
+  if (length(missing_priors) > 0) {
+    warning("Missing decayed prior features in synthetic row: ", 
+            paste(missing_priors, collapse = ", "), 
+            ". Early-season projections may collapse to baseline. ",
+            "Run scripts/refresh_weekly_cache.R to populate priors.")
+  
   # Ensure is_home is set correctly
   synthetic_row$is_home <- ifelse(home_away == "HOME", 1L, 0L)
   
   rownames(synthetic_row) <- NULL
+  
+  log_msg("OUTPUTS: synthetic_row created with season=", synthetic_row$season, 
+          ", week=", synthetic_row$week)
+  log_msg("OUTPUTS: team=", synthetic_row$team, ", opponent=", synthetic_row$opponent, 
+          ", is_home=", synthetic_row$is_home)
   
   synthetic_row
 }

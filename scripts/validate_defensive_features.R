@@ -83,8 +83,8 @@ if (file.exists(rb_features_path)) {
   if (requireNamespace("arrow", quietly = TRUE)) {
     rb_features <- arrow::read_parquet(rb_features_path)
     
-    expected_def_cols <- c("opp_rush_yards_allowed_roll5", "opp_points_allowed_roll5",
-                          "opp_sacks_roll5", "opp_tfl_roll5")
+    expected_def_cols <- c("opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
+                          "opp_points_allowed_roll5", "opp_sacks_roll5", "opp_tfl_roll5")
     found_def_cols <- intersect(expected_def_cols, names(rb_features))
     
     if (length(found_def_cols) == length(expected_def_cols)) {

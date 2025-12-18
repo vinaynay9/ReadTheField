@@ -240,6 +240,20 @@ compute_decay_blended_priors <- function(df) {
 
 #' Assemble RB weekly features using pre-filtered RB stats
 #'
+#' CRITICAL ORDERING CONSTRAINT:
+#' Raw stat columns (carries, targets, receptions, rushing_yards, receiving_yards)
+#' must be preserved until ALL feature engineering is complete. The required order is:
+#'   1. Rolling features (build_rb_features)
+#'   2. Previous season priors (compute_prev_season_priors)
+#'   3. Season-to-date priors (compute_season_to_date_priors)
+#'   4. Decay-blended priors (compute_decay_blended_priors)
+#'   5. Defensive joins (opponent context)
+#'   6. Regime assignment
+#'   7. Player priors (add_rb_player_priors) - REQUIRES raw stat columns
+#'   8. Target column creation - REQUIRES raw stat columns
+#'   9. Drop raw stat columns - MUST be last
+#'   10. Schema validation
+#'
 #' @param rb_weekly_stats data.frame produced by build_rb_weekly_stats()
 #' @return data.frame with rolling features and target columns
 assemble_rb_weekly_features <- function(rb_weekly_stats) {
@@ -311,17 +325,6 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
                        "opp_sacks_roll5",
                        "opp_tfl_roll5")
           
-          # Compute yards per rush allowed if not present
-          if (!"opp_yards_per_rush_allowed_roll5" %in% names(def_features)) {
-            if ("opp_rush_yards_allowed_roll5" %in% names(def_features) && "rush_yards_allowed" %in% names(def_features)) {
-              # This would need rush attempts, which we may not have
-              # Skip for now
-              def_cols <- setdiff(def_cols, "opp_yards_per_rush_allowed_roll5")
-            } else {
-              def_cols <- setdiff(def_cols, "opp_yards_per_rush_allowed_roll5")
-            }
-          }
-          
           # Only join columns that exist
           def_cols <- intersect(def_cols, names(def_features))
           
@@ -343,7 +346,43 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
     })
   }
   
+  # Add RB v1 regime column based on week (Layer 3: before writing to parquet)
+  # Ensure week is numeric
+  if (!is.numeric(features$week)) {
+    features$week <- as.integer(features$week)
+  }
+  
+  # Add regime using case_when
+  if (!requireNamespace("dplyr", quietly = TRUE)) {
+    stop("Package 'dplyr' is required for regime assignment. Install with install.packages('dplyr').")
+  }
+  
+  features <- features %>%
+    dplyr::mutate(
+      rb_regime = dplyr::case_when(
+        week <= 3 ~ "early",
+        week <= 5 ~ "mid",
+        week <= 7 ~ "late",
+        TRUE ~ "standard"
+      )
+    )
+  
+  # Ensure rb_regime is character
+  features$rb_regime <- as.character(features$rb_regime)
+  
+  # Add player-specific priors (cumulative career statistics)
+  # CRITICAL: This MUST happen BEFORE dropping raw stat columns
+  # add_rb_player_priors() requires: carries, targets, receptions, rush_yards/rushing_yards, rec_yards/receiving_yards
+  if (file.exists("R/utils/rb_player_priors.R")) {
+    source("R/utils/rb_player_priors.R", local = TRUE)
+  }
+  if (exists("add_rb_player_priors")) {
+    message("Adding player priors (requires raw stat columns)...")
+    features <- add_rb_player_priors(features)
+  }
+  
   # RB v1 contract: create target columns with v1 names (NO yardage targets)
+  # IMPORTANT: Create targets AFTER player priors (which need raw columns)
   features$target_carries <- features$carries
   features$target_receptions <- features$receptions
   features$target_rush_tds <- features$rushing_tds
@@ -351,6 +390,8 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
   # Note: Yardage targets (target_rush_yards, target_rec_yards) are NOT in RB v1
   # Yardage should be derived downstream (e.g., carries * YPC) if needed
 
+  # Drop raw stat columns AFTER all feature engineering is complete
+  # This must be the LAST step before validation
   drop_cols <- c(
     "carries", "rushing_yards", "rushing_tds",
     "targets", "receptions", "receiving_yards", "receiving_tds"
@@ -410,39 +451,6 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
     }
   }
   
-  # Add RB v1 regime column based on week (Layer 3: before writing to parquet)
-  # Ensure week is numeric
-  if (!is.numeric(features$week)) {
-    features$week <- as.integer(features$week)
-  }
-  
-  # Add regime using case_when
-  if (!requireNamespace("dplyr", quietly = TRUE)) {
-    stop("Package 'dplyr' is required for regime assignment. Install with install.packages('dplyr').")
-  }
-  
-  features <- features %>%
-    dplyr::mutate(
-      rb_regime = dplyr::case_when(
-        week <= 3 ~ "early",
-        week <= 5 ~ "mid",
-        week <= 7 ~ "late",
-        TRUE ~ "standard"
-      )
-    )
-  
-  # Ensure rb_regime is character
-  features$rb_regime <- as.character(features$rb_regime)
-  
-  # Add player-specific priors (cumulative career statistics)
-  # These provide player role signal in early season weeks when rolling windows are NA
-  if (file.exists("R/utils/rb_player_priors.R")) {
-    source("R/utils/rb_player_priors.R", local = TRUE)
-  }
-  if (exists("add_rb_player_priors")) {
-    features <- add_rb_player_priors(features)
-  }
-  
   # Validate RB v1 target schema
   if (file.exists("R/utils/rb_schema_v1.R")) {
     source("R/utils/rb_schema_v1.R", local = TRUE)
@@ -454,6 +462,35 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
     stop("rb_regime column missing after feature assembly. This should not occur.")
   }
   
+  # FINAL VALIDATION: Ensure dataset is not empty and has valid structure
+  if (nrow(features) == 0) {
+    stop("CRITICAL: Final RB feature dataset has 0 rows. ",
+         "This indicates a fatal error in feature assembly. ",
+         "Check: (1) rb_weekly_stats has data, (2) build_rb_features succeeded, ",
+         "(3) add_rb_player_priors succeeded, (4) no unexpected filtering removed all rows.")
+  }
+  
+  # Validation: Ensure critical prior columns exist and are numeric
+  prior_cols <- c("carries_cum_mean", "targets_cum_mean", "receptions_cum_mean", 
+                  "ypc_cum", "ypt_cum", "catch_rate_cum")
+  missing_priors <- setdiff(prior_cols, names(features))
+  if (length(missing_priors) > 0) {
+    stop("CRITICAL: Player prior columns missing after add_rb_player_priors: ",
+         paste(missing_priors, collapse = ", "), ". ",
+         "This indicates add_rb_player_priors() failed or was skipped.")
+  }
+  
+  # Validation: Ensure all prior columns are numeric
+  for (col in prior_cols) {
+    if (!is.numeric(features[[col]])) {
+      stop("CRITICAL: Prior column '", col, "' is not numeric (type: ", 
+           class(features[[col]]), "). This indicates data corruption.")
+    }
+  }
+  
+  message(sprintf("✓ Feature assembly complete: %d rows, %d columns, priors validated", 
+                  nrow(features), ncol(features)))
+  
   features
 }
 
@@ -463,12 +500,25 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
 #' Loads raw data, joins schedules with player stats, computes features,
 #' and returns a training-ready dataset with strict temporal ordering.
 #'
+#' CRITICAL ORDERING CONSTRAINT:
+#' Raw stat columns must be preserved until ALL feature engineering is complete:
+#'   1. Build rolling features (build_rb_features)
+#'   2. Previous season priors (compute_prev_season_priors)
+#'   3. Season-to-date priors (compute_season_to_date_priors)
+#'   4. Decay-blended priors (compute_decay_blended_priors)
+#'   5. Defensive joins (opponent context)
+#'   6. Target column creation
+#'   7. Regime assignment
+#'   8. Player priors (add_rb_player_priors) - REQUIRES raw stat columns
+#'   9. Final column selection (drops raw stat columns) - MUST be last
+#'   10. Schema validation
+#'
 #' @param seasons Integer vector of NFL seasons to include
 #' @return data.frame with one row per RB-game including:
 #'   - Identifiers: game_id, player_id, season, week, gameday
 #'   - Metadata: player_name, team, position, opponent, home_away, is_home
 #'   - Features: carries_roll3, carries_roll5, targets_roll3, etc.
-#'   - Targets: carries, rush_yards, rush_tds, targets, receptions, rec_yards, rec_tds
+#'   - Targets: target_carries, target_rush_tds, target_receptions, target_rec_tds
 assemble_rb_training_data <- function(seasons) {
   
   # Validate input
@@ -796,7 +846,34 @@ assemble_rb_training_data <- function(seasons) {
     validate_rb_v1_target_schema(rb_data, strict = TRUE)
   }
   
-  message(paste("Assembled", nrow(rb_data), "RB training records"))
+  # FINAL VALIDATION: Ensure dataset is not empty and has valid structure
+  if (nrow(rb_data) == 0) {
+    stop("CRITICAL: Final RB training dataset has 0 rows. ",
+         "This indicates a fatal error in training data assembly. ",
+         "Check: (1) rb_stats loaded, (2) schedules matched, (3) build_rb_features succeeded, ",
+         "(4) add_rb_player_priors succeeded, (5) no unexpected filtering removed all rows.")
+  }
+  
+  # Validation: Ensure critical prior columns exist and are numeric
+  prior_cols <- c("carries_cum_mean", "targets_cum_mean", "receptions_cum_mean", 
+                  "ypc_cum", "ypt_cum", "catch_rate_cum")
+  missing_priors <- setdiff(prior_cols, names(rb_data))
+  if (length(missing_priors) > 0) {
+    warning("Player prior columns missing after add_rb_player_priors: ",
+            paste(missing_priors, collapse = ", "), ". ",
+            "Models may fall back to baseline without player priors.")
+  } else {
+    # Validation: Ensure all prior columns are numeric
+    for (col in prior_cols) {
+      if (!is.numeric(rb_data[[col]])) {
+        warning("Prior column '", col, "' is not numeric (type: ", 
+                class(rb_data[[col]]), "). This may cause model errors.")
+      }
+    }
+  }
+  
+  message(sprintf("✓ Training data assembly complete: %d rows, %d columns", 
+                  nrow(rb_data), ncol(rb_data)))
   
   return(rb_data)
 }

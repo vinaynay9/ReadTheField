@@ -208,9 +208,27 @@ run_rb_simulation <- function(player_name,
   target_rows <- target_rows[order(target_rows$gameday, target_rows$game_id, target_rows$opponent), ]
   identified_game_row <- target_rows[1, ]
   
+  # CRITICAL: Verify identified game matches CLI args (detect drift early)
+  if (!is.null(season) && !is.na(season) && !is.na(identified_game_row$season) && identified_game_row$season != season) {
+    stop("GAME IDENTIFICATION DRIFT: CLI requested season=", season,
+         " but identified game has season=", identified_game_row$season, ". ",
+         "This indicates a bug in game resolution logic.")
+  }
+  if (!is.null(week) && !is.na(week) && !is.na(identified_game_row$week) && identified_game_row$week != week) {
+    stop("GAME IDENTIFICATION DRIFT: CLI requested week=", week,
+         " but identified game has week=", identified_game_row$week, ". ",
+         "This indicates a bug in game resolution logic. ",
+         "Player: ", paste(player_name_patterns, collapse = ", "), 
+         ", Game found: season=", identified_game_row$season, ", week=", identified_game_row$week)
+  }
+  
   if (is_valid_string(identified_game_row$game_key)) {
     resolved_game_key <- identified_game_row$game_key
   }
+  
+  log_msg("=== Game Identification ===")
+  log_msg("Identified game: season=", identified_game_row$season, ", week=", identified_game_row$week)
+  log_msg("Game key:", resolved_game_key)
   
   # CRITICAL FIX: Respect CLI arguments - NO OVERRIDES
   # Extract game info with proper precedence: CLI args win, fallback to identified_game_row only when not provided
@@ -550,30 +568,37 @@ run_rb_simulation <- function(player_name,
     
   } else {
     # REPLAY MODE: Find feature row from cache using primary keys
-    # Use player_id, season, week as the primary keys (most reliable)
+    # CRITICAL: Use game_season/game_week (resolved values), not raw function parameters
+    # This ensures we use the validated values from the resolution process
     player_game_row <- rb_data_all[
       rb_data_all$player_id == target_player_id &
-      rb_data_all$season == season &
-      rb_data_all$week == week,
+      rb_data_all$season == game_season &
+      rb_data_all$week == game_week,
       , drop = FALSE
     ]
+    
+    log_msg("Looking for player_game_row: player_id=", target_player_id, 
+            ", season=", game_season, ", week=", game_week)
     
     # Validate exactly 1 row found
     if (nrow(player_game_row) == 0) {
       stop("Player-week feature row not found in RB weekly features cache. ",
            "Player ID: ", target_player_id,
            ", Player: ", target_player_name,
-           ", Season: ", season, ", Week: ", week, ". ",
+           ", Season: ", game_season, ", Week: ", game_week, ". ",
            "Game may be missing from assembled training data or player did not play.")
     }
     
     if (nrow(player_game_row) > 1) {
       stop("Multiple feature rows found for player-week. Data inconsistency. ",
            "Player ID: ", target_player_id,
-           ", Season: ", season, ", Week: ", week, ". ",
+           ", Season: ", game_season, ", Week: ", game_week, ". ",
            "Found ", nrow(player_game_row), " rows. ",
            "This should never happen - each (player_id, season, week) should be unique.")
     }
+    
+    log_msg("Found player_game_row: season=", player_game_row$season[1], 
+            ", week=", player_game_row$week[1])
   }
 
   # Enforce minimum 3-game history rule
@@ -607,8 +632,8 @@ run_rb_simulation <- function(player_name,
   player_feature_row <- player_game_row[, available_feature_cols, drop = FALSE]
   
   # Store defensive context
-  def_features <- c("opp_rush_yards_allowed_roll5", "opp_sacks_roll5", 
-                    "opp_tfl_roll5", "opp_points_allowed_roll5")
+  def_features <- c("opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
+                    "opp_sacks_roll5", "opp_tfl_roll5", "opp_points_allowed_roll5")
   for (feat in def_features) {
     if (feat %in% names(player_feature_row)) {
       result$defensive_context[[feat]] <- player_feature_row[[feat]]
@@ -739,7 +764,17 @@ run_rb_simulation <- function(player_name,
          "This should never happen - indicates a resolution bug.")
   }
   
-  log_msg("Feature row week:", player_feature_row$week, "| Metadata week:", result$metadata$week, "| Match: OK")
+  # CRITICAL INVARIANT: feature_row week must match CLI-provided week (if provided)
+  # This is the final guardrail before simulation - catches any week drift
+  if (!is.null(week) && !is.na(week) && player_feature_row$week != week) {
+    stop("FEATURE ROW WEEK INVARIANT VIOLATED: CLI requested week=", week,
+         " but feature_row has week=", player_feature_row$week, ". ",
+         "This should NEVER happen - indicates week drift in feature row construction. ",
+         "Player: ", player_name, ", Season: ", season)
+  }
+  
+  log_msg("=== Feature Row Validation ===")
+  log_msg("Feature row week:", player_feature_row$week, "| Metadata week:", result$metadata$week, "| CLI week:", week, "| Match: OK")
   
   # Enforce contextual defaults (is_home must not be NA)
   if ("is_home" %in% names(player_feature_row)) {
@@ -763,7 +798,6 @@ run_rb_simulation <- function(player_name,
   }
   
   # Store simulation results
-  result$summary <- sim_result$summary
   result$draws <- sim_result$draws
 
   # Resolve simulation schema to canonical names
@@ -776,6 +810,18 @@ run_rb_simulation <- function(player_name,
     result$draws <- resolve_rb_simulation_schema(result$draws)
   } else {
     stop("resolve_rb_simulation_schema not found. Cannot standardize simulation output schema.")
+  }
+  
+  # CRITICAL FIX: Recompute summary AFTER schema resolution
+  # This ensures summary stat names match the resolved column names
+  # (rushing_yards, receiving_yards, total_touchdowns, total_yards)
+  if (!exists("compute_final_rb_percentiles")) {
+    source("R/simulation/simulate_rb_game.R", local = TRUE)
+  }
+  if (exists("compute_final_rb_percentiles")) {
+    result$summary <- compute_final_rb_percentiles(result$draws)
+  } else {
+    stop("compute_final_rb_percentiles not found. Cannot compute summary from resolved draws.")
   }
 
   # Compute additional diagnostics from draws
@@ -814,11 +860,16 @@ run_rb_simulation <- function(player_name,
     }
   }
   
+  # Compute distribution stats on resolved schema (using rushing_yards, not rush_yards)
   result$diagnostics$distribution_stats <- list(
-    carries_mean = mean(draws_df$carries),
-    carries_sd = sd(draws_df$carries),
-    rushing_yards_mean = mean(draws_df$rushing_yards),
-    rushing_yards_sd = sd(draws_df$rushing_yards)
+    carries_mean = mean(draws_df$carries, na.rm = TRUE),
+    carries_sd = sd(draws_df$carries, na.rm = TRUE),
+    rushing_yards_mean = mean(draws_df$rushing_yards, na.rm = TRUE),
+    rushing_yards_sd = sd(draws_df$rushing_yards, na.rm = TRUE),
+    receiving_yards_mean = mean(draws_df$receiving_yards, na.rm = TRUE),
+    receiving_yards_sd = sd(draws_df$receiving_yards, na.rm = TRUE),
+    total_touchdowns_mean = mean(draws_df$total_touchdowns, na.rm = TRUE),
+    total_touchdowns_sd = sd(draws_df$total_touchdowns, na.rm = TRUE)
   )
   
   # TD probabilities (RB v1: total_touchdowns only)

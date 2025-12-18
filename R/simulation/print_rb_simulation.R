@@ -226,6 +226,18 @@ print_rb_simulation <- function(result) {
     cat("   Opponent rush yards allowed (avg): (not computed)\n")
   }
   
+  if ("opp_yards_per_rush_allowed_roll5" %in% names(defensive_context)) {
+    val <- defensive_context$opp_yards_per_rush_allowed_roll5
+    val_str <- if (is.na(val) && !def_available) {
+      paste0("NA", na_reason)
+    } else {
+      safe_num(val, digits = 2, default = "NA (data missing)")
+    }
+    cat("   Opponent yards per rush allowed (avg):", val_str, "\n")
+  } else {
+    cat("   Opponent yards per rush allowed (avg): (not computed)\n")
+  }
+  
   if ("opp_sacks_roll5" %in% names(defensive_context)) {
     val <- defensive_context$opp_sacks_roll5
     val_str <- if (is.na(val) && !def_available) {
@@ -273,13 +285,30 @@ print_rb_simulation <- function(result) {
   
   if (!is.null(diagnostics$distribution_stats)) {
     dist_stats <- diagnostics$distribution_stats
+    
+    # HARD STOP: Validate critical stats are present and numeric
+    critical_stats <- c("carries_mean", "rushing_yards_mean", "receiving_yards_mean")
+    for (stat in critical_stats) {
+      if (is.null(dist_stats[[stat]])) {
+        stop("PRINT ERROR: Distribution stat '", stat, "' is missing. ",
+             "Cannot print distribution statistics. This indicates incomplete diagnostics.")
+      }
+      if (!is.numeric(dist_stats[[stat]])) {
+        stop("PRINT ERROR: Distribution stat '", stat, "' is not numeric (type: ", 
+             class(dist_stats[[stat]]), "). Cannot print statistics.")
+      }
+    }
+    
     carries_mean <- safe_num(dist_stats$carries_mean, digits = 2, default = "N/A")
     carries_sd <- safe_num(dist_stats$carries_sd, digits = 2, default = "N/A")
     rush_yds_mean <- safe_num(dist_stats$rushing_yards_mean, digits = 2, default = "N/A")
     rush_yds_sd <- safe_num(dist_stats$rushing_yards_sd, digits = 2, default = "N/A")
+    rec_yds_mean <- safe_num(dist_stats$receiving_yards_mean, digits = 2, default = "N/A")
+    rec_yds_sd <- safe_num(dist_stats$receiving_yards_sd, digits = 2, default = "N/A")
     
     cat("   Carries - Mean:", carries_mean, ", SD:", carries_sd, "\n")
-    cat("   Rush yards - Mean:", rush_yds_mean, ", SD:", rush_yds_sd, "\n")
+    cat("   Rushing yards - Mean:", rush_yds_mean, ", SD:", rush_yds_sd, "\n")
+    cat("   Receiving yards - Mean:", rec_yds_mean, ", SD:", rec_yds_sd, "\n")
   } else {
     cat("   Distribution statistics not available\n")
   }

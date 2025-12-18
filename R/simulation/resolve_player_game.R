@@ -349,12 +349,12 @@ resolve_player_game <- function(player_name,
 
   resolved_position <- toupper(trimws(chosen$position))
   if (is.na(resolved_position) || resolved_position == "") {
-    stop("Cannot resolve position for player '", player_name, "'. Position is NA or empty in cache.")
+    stop("Cannot resolve position for player '", player_name_input, "'. Position is NA or empty in cache.")
   }
   
   valid_positions <- c("QB", "RB", "WR", "TE", "K")
   if (!resolved_position %in% valid_positions) {
-    stop("Invalid position '", resolved_position, "' for player '", player_name, "'. ",
+    stop("Invalid position '", resolved_position, "' for player '", player_name_input, "'. ",
          "Position must be one of: ", paste(valid_positions, collapse = ", "))
   }
 
@@ -362,9 +362,10 @@ resolve_player_game <- function(player_name,
   resolved_opponent <- chosen$opponent
   resolved_home_away <- chosen$home_away
 
-  resolved_game_key <- if (!is.na(chosen$game_key) && nzchar(chosen$game_key)) {
-    chosen$game_key
-  } else if (exists("build_game_key")) {
+  # CRITICAL FIX: Always rebuild game_key from resolved values (CLI args), never use chosen$game_key
+  # This ensures game_key matches resolved_season/resolved_week when CLI overrides are provided
+  # chosen$game_key may be from a different game (e.g., week 8 when CLI requested week 2)
+  resolved_game_key <- if (exists("build_game_key")) {
     build_game_key(
       resolved_season,
       resolved_week,
@@ -378,7 +379,7 @@ resolve_player_game <- function(player_name,
   }
 
   if (is.na(resolved_game_key) || resolved_game_key == "") {
-    stop("Cannot build game_key for player '", player_name, "'. ",
+    stop("Cannot build game_key for player '", player_name_input, "'. ",
          "Required fields: season=", resolved_season, ", week=", resolved_week, 
          ", game_date=", resolved_game_date)
   }
@@ -393,6 +394,29 @@ resolve_player_game <- function(player_name,
   
   # Use full_name from directory (source of truth), not player_name from weekly stats
   resolved_player_name <- resolved_full_name
+
+  # CRITICAL INVARIANT: Verify resolved week matches CLI-provided week (if provided)
+  # This ensures no silent week drift due to cache lookups or heuristic overrides
+  if (has_season_week && !is.null(week) && !is.na(week)) {
+    if (resolved_week != week) {
+      stop("WEEK RESOLUTION INVARIANT VIOLATED: CLI requested week=", week,
+           " but resolved week=", resolved_week, ". ",
+           "This indicates game resolution logic found the wrong game. ",
+           "Player: ", resolved_player_name, ", Season: ", resolved_season, ". ",
+           "Resolution mode: ", resolution_mode)
+    }
+  }
+  
+  # CRITICAL INVARIANT: Verify resolved season matches CLI-provided season (if provided)
+  if (has_season_week && !is.null(season) && !is.na(season)) {
+    if (resolved_season != season) {
+      stop("SEASON RESOLUTION INVARIANT VIOLATED: CLI requested season=", season,
+           " but resolved season=", resolved_season, ". ",
+           "This indicates game resolution logic found the wrong game. ",
+           "Player: ", resolved_player_name, ", Week: ", resolved_week, ". ",
+           "Resolution mode: ", resolution_mode)
+    }
+  }
 
   list(
     player_id = resolved_player_id,

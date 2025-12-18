@@ -72,6 +72,38 @@ print_player_simulation <- function(result) {
   summary_df <- if (!is.null(result$summary) && nrow(result$summary) > 0) result$summary else data.frame()
   recent_games <- if (!is.null(result$recent_games) && nrow(result$recent_games) > 0) result$recent_games else data.frame()
   
+  # HARD STOP: Validate summary dataframe has required stats
+  if (nrow(summary_df) > 0) {
+    required_stats <- c("carries", "rushing_yards", "receptions", "receiving_yards", "total_touchdowns")
+    if ("stat" %in% names(summary_df)) {
+      available_stats <- summary_df$stat
+      missing_stats <- setdiff(required_stats, available_stats)
+      if (length(missing_stats) > 0) {
+        stop("PRINT ERROR: Summary dataframe is missing required stats: ", 
+             paste(missing_stats, collapse = ", "), 
+             ". Available stats: ", paste(available_stats, collapse = ", "), 
+             ". This indicates the summary was not computed on the resolved schema.")
+      }
+    }
+    
+    # Validate percentile columns exist
+    required_cols <- c("stat", "p25", "p50", "p75")
+    missing_cols <- setdiff(required_cols, names(summary_df))
+    if (length(missing_cols) > 0) {
+      stop("PRINT ERROR: Summary dataframe is missing required columns: ", 
+           paste(missing_cols, collapse = ", "), 
+           ". Cannot print confidence intervals.")
+    }
+    
+    # Validate percentile columns are numeric
+    for (col in c("p25", "p50", "p75")) {
+      if (!is.numeric(summary_df[[col]])) {
+        stop("PRINT ERROR: Summary column '", col, "' is not numeric (type: ", 
+             class(summary_df[[col]]), "). Cannot print percentiles.")
+      }
+    }
+  }
+  
   # ============================================================================
   # Print header
   # ============================================================================
@@ -260,12 +292,30 @@ print_player_simulation <- function(result) {
   carries_p25 <- get_summary_value(summary_df, "carries", "p25")
   carries_p50 <- get_summary_value(summary_df, "carries", "p50")
   carries_p75 <- get_summary_value(summary_df, "carries", "p75")
+  
+  # Validate interval ordering (only if all values are non-NA)
+  if (!is.na(carries_p25) && !is.na(carries_p50) && !is.na(carries_p75)) {
+    if (carries_p25 > carries_p50 || carries_p50 > carries_p75) {
+      stop("CONFIDENCE INTERVAL ERROR: Carries intervals out of order (p25=", carries_p25, 
+           ", p50=", carries_p50, ", p75=", carries_p75, "). This indicates corrupted simulation data.")
+    }
+  }
+  
   cat("   Carries:", safe_interval(carries_p25, carries_p50, carries_p75, digits = 0), "\n")
   
   # Rush yards
   rush_yds_p25 <- get_summary_value(summary_df, "rushing_yards", "p25")
   rush_yds_p50 <- get_summary_value(summary_df, "rushing_yards", "p50")
   rush_yds_p75 <- get_summary_value(summary_df, "rushing_yards", "p75")
+  
+  # Validate interval ordering
+  if (!is.na(rush_yds_p25) && !is.na(rush_yds_p50) && !is.na(rush_yds_p75)) {
+    if (rush_yds_p25 > rush_yds_p50 || rush_yds_p50 > rush_yds_p75) {
+      stop("CONFIDENCE INTERVAL ERROR: Rushing yards intervals out of order (p25=", rush_yds_p25, 
+           ", p50=", rush_yds_p50, ", p75=", rush_yds_p75, "). This indicates corrupted simulation data.")
+    }
+  }
+  
   cat("   Rush yards:", safe_interval(rush_yds_p25, rush_yds_p50, rush_yds_p75, digits = 0), "\n")
   
   # Receptions

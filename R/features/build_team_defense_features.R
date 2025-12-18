@@ -74,6 +74,7 @@ build_team_defense_features <- function(def_game_stats) {
   # Initialize rolling feature columns
   result$opp_pass_yards_allowed_roll5 <- NA_real_
   result$opp_rush_yards_allowed_roll5 <- NA_real_
+  result$opp_yards_per_rush_allowed_roll5 <- NA_real_
   result$opp_total_yards_allowed_roll5 <- NA_real_
   result$opp_points_allowed_roll5 <- NA_real_
   result$opp_sacks_roll5 <- NA_real_
@@ -110,6 +111,14 @@ build_team_defense_features <- function(def_game_stats) {
     if ("rush_yards_allowed" %in% names(team_data)) {
       result$opp_rush_yards_allowed_roll5[team_mask] <- lagged_roll_mean(
         team_data$rush_yards_allowed,
+        window = 5
+      )
+    }
+    
+    # Yards per rush allowed
+    if ("yards_per_rush_allowed" %in% names(team_data)) {
+      result$opp_yards_per_rush_allowed_roll5[team_mask] <- lagged_roll_mean(
+        team_data$yards_per_rush_allowed,
         window = 5
       )
     }
@@ -206,6 +215,7 @@ empty_defense_features_df <- function() {
     defense_team = character(0),
     opp_pass_yards_allowed_roll5 = double(0),
     opp_rush_yards_allowed_roll5 = double(0),
+    opp_yards_per_rush_allowed_roll5 = double(0),
     opp_total_yards_allowed_roll5 = double(0),
     opp_points_allowed_roll5 = double(0),
     opp_sacks_roll5 = double(0),

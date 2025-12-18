@@ -305,7 +305,8 @@ build_team_defense_game_stats <- function(seasons) {
       off_agg <- aggregate(
         list(
           rush_yards = safe_get_off(off_stats, "rushing_yards", 0),
-          pass_yards = safe_get_off(off_stats, "passing_yards", 0)
+          pass_yards = safe_get_off(off_stats, "passing_yards", 0),
+          rush_attempts = safe_get_off(off_stats, "carries", 0)
         ),
         by = list(agg_key = off_stats$agg_key),
         FUN = sum,
@@ -377,7 +378,7 @@ build_team_defense_game_stats <- function(seasons) {
     if ("game_id" %in% names(off_agg) && "game_id" %in% names(result)) {
       yards_allowed <- merge(
         result[, c("game_id", "opponent_team"), drop = FALSE],
-        off_agg[, c("game_id", "offense_team", "rush_yards", "pass_yards"), drop = FALSE],
+        off_agg[, c("game_id", "offense_team", "rush_yards", "pass_yards", "rush_attempts"), drop = FALSE],
         by.x = c("game_id", "opponent_team"),
         by.y = c("game_id", "offense_team"),
         all.x = TRUE
@@ -385,7 +386,7 @@ build_team_defense_game_stats <- function(seasons) {
     } else if ("season" %in% names(off_agg) && "week" %in% names(off_agg)) {
       yards_allowed <- merge(
         result[, c("season", "week", "opponent_team"), drop = FALSE],
-        off_agg[, c("season", "week", "offense_team", "rush_yards", "pass_yards"), drop = FALSE],
+        off_agg[, c("season", "week", "offense_team", "rush_yards", "pass_yards", "rush_attempts"), drop = FALSE],
         by.x = c("season", "week", "opponent_team"),
         by.y = c("season", "week", "offense_team"),
         all.x = TRUE
@@ -404,15 +405,24 @@ build_team_defense_game_stats <- function(seasons) {
     
     result$rush_yards_allowed <- yards_allowed$rush_yards
     result$pass_yards_allowed <- yards_allowed$pass_yards
+    result$rush_attempts_allowed <- yards_allowed$rush_attempts
     result$total_yards_allowed <- ifelse(
       is.na(result$rush_yards_allowed) | is.na(result$pass_yards_allowed),
       NA_real_,
       result$rush_yards_allowed + result$pass_yards_allowed
     )
+    # Compute yards per rush allowed
+    result$yards_per_rush_allowed <- ifelse(
+      !is.na(result$rush_attempts_allowed) & result$rush_attempts_allowed > 0,
+      result$rush_yards_allowed / result$rush_attempts_allowed,
+      NA_real_
+    )
   } else {
     result$rush_yards_allowed <- NA_real_
     result$pass_yards_allowed <- NA_real_
+    result$rush_attempts_allowed <- NA_integer_
     result$total_yards_allowed <- NA_real_
+    result$yards_per_rush_allowed <- NA_real_
   }
   
   # Points allowed = opponent score
@@ -485,7 +495,9 @@ empty_defense_game_stats_df <- function() {
     def_interceptions = integer(0),
     rush_yards_allowed = double(0),
     pass_yards_allowed = double(0),
+    rush_attempts_allowed = integer(0),
     total_yards_allowed = double(0),
+    yards_per_rush_allowed = double(0),
     points_allowed = integer(0),
     stringsAsFactors = FALSE
   )

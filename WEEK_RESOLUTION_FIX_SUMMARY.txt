@@ -1,0 +1,249 @@
+================================================================================
+WEEK RESOLUTION, GAME IDENTITY, AND REGIME CORRECTNESS - FIX SUMMARY
+================================================================================
+
+Date: 2025-12-18
+Issue: Week 2 simulations were incorrectly using week 8 regime logic
+Status: FIXED
+
+================================================================================
+ROOT CAUSE ANALYSIS
+================================================================================
+
+The issue was a cascade of week drift problems:
+
+1. resolve_player_game.R: Used chosen$game_key directly instead of rebuilding
+   from resolved season/week values. This meant CLI week=2 could resolve to
+   a week 8 game_key if the cache lookup matched the wrong game.
+
+2. run_rb_simulation.R: Target game identification prioritized game_key over
+   season/week, allowing the wrong game to be selected.
+
+3. Feature row week was being extracted from cached data rather than enforcing
+   CLI-provided values as the single source of truth.
+
+4. No invariants existed to detect week drift, allowing silent mismatches.
+
+================================================================================
+FILES MODIFIED
+================================================================================
+
+1. R/simulation/resolve_player_game.R
+   - Always rebuild game_key from resolved values (never use chosen$game_key)
+   - Add WEEK_RESOLUTION_INVARIANT to validate CLI week matches resolved week
+   - Add SEASON_RESOLUTION_INVARIANT to validate CLI season matches resolved season
+   - Fix player_name references to use player_name_input
+
+2. R/simulation/run_rb_simulation.R
+   - Prioritize season + week over game_key for target game identification
+   - Add GAME_IDENTIFICATION_DRIFT check immediately after finding target game
+   - Use game_season/game_week (resolved values) instead of raw parameters when querying cache
+   - Add FEATURE_ROW_WEEK_INVARIANT before simulation to catch any drift
+   - Add comprehensive logging at all resolution points
+
+3. R/simulation/build_future_rb_feature_row.R
+   - Add explicit type conversion (as.integer, as.character) for all CLI inputs
+   - Add SYNTHETIC_ROW_WEEK_INVARIANT to verify week correctness
+   - Add logging of inputs and outputs for traceability
+
+4. R/simulation/simulate_rb_game.R
+   - Add logging when extracting week from feature_row
+   - Add logging of regime determination
+
+================================================================================
+KEY CHANGES SUMMARY
+================================================================================
+
+CHANGE 1: Game Key Determinism (resolve_player_game.R lines 365-379)
+----------------------------------------------------------------------
+BEFORE: Used chosen$game_key if available (could be from wrong game)
+AFTER:  Always rebuild game_key from resolved_season/resolved_week/etc.
+
+This ensures game_key always matches the CLI-provided season/week.
+
+CHANGE 2: Week/Season Invariants (resolve_player_game.R lines 398-419)
+----------------------------------------------------------------------
+ADDED: Two hard stop() checks that trigger if:
+  - CLI provided week != resolved week
+  - CLI provided season != resolved season
+
+This catches week drift at the resolution layer before it propagates.
+
+CHANGE 3: Target Game Identification (run_rb_simulation.R lines 184-198)
+------------------------------------------------------------------------
+BEFORE: Prioritized game_key, then game_id, then game_date, then season/week
+AFTER:  When season+week provided, use them FIRST as primary filter
+
+This ensures CLI args win over any cached identifiers.
+
+CHANGE 4: Game Identification Drift Check (run_rb_simulation.R lines 211-227)
+-----------------------------------------------------------------------------
+ADDED: Immediately after finding target game, verify:
+  - identified_game_row$season matches CLI season
+  - identified_game_row$week matches CLI week
+
+This detects drift at the earliest possible point.
+
+CHANGE 5: Feature Row Consistency (run_rb_simulation.R lines 573-581)
+---------------------------------------------------------------------
+BEFORE: Used raw function parameters (season, week)
+AFTER:  Use resolved values (game_season, game_week)
+
+This ensures consistent use of validated values throughout.
+
+CHANGE 6: Feature Row Week Invariant (run_rb_simulation.R lines 762-770)
+------------------------------------------------------------------------
+ADDED: Final guardrail before simulation - verify feature_row$week matches
+       CLI-provided week
+
+This is the last line of defense before regime selection.
+
+CHANGE 7: Synthetic Row Validation (build_future_rb_feature_row.R lines 151-157)
+--------------------------------------------------------------------------------
+ADDED: After constructing synthetic row, verify synthetic_row$week matches
+       requested week
+
+Ensures future game simulations use correct week.
+
+CHANGE 8: Comprehensive Logging
+-------------------------------
+Added logging at all critical points:
+  - build_future_rb_feature_row: Input/output logging
+  - run_rb_simulation: Game identification, resolution validation, feature row validation
+  - simulate_rb_game: Week extraction and regime determination
+
+All logging goes to rb_debug.log for post-mortem analysis.
+
+================================================================================
+ENFORCEMENT STRATEGY
+================================================================================
+
+The fix implements a "defensive depth" strategy with multiple layers:
+
+Layer 1: Resolution (resolve_player_game.R)
+  - CLI args used to build game_key (no cache lookup)
+  - Invariants verify resolved values match CLI args
+
+Layer 2: Identification (run_rb_simulation.R)
+  - Season+week prioritized over game_key
+  - Drift check immediately after target game found
+  - Resolved values used consistently
+
+Layer 3: Feature Construction (run_rb_simulation.R, build_future_rb_feature_row.R)
+  - Feature row week explicitly set from validated values
+  - Synthetic rows validated for correctness
+  - Final invariant before simulation
+
+Layer 4: Simulation (simulate_rb_game.R)
+  - Week extracted and logged
+  - Regime determined from validated week
+
+Any violation at any layer triggers a descriptive stop() with context.
+
+================================================================================
+TESTING INSTRUCTIONS
+================================================================================
+
+Test Case 1: Week 2 Simulation (Early Regime)
+----------------------------------------------
+Command:
+  Rscript scripts/run_bijan_simulation.R --season=2024 --week=2 --n_sims=1000
+
+Expected Output:
+  - rb_debug.log should show "Simulating for week 2 -> regime: early"
+  - NOT "week 8 -> regime: standard"
+  - Regime should be "early" (weeks 1-3 use minimal features)
+
+Test Case 2: Week 5 Simulation (Mid Regime)
+--------------------------------------------
+Command:
+  Rscript scripts/run_bijan_simulation.R --season=2024 --week=5 --n_sims=1000
+
+Expected Output:
+  - rb_debug.log should show "Simulating for week 5 -> regime: mid"
+  - Regime should be "mid" (weeks 4-5 use roll3 features)
+
+Test Case 3: Week 8 Simulation (Standard Regime)
+------------------------------------------------
+Command:
+  Rscript scripts/run_bijan_simulation.R --season=2024 --week=8 --n_sims=1000
+
+Expected Output:
+  - rb_debug.log should show "Simulating for week 8 -> regime: standard"
+  - Regime should be "standard" (weeks 8+ use full feature set)
+
+Test Case 4: Invariant Violations
+----------------------------------
+To test that invariants work, try creating a scenario where cache data
+doesn't match CLI args (e.g., request a week that doesn't exist).
+
+Expected: Clear error message indicating which invariant was violated.
+
+================================================================================
+LOG ANALYSIS
+================================================================================
+
+After running a simulation, check rb_debug.log for these key lines:
+
+1. "REQUESTED: Season: X | Week: Y"
+   - This shows what CLI args were provided
+
+2. "=== Game Identification ==="
+   "Identified game: season=X, week=Y"
+   - This shows what game was found in cache
+
+3. "Using CLI-provided season: X"
+   "Using CLI-provided week: Y"
+   - This confirms CLI args were used
+
+4. "=== Feature Row Validation ==="
+   "Feature row week: Y | Metadata week: Y | CLI week: Y | Match: OK"
+   - This confirms feature row has correct week
+
+5. "=== simulate_rb_game: Week Extraction ==="
+   "Extracted week from feature_row: Y"
+   "Determined regime for week Y: [regime]"
+   - This shows what week and regime were used for simulation
+
+All of these should show consistent week values matching the CLI arg.
+
+================================================================================
+REGIME DEFINITIONS
+================================================================================
+
+Week-based regimes (from R/utils/rb_regime_v1.R):
+
+- early (weeks 1-3):    is_home only
+- mid (weeks 4-5):      is_home + roll3 features
+- late (weeks 6-7):     is_home + roll3 + roll5 features + defensive features
+- standard (weeks 8+):  is_home + roll3 + roll5 + roll7 features + defensive features
+
+The regime is determined by the week value in feature_row, which is now
+guaranteed to match the CLI-provided week.
+
+================================================================================
+ROLLBACK INSTRUCTIONS
+================================================================================
+
+If these changes cause issues, rollback by:
+
+1. git checkout HEAD -- R/simulation/resolve_player_game.R
+2. git checkout HEAD -- R/simulation/run_rb_simulation.R
+3. git checkout HEAD -- R/simulation/build_future_rb_feature_row.R
+4. git checkout HEAD -- R/simulation/simulate_rb_game.R
+
+Or revert the specific commits related to this fix.
+
+================================================================================
+CONFIDENCE LEVEL
+================================================================================
+
+HIGH: The fixes address the root causes and implement multiple layers of
+      validation. Week drift should be impossible with these changes.
+
+The logging additions make it easy to verify correct behavior and diagnose
+any remaining issues.
+
+================================================================================
+
+

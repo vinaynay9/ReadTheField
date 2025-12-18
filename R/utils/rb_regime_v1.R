@@ -56,19 +56,19 @@ get_rb_features_by_week <- function(week) {
              "ypc_cum", "ypt_cum", "catch_rate_cum",
              "carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
              "carries_roll3", "targets_roll3", "carries_roll5", "targets_roll5",
-             "opp_rush_yards_allowed_roll5", "opp_points_allowed_roll5",
-             "opp_sacks_roll5", "opp_tfl_roll5"))
+             "opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
+             "opp_points_allowed_roll5", "opp_sacks_roll5", "opp_tfl_roll5"))
   }
   
   # Weeks 8+: Player priors + decayed priors + full rolling feature set (roll3, roll5, roll7)
   # Defensive roll5 features continue to be available
   return(c("is_home", "carries_cum_mean", "targets_cum_mean", 
            "ypc_cum", "ypt_cum", "catch_rate_cum",
-           "carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
-           "carries_roll3", "targets_roll3", "carries_roll5", "targets_roll5", 
-           "carries_roll7", "targets_roll7",
-           "opp_rush_yards_allowed_roll5", "opp_points_allowed_roll5",
-           "opp_sacks_roll5", "opp_tfl_roll5"))
+            "carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
+            "carries_roll3", "targets_roll3", "carries_roll5", "targets_roll5", 
+            "carries_roll7", "targets_roll7",
+            "opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
+            "opp_points_allowed_roll5", "opp_sacks_roll5", "opp_tfl_roll5"))
 }
 
 #' Get canonical RB v1 feature contract by regime (for coefficient selection)
@@ -122,6 +122,7 @@ get_rb_features_by_regime <- function() {
       "carries_roll5",
       "targets_roll5",
       "opp_rush_yards_allowed_roll5",
+      "opp_yards_per_rush_allowed_roll5",
       "opp_points_allowed_roll5",
       "opp_sacks_roll5",
       "opp_tfl_roll5"
@@ -144,6 +145,7 @@ get_rb_features_by_regime <- function() {
       "carries_roll7",
       "targets_roll7",
       "opp_rush_yards_allowed_roll5",
+      "opp_yards_per_rush_allowed_roll5",
       "opp_points_allowed_roll5",
       "opp_sacks_roll5",
       "opp_tfl_roll5"
