@@ -20,6 +20,48 @@ if (!exists("build_game_key")) {
   }
 }
 
+build_schedule_team_lookup <- function(seasons) {
+  if (!exists("load_schedules")) {
+    if (file.exists("R/data/load_schedules.R")) {
+      source("R/data/load_schedules.R", local = TRUE)
+    } else {
+      stop("R/data/load_schedules.R is required for schedule joins")
+    }
+  }
+  schedules <- load_schedules(seasons, use_cache = TRUE)
+  if (is.null(schedules) || nrow(schedules) == 0) {
+    warning("Schedules unavailable; schedule-derived home/away fields will be NA.")
+    return(NULL)
+  }
+  home_games <- data.frame(
+    game_id = schedules$game_id,
+    season = schedules$season,
+    week = schedules$week,
+    gameday = schedules$gameday,
+    team = schedules$home_team,
+    opponent = schedules$away_team,
+    home_team = schedules$home_team,
+    away_team = schedules$away_team,
+    home_away = "HOME",
+    is_home = 1L,
+    stringsAsFactors = FALSE
+  )
+  away_games <- data.frame(
+    game_id = schedules$game_id,
+    season = schedules$season,
+    week = schedules$week,
+    gameday = schedules$gameday,
+    team = schedules$away_team,
+    opponent = schedules$home_team,
+    home_team = schedules$home_team,
+    away_team = schedules$away_team,
+    home_away = "AWAY",
+    is_home = 0L,
+    stringsAsFactors = FALSE
+  )
+  rbind(home_games, away_games)
+}
+
 load_weekly_player_stats_from_nflreadr <- function(seasons, season_type) {
   if (missing(seasons) || length(seasons) == 0) {
     stop("seasons vector is required")
@@ -252,6 +294,41 @@ build_player_week_identity <- function(seasons,
   identity <- identity[order(identity$player_id, identity$season, identity$week, identity$game_date), ]
   identity <- identity[!duplicated(identity[, c("player_id", "game_key")]), ]
 
+  # Schedule-derived home/away context (no string parsing)
+  schedule_lookup <- build_schedule_team_lookup(seasons)
+  if (!is.null(schedule_lookup)) {
+    identity <- merge(
+      identity,
+      schedule_lookup[, c("season", "week", "team", "opponent", "game_id",
+                          "gameday", "home_team", "away_team", "home_away", "is_home"),
+                      drop = FALSE],
+      by = c("season", "week", "team", "opponent"),
+      all.x = TRUE,
+      suffixes = c("", "_sched")
+    )
+    if ("game_id_sched" %in% names(identity)) {
+      identity$game_id <- ifelse(
+        is.na(identity$game_id) | identity$game_id == "",
+        identity$game_id_sched,
+        identity$game_id
+      )
+    }
+    if ("gameday_sched" %in% names(identity)) {
+      identity$gameday <- ifelse(is.na(identity$gameday), identity$gameday_sched, identity$gameday)
+      identity$game_date <- ifelse(is.na(identity$game_date), identity$gameday_sched, identity$game_date)
+    }
+    if ("home_away_sched" %in% names(identity)) {
+      identity$home_away <- identity$home_away_sched
+    }
+    if ("is_home" %in% names(identity)) {
+      identity$is_home <- as.integer(identity$is_home)
+    }
+    helper_cols <- grep("(_sched)$", names(identity), value = TRUE)
+    if (length(helper_cols) > 0) {
+      identity <- identity[, setdiff(names(identity), helper_cols), drop = FALSE]
+    }
+  }
+
   rownames(identity) <- NULL
 
   if (write_cache) {
@@ -338,6 +415,41 @@ build_rb_weekly_stats <- function(seasons,
     position = "RB",
     stringsAsFactors = FALSE
   )
+
+  # Schedule-derived home/away context (no string parsing)
+  schedule_lookup <- build_schedule_team_lookup(seasons)
+  if (!is.null(schedule_lookup)) {
+    rb_dataset <- merge(
+      rb_dataset,
+      schedule_lookup[, c("season", "week", "team", "opponent", "game_id",
+                          "gameday", "home_team", "away_team", "home_away", "is_home"),
+                      drop = FALSE],
+      by = c("season", "week", "team", "opponent"),
+      all.x = TRUE,
+      suffixes = c("", "_sched")
+    )
+    if ("game_id_sched" %in% names(rb_dataset)) {
+      rb_dataset$game_id <- ifelse(
+        is.na(rb_dataset$game_id) | rb_dataset$game_id == "",
+        rb_dataset$game_id_sched,
+        rb_dataset$game_id
+      )
+    }
+    if ("gameday_sched" %in% names(rb_dataset)) {
+      rb_dataset$game_date <- ifelse(is.na(rb_dataset$game_date), rb_dataset$gameday_sched, rb_dataset$game_date)
+      rb_dataset$gameday <- ifelse(is.na(rb_dataset$gameday), rb_dataset$gameday_sched, rb_dataset$gameday)
+    }
+    if ("home_away_sched" %in% names(rb_dataset)) {
+      rb_dataset$home_away <- rb_dataset$home_away_sched
+    }
+    rb_dataset$is_home <- if ("is_home" %in% names(rb_dataset)) as.integer(rb_dataset$is_home) else NA_integer_
+    helper_cols <- grep("(_sched)$", names(rb_dataset), value = TRUE)
+    if (length(helper_cols) > 0) {
+      rb_dataset <- rb_dataset[, setdiff(names(rb_dataset), helper_cols), drop = FALSE]
+    }
+  } else {
+    rb_dataset$is_home <- NA_integer_
+  }
 
   # Canonical RB stat aliases required by feature code
   rb_dataset$rush_yards <- rb_dataset$rushing_yards
@@ -430,11 +542,28 @@ build_player_directory <- function(write_cache = TRUE) {
     stop("Package 'arrow' is required. Install with install.packages('arrow').")
   }
   
-  cat("Loading player directory from nflreadr...\n")
-  players <- nflreadr::load_players()
+  cat("Loading player directory from nflreadr (live if available)...\n")
+  cache_path <- player_directory_path
+  players <- tryCatch(
+    nflreadr::load_players(),
+    error = function(e) {
+      message("WARNING: nflreadr::load_players() failed: ", e$message)
+      NULL
+    }
+  )
   
   if (is.null(players) || nrow(players) == 0) {
-    stop("nflreadr::load_players() returned empty result. Cannot build player directory.")
+    message("WARNING: Live player download unavailable.")
+    
+    if (file.exists(cache_path)) {
+      message("Falling back to cached player directory: ", cache_path)
+      players <- arrow::read_parquet(cache_path)
+    } else {
+      stop(
+        "Player directory unavailable: live download failed and no cached copy exists.",
+        call. = FALSE
+      )
+    }
   }
   
   # Required columns: player_id, full_name, first_name, last_name
@@ -482,6 +611,12 @@ build_player_directory <- function(write_cache = TRUE) {
     last_name = as.character(players$last_name),
     stringsAsFactors = FALSE
   )
+
+  # Optional draft metadata (leave NA when unavailable)
+  draft_round <- select_first_available(players, c("draft_round"), NA)
+  draft_pick_overall <- select_first_available(players, c("draft_pick_overall", "draft_pick"), NA)
+  player_dir$draft_round <- as.integer(draft_round)
+  player_dir$draft_pick_overall <- as.integer(draft_pick_overall)
   
   # Remove rows with missing player_id or full_name
   player_dir <- player_dir[
@@ -520,8 +655,15 @@ build_player_directory <- function(write_cache = TRUE) {
   
   if (write_cache) {
     dir.create(dirname(player_directory_path), recursive = TRUE, showWarnings = FALSE)
-    arrow::write_parquet(player_dir, player_directory_path)
-    cat("  Wrote player directory cache with", nrow(player_dir), "players\n")
+    tryCatch(
+      {
+        arrow::write_parquet(player_dir, player_directory_path)
+        cat("  Wrote player directory cache with", nrow(player_dir), "players\n")
+      },
+      error = function(e) {
+        message("WARNING: Failed to write player directory cache: ", e$message)
+      }
+    )
   }
   
   player_dir

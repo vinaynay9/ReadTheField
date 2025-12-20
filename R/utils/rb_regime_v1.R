@@ -35,10 +35,39 @@ get_rb_features_by_week <- function(week) {
   # Time-aware feature availability based on week-of-game
   # Weeks 1-3: Player priors + decayed prev-season priors (insufficient history for rolling windows)
   # Decayed priors blend previous-season stats with current-season-to-date for early-season signal
+  prior_season_features <- c(
+    "prev_season_carries_total",
+    "prev_season_targets_total",
+    "prev_season_rush_yards_total",
+    "prev_season_rec_yards_total",
+    "prev_season_games_played"
+  )
+  rookie_features <- c(
+    "is_rookie",
+    "draft_round",
+    "draft_pick_overall"
+  )
+  team_context_features <- c(
+    "team_qb_pass_attempts_roll1", "team_qb_pass_yards_roll1", "team_qb_pass_tds_roll1",
+    "team_rb_carries_total_roll1", "team_rb_targets_total_roll1",
+    "team_rb_carry_share_top1_roll1", "team_rb_carry_share_top2_roll1",
+    "team_wr_targets_total_roll1", "team_wr_receiving_yards_roll1", "team_wr_air_yards_roll1"
+  )
+  roll1_features <- c(
+    "carries_roll1", "targets_roll1",
+    "rush_yards_roll1", "rec_yards_roll1",
+    "rush_tds_roll1", "rec_tds_roll1",
+    "opp_rush_yards_allowed_roll1", "opp_yards_per_rush_allowed_roll1",
+    "opp_points_allowed_roll1", "opp_sacks_roll1", "opp_tfl_roll1"
+  )
   if (week <= 3) {
     return(c("is_home", "carries_cum_mean", "targets_cum_mean", 
              "ypc_cum", "ypt_cum", "catch_rate_cum",
-             "carries_prior", "targets_prior", "ypc_prior", "ypt_prior"))
+             "carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
+             prior_season_features,
+             rookie_features,
+             team_context_features,
+             roll1_features))
   }
   
   # Weeks 4-5: Player priors + decayed priors + roll3 features (need 3 prior games for roll3)
@@ -46,6 +75,10 @@ get_rb_features_by_week <- function(week) {
     return(c("is_home", "carries_cum_mean", "targets_cum_mean", 
              "ypc_cum", "ypt_cum", "catch_rate_cum",
              "carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
+             prior_season_features,
+             rookie_features,
+             team_context_features,
+             roll1_features,
              "carries_roll3", "targets_roll3"))
   }
   
@@ -55,6 +88,10 @@ get_rb_features_by_week <- function(week) {
     return(c("is_home", "carries_cum_mean", "targets_cum_mean", 
              "ypc_cum", "ypt_cum", "catch_rate_cum",
              "carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
+             prior_season_features,
+             rookie_features,
+             team_context_features,
+             roll1_features,
              "carries_roll3", "targets_roll3", "carries_roll5", "targets_roll5",
              "opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
              "opp_points_allowed_roll5", "opp_sacks_roll5", "opp_tfl_roll5"))
@@ -65,6 +102,10 @@ get_rb_features_by_week <- function(week) {
   return(c("is_home", "carries_cum_mean", "targets_cum_mean", 
            "ypc_cum", "ypt_cum", "catch_rate_cum",
             "carries_prior", "targets_prior", "ypc_prior", "ypt_prior",
+            prior_season_features,
+            rookie_features,
+            team_context_features,
+            roll1_features,
             "carries_roll3", "targets_roll3", "carries_roll5", "targets_roll5", 
             "carries_roll7", "targets_roll7",
             "opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
@@ -79,6 +120,31 @@ get_rb_features_by_week <- function(week) {
 #'
 #' @return Named list with regime names as keys and feature vectors as values
 get_rb_features_by_regime <- function() {
+  roll1_features <- c(
+    "carries_roll1", "targets_roll1",
+    "rush_yards_roll1", "rec_yards_roll1",
+    "rush_tds_roll1", "rec_tds_roll1",
+    "opp_rush_yards_allowed_roll1", "opp_yards_per_rush_allowed_roll1",
+    "opp_points_allowed_roll1", "opp_sacks_roll1", "opp_tfl_roll1"
+  )
+  prior_season_features <- c(
+    "prev_season_carries_total",
+    "prev_season_targets_total",
+    "prev_season_rush_yards_total",
+    "prev_season_rec_yards_total",
+    "prev_season_games_played"
+  )
+  rookie_features <- c(
+    "is_rookie",
+    "draft_round",
+    "draft_pick_overall"
+  )
+  team_context_features <- c(
+    "team_qb_pass_attempts_roll1", "team_qb_pass_yards_roll1", "team_qb_pass_tds_roll1",
+    "team_rb_carries_total_roll1", "team_rb_targets_total_roll1",
+    "team_rb_carry_share_top1_roll1", "team_rb_carry_share_top2_roll1",
+    "team_wr_targets_total_roll1", "team_wr_receiving_yards_roll1", "team_wr_air_yards_roll1"
+  )
   list(
     early = c(
       "is_home",
@@ -90,7 +156,11 @@ get_rb_features_by_regime <- function() {
       "carries_prior",
       "targets_prior",
       "ypc_prior",
-      "ypt_prior"
+      "ypt_prior",
+      prior_season_features,
+      rookie_features,
+      team_context_features,
+      roll1_features
     ),
     mid = c(
       "is_home",
@@ -103,6 +173,10 @@ get_rb_features_by_regime <- function() {
       "targets_prior",
       "ypc_prior",
       "ypt_prior",
+      prior_season_features,
+      rookie_features,
+      team_context_features,
+      roll1_features,
       "carries_roll3",
       "targets_roll3"
     ),
@@ -117,6 +191,10 @@ get_rb_features_by_regime <- function() {
       "targets_prior",
       "ypc_prior",
       "ypt_prior",
+      prior_season_features,
+      rookie_features,
+      team_context_features,
+      roll1_features,
       "carries_roll3",
       "targets_roll3",
       "carries_roll5",
@@ -138,6 +216,10 @@ get_rb_features_by_regime <- function() {
       "targets_prior",
       "ypc_prior",
       "ypt_prior",
+      prior_season_features,
+      rookie_features,
+      team_context_features,
+      roll1_features,
       "carries_roll3",
       "targets_roll3",
       "carries_roll5",

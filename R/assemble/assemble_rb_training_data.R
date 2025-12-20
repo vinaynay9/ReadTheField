@@ -282,10 +282,14 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
   stats$game_date <- as.Date(stats$game_date)
   stats$gameday <- stats$game_date
   stats$home_away <- toupper(trimws(as.character(stats$home_away)))
-  stats$is_home <- ifelse(
-    stats$home_away == "HOME", 1L,
-    ifelse(stats$home_away == "AWAY", 0L, NA_integer_)
-  )
+  if ("is_home" %in% names(stats)) {
+    stats$is_home <- as.integer(stats$is_home)
+  } else {
+    stats$is_home <- ifelse(
+      stats$home_away == "HOME", 1L,
+      ifelse(stats$home_away == "AWAY", 0L, NA_integer_)
+    )
+  }
   stats <- stats[order(stats$player_id, stats$season, stats$week, stats$game_date), ]
 
   if (!exists("build_rb_features")) {
@@ -297,6 +301,15 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
   }
 
   features <- build_rb_features(stats)
+
+  # Rookie detection based on first recorded NFL season (no imputation)
+  first_season <- stats %>%
+    dplyr::group_by(player_id) %>%
+    dplyr::summarise(first_season = min(season, na.rm = TRUE), .groups = "drop")
+  features <- features %>%
+    dplyr::left_join(first_season, by = "player_id") %>%
+    dplyr::mutate(is_rookie = !is.na(first_season) & season == first_season)
+  features$is_rookie <- as.logical(features$is_rookie)
   
   # Compute decayed previous-season priors (for early-season signal)
   # These provide player role/usage signal when rolling windows are sparse or NA
@@ -341,7 +354,16 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
   def_cols <- c(join_keys,
                 required_def_cols,
                 "opp_sacks_roll5",
-                "opp_tfl_roll5")
+                "opp_tfl_roll5",
+                "opp_int_roll5",
+                "opp_rush_yards_allowed_roll1",
+                "opp_yards_per_rush_allowed_roll1",
+                "opp_points_allowed_roll1",
+                "opp_sacks_roll1",
+                "opp_tfl_roll1",
+                "opp_int_roll1",
+                "defense_data_available",
+                "rolling_window_complete")
   def_cols <- intersect(def_cols, names(def_features))
   
   # Guardrail: lagged weekly defense should be NA in week 1
@@ -366,6 +388,88 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
     stop("Opponent defensive columns missing after join: ",
          paste(missing_joined, collapse = ", "),
          ". This indicates a join/schema error.")
+  }
+  
+  # Join teammate context (team-level offense, lagged roll1)
+  team_offense_context_path <- file.path("data", "processed", "team_offense_context.parquet")
+  if (!file.exists(team_offense_context_path)) {
+    stop("Missing team offense context file: ", team_offense_context_path,
+         ". Run team offense context build before assembling RB weekly features.")
+  }
+  team_offense_context <- arrow::read_parquet(team_offense_context_path)
+  if (nrow(team_offense_context) == 0) {
+    stop("Team offense context is empty. Cannot proceed with teammate-aware RB features.")
+  }
+  toc_cols <- c("team", "season", "week", grep("_roll1$", names(team_offense_context), value = TRUE))
+  toc_cols <- intersect(toc_cols, names(team_offense_context))
+  toc_cols <- setdiff(toc_cols, "team_rb_snaps_total_roll1")
+  features <- features %>%
+    left_join(team_offense_context[, toc_cols, drop = FALSE],
+              by = c("team", "season", "week"))
+  
+  # Join prior-season cumulative stats (season - 1 aggregates)
+  prior_season_stats_path <- file.path("data", "processed", "prior_season_player_stats.parquet")
+  if (!file.exists(prior_season_stats_path)) {
+    stop("Missing prior-season player stats file: ", prior_season_stats_path,
+         ". Run prior-season stats build before assembling RB weekly features.")
+  }
+  prior_season_stats <- arrow::read_parquet(prior_season_stats_path)
+  prior_cols <- c(
+    "player_id", "season",
+    "prev_season_carries_total", "prev_season_targets_total",
+    "prev_season_rush_yards_total", "prev_season_rec_yards_total",
+    "prev_season_games_played"
+  )
+  prior_cols <- intersect(prior_cols, names(prior_season_stats))
+  if (length(prior_cols) == 0) {
+    stop("Prior-season stats file missing expected columns. Cannot join prior-season aggregates.")
+  }
+  prior_season_stats <- prior_season_stats[, prior_cols, drop = FALSE]
+  features <- features %>%
+    left_join(prior_season_stats, by = c("player_id", "season"))
+
+  # Optional draft metadata (non-imputing; NA when unavailable)
+  draft_path <- file.path("data", "external", "player_metadata.parquet")
+  draft_meta <- NULL
+  if (file.exists(draft_path) && file.info(draft_path)$size > 0) {
+    draft_meta <- tryCatch(arrow::read_parquet(draft_path), error = function(e) NULL)
+  }
+  if (is.null(draft_meta) || nrow(draft_meta) == 0) {
+    if (exists("read_player_directory_cache")) {
+      draft_meta <- tryCatch(read_player_directory_cache(), error = function(e) NULL)
+    }
+  }
+  if (!is.null(draft_meta) && nrow(draft_meta) > 0) {
+    draft_cols <- intersect(c("player_id", "gsis_id", "draft_round", "draft_pick_overall"), names(draft_meta))
+    if ("gsis_id" %in% draft_cols && !"player_id" %in% draft_cols) {
+      draft_meta$player_id <- draft_meta$gsis_id
+      draft_cols <- unique(c("player_id", "draft_round", "draft_pick_overall"))
+    }
+    draft_meta <- draft_meta[, draft_cols, drop = FALSE]
+    draft_meta$draft_round <- as.integer(draft_meta$draft_round)
+    draft_meta$draft_pick_overall <- as.integer(draft_meta$draft_pick_overall)
+    draft_meta <- draft_meta[!duplicated(draft_meta$player_id), ]
+    features <- features %>%
+      left_join(draft_meta, by = "player_id")
+  }
+  if (!"draft_round" %in% names(features)) {
+    features$draft_round <- NA_integer_
+  }
+  if (!"draft_pick_overall" %in% names(features)) {
+    features$draft_pick_overall <- NA_integer_
+  }
+
+  # Rookie gating: prior-season stats intentionally excluded
+  if ("is_rookie" %in% names(features)) {
+    prior_cols <- grep("^prev_season_", names(features), value = TRUE)
+    if (length(prior_cols) > 0) {
+      features[features$is_rookie, prior_cols] <- NA
+    }
+  }
+
+  # Guardrail: prior-season stats must reference only season-1 (no future leakage)
+  if (any(!is.na(features$prev_season_games_played) & features$season <= 0)) {
+    stop("Invalid seasons detected after prior-season join. Check prior_season_player_stats build for leakage.")
   }
   
   # Add RB v1 regime column based on week (Layer 3: before writing to parquet)
@@ -454,6 +558,14 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
   if (any(is.na(features$week))) {
     stop("Found NA week in RB features after filtering. This should not occur. ",
          "Layer 3 assembly logic error.")
+  }
+
+  # Enforce schedule-derived is_home availability for non-bye games
+  if ("is_home" %in% names(features)) {
+    missing_is_home <- is.na(features$is_home) & !is.na(features$opponent)
+    if (any(missing_is_home)) {
+      stop("is_home is NA for non-bye games. Check schedule join in build_weekly_player_layers.R.")
+    }
   }
   
   # Hard assertion: Week 1 rolling features must be NA (season boundary enforcement)
@@ -608,8 +720,7 @@ assemble_rb_training_data <- function(seasons) {
     derived_games <- unique(rb_stats[, c("game_id", "game_key", "season", "week", "team", "opponent", "home_away", "game_date", "gameday")])
     derived_games$gameday <- if (!"gameday" %in% names(derived_games) || all(is.na(derived_games$gameday))) derived_games$game_date else derived_games$gameday
     derived_games$home_away <- toupper(ifelse(is.na(derived_games$home_away), "", derived_games$home_away))
-    derived_games$is_home <- ifelse(derived_games$home_away == "HOME", 1L,
-                                    ifelse(derived_games$home_away == "AWAY", 0L, NA_integer_))
+    derived_games$is_home <- NA_integer_
     derived_games$stadium <- NA_character_
     derived_games$surface <- NA_character_
     game_team_lookup <- derived_games
@@ -689,12 +800,60 @@ assemble_rb_training_data <- function(seasons) {
   # Build rolling features
   message("Computing rolling features...")
   rb_data <- build_rb_features(rb_data)
+
+  # Rookie detection based on first recorded NFL season (no imputation)
+  first_season <- rb_data %>%
+    dplyr::group_by(player_id) %>%
+    dplyr::summarise(first_season = min(season, na.rm = TRUE), .groups = "drop")
+  rb_data <- rb_data %>%
+    dplyr::left_join(first_season, by = "player_id") %>%
+    dplyr::mutate(is_rookie = !is.na(first_season) & season == first_season)
+  rb_data$is_rookie <- as.logical(rb_data$is_rookie)
   
   # Compute decayed previous-season priors (for early-season signal)
   message("Computing decayed previous-season priors...")
   prev_season_priors <- compute_prev_season_priors(rb_data)
   rb_data <- rb_data %>%
     left_join(prev_season_priors, by = c("player_id", "season"))
+
+  # Optional draft metadata (non-imputing; NA when unavailable)
+  draft_path <- file.path("data", "external", "player_metadata.parquet")
+  draft_meta <- NULL
+  if (file.exists(draft_path) && file.info(draft_path)$size > 0) {
+    draft_meta <- tryCatch(arrow::read_parquet(draft_path), error = function(e) NULL)
+  }
+  if (is.null(draft_meta) || nrow(draft_meta) == 0) {
+    if (exists("read_player_directory_cache")) {
+      draft_meta <- tryCatch(read_player_directory_cache(), error = function(e) NULL)
+    }
+  }
+  if (!is.null(draft_meta) && nrow(draft_meta) > 0) {
+    draft_cols <- intersect(c("player_id", "gsis_id", "draft_round", "draft_pick_overall"), names(draft_meta))
+    if ("gsis_id" %in% draft_cols && !"player_id" %in% draft_cols) {
+      draft_meta$player_id <- draft_meta$gsis_id
+      draft_cols <- unique(c("player_id", "draft_round", "draft_pick_overall"))
+    }
+    draft_meta <- draft_meta[, draft_cols, drop = FALSE]
+    draft_meta$draft_round <- as.integer(draft_meta$draft_round)
+    draft_meta$draft_pick_overall <- as.integer(draft_meta$draft_pick_overall)
+    draft_meta <- draft_meta[!duplicated(draft_meta$player_id), ]
+    rb_data <- rb_data %>%
+      left_join(draft_meta, by = "player_id")
+  }
+  if (!"draft_round" %in% names(rb_data)) {
+    rb_data$draft_round <- NA_integer_
+  }
+  if (!"draft_pick_overall" %in% names(rb_data)) {
+    rb_data$draft_pick_overall <- NA_integer_
+  }
+
+  # Rookie gating: prior-season stats intentionally excluded
+  if ("is_rookie" %in% names(rb_data)) {
+    prior_cols <- grep("^prev_season_", names(rb_data), value = TRUE)
+    if (length(prior_cols) > 0) {
+      rb_data[rb_data$is_rookie, prior_cols] <- NA
+    }
+  }
   
   # Compute season-to-date priors (lagged cumulative within season)
   rb_data <- compute_season_to_date_priors(rb_data)
@@ -732,18 +891,39 @@ assemble_rb_training_data <- function(seasons) {
       message("Joining defensive features...")
       
       # Select defensive feature columns to join
-      def_cols <- c("season", "week", "defense_team", 
-                   "opp_pass_yards_allowed_roll5",
-                   "opp_rush_yards_allowed_roll5",
-                   "opp_yards_per_rush_allowed_roll5",
-                   "opp_total_yards_allowed_roll5",
-                   "opp_points_allowed_roll5",
-                   "opp_sacks_roll5",
-                   "opp_tfl_roll5")
+  def_cols <- c("season", "week", "defense_team", 
+                 "opp_pass_yards_allowed_roll5",
+                 "opp_rush_yards_allowed_roll5",
+                 "opp_rush_yards_allowed_roll1",
+                 "opp_yards_per_rush_allowed_roll5",
+                 "opp_yards_per_rush_allowed_roll1",
+                 "opp_total_yards_allowed_roll5",
+                 "opp_points_allowed_roll5",
+                 "opp_points_allowed_roll1",
+                 "opp_sacks_roll5",
+                 "opp_sacks_roll1",
+                 "opp_tfl_roll5",
+                 "opp_tfl_roll1",
+                 "def_rush_yards_allowed_roll5",
+                 "def_yards_per_rush_allowed_roll5",
+                 "def_points_allowed_roll5",
+                 "def_sacks_roll5",
+                 "def_tfl_roll5",
+                 "def_rush_yards_allowed_roll1",
+                 "def_yards_per_rush_allowed_roll1",
+                 "def_points_allowed_roll1",
+                 "def_sacks_roll1",
+                 "def_tfl_roll1",
+                 "rolling_window_complete",
+                 "rolling_window_complete_roll1",
+                 "defense_data_available")
       
       # Add optional columns if they exist
       if ("opp_int_roll5" %in% names(def_features)) {
         def_cols <- c(def_cols, "opp_int_roll5")
+      }
+      if ("opp_int_roll1" %in% names(def_features)) {
+        def_cols <- c(def_cols, "opp_int_roll1")
       }
       
       # Only join columns that exist
@@ -842,17 +1022,35 @@ assemble_rb_training_data <- function(seasons) {
     "prev_season_carries_pg", "prev_season_targets_pg", "prev_season_ypc", "prev_season_ypt", "prev_season_games",
     "season_to_date_carries_pg", "season_to_date_targets_pg", "season_to_date_ypc", "season_to_date_ypt", "season_to_date_games",
     "decay_weight",
+    # Features (prior-season cumulative usage)
+    "prev_season_carries_total", "prev_season_targets_total",
+    "prev_season_rush_yards_total", "prev_season_rec_yards_total",
+    "prev_season_games_played",
+    # Features (team offense context, previous week)
+    "team_qb_pass_attempts_roll1", "team_qb_pass_yards_roll1", "team_qb_pass_tds_roll1",
+    "team_rb_carries_total_roll1", "team_rb_targets_total_roll1",
+    "team_rb_carry_share_top1_roll1", "team_rb_carry_share_top2_roll1",
+    "team_wr_targets_total_roll1", "team_wr_receiving_yards_roll1", "team_wr_air_yards_roll1",
     # Features (pre-game, lagged) - RB v1: roll3, roll5, roll7
+    "carries_roll1",
     "carries_roll3", "carries_roll5", "carries_roll7",
+    "targets_roll1",
     "targets_roll3", "targets_roll5", "targets_roll7",
+    "rush_yards_roll1", "rec_yards_roll1",
     "rush_yards_roll3", "rec_yards_roll3",
+    "rush_tds_roll1", "rec_tds_roll1",
     "yards_per_carry_roll5", "yards_per_target_roll5", "catch_rate_roll5",
     "rush_tds_roll5", "rec_tds_roll5",
     # Defensive features (opponent context)
+    "opp_rush_yards_allowed_roll1", "opp_yards_per_rush_allowed_roll1",
+    "opp_points_allowed_roll1", "opp_sacks_roll1", "opp_tfl_roll1",
     "opp_pass_yards_allowed_roll5", "opp_rush_yards_allowed_roll5",
     "opp_yards_per_rush_allowed_roll5", "opp_total_yards_allowed_roll5",
     "opp_points_allowed_roll5",
-    "opp_sacks_roll5", "opp_tfl_roll5",
+    "opp_sacks_roll5", "opp_tfl_roll5", "opp_int_roll5", "opp_int_roll1",
+    "defense_data_available", "rolling_window_complete",
+    # Rookie signals
+    "is_rookie", "draft_round", "draft_pick_overall",
     # Targets (post-game, for training) - RB v1 schema
     "target_carries", "target_rush_tds",
     "target_targets", "target_receptions", "target_rec_tds",
@@ -938,24 +1136,59 @@ empty_rb_training_df <- function() {
     ypc_cum = double(0),
     ypt_cum = double(0),
     catch_rate_cum = double(0),
+    # Prior-season cumulative usage
+    prev_season_carries_total = double(0),
+    prev_season_targets_total = double(0),
+    prev_season_rush_yards_total = double(0),
+    prev_season_rec_yards_total = double(0),
+    prev_season_games_played = double(0),
     # Rolling window features
+    carries_roll1 = double(0),
     carries_roll3 = double(0),
     carries_roll5 = double(0),
     targets_roll3 = double(0),
     targets_roll5 = double(0),
+    targets_roll1 = double(0),
     rush_yards_roll3 = double(0),
     rec_yards_roll3 = double(0),
+    rush_yards_roll1 = double(0),
+    rec_yards_roll1 = double(0),
     yards_per_carry_roll5 = double(0),
     yards_per_target_roll5 = double(0),
     catch_rate_roll5 = double(0),
+    rush_tds_roll1 = double(0),
     rush_tds_roll5 = double(0),
+    rec_tds_roll1 = double(0),
     rec_tds_roll5 = double(0),
     # Defensive features (opponent context)
+    opp_rush_yards_allowed_roll1 = double(0),
+    opp_yards_per_rush_allowed_roll1 = double(0),
+    opp_points_allowed_roll1 = double(0),
+    opp_sacks_roll1 = double(0),
+    opp_tfl_roll1 = double(0),
+    opp_int_roll1 = double(0),
     opp_rush_yards_allowed_roll5 = double(0),
     opp_yards_per_rush_allowed_roll5 = double(0),
     opp_points_allowed_roll5 = double(0),
     opp_sacks_roll5 = double(0),
     opp_tfl_roll5 = double(0),
+    opp_int_roll5 = double(0),
+    # Team offense context (previous week)
+    team_qb_pass_attempts_roll1 = double(0),
+    team_qb_pass_yards_roll1 = double(0),
+    team_qb_pass_tds_roll1 = double(0),
+    team_rb_carries_total_roll1 = double(0),
+    team_rb_targets_total_roll1 = double(0),
+    team_rb_carry_share_top1_roll1 = double(0),
+    team_rb_carry_share_top2_roll1 = double(0),
+    team_wr_targets_total_roll1 = double(0),
+    team_wr_receiving_yards_roll1 = double(0),
+    team_wr_air_yards_roll1 = double(0),
+    defense_data_available = logical(0),
+    rolling_window_complete = logical(0),
+    is_rookie = logical(0),
+    draft_round = integer(0),
+    draft_pick_overall = integer(0),
     target_carries = integer(0),
     target_rush_tds = integer(0),
     target_targets = integer(0),

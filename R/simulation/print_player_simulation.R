@@ -72,6 +72,33 @@ print_player_simulation <- function(result) {
   summary_df <- if (!is.null(result$summary) && nrow(result$summary) > 0) result$summary else data.frame()
   recent_games <- if (!is.null(result$recent_games) && nrow(result$recent_games) > 0) result$recent_games else data.frame()
   
+  # Normalize summary stat names and derive totals if missing
+  if (nrow(summary_df) > 0 && "stat" %in% names(summary_df)) {
+    rename_map <- c(
+      rush_yards = "rushing_yards",
+      rec_yards = "receiving_yards",
+      rush_tds = "rushing_tds",
+      rec_tds = "receiving_tds"
+    )
+    for (nm in names(rename_map)) {
+      summary_df$stat[summary_df$stat == nm] <- rename_map[[nm]]
+    }
+    if (!"total_touchdowns" %in% summary_df$stat &&
+        all(c("rushing_tds", "receiving_tds") %in% summary_df$stat) &&
+        !is.null(result$draws)) {
+      td_vec <- result$draws$rush_tds + result$draws$rec_tds
+      summary_df <- rbind(
+        summary_df,
+        data.frame(
+          stat = "total_touchdowns",
+          p25 = stats::quantile(td_vec, 0.25, na.rm = TRUE),
+          p50 = stats::quantile(td_vec, 0.50, na.rm = TRUE),
+          p75 = stats::quantile(td_vec, 0.75, na.rm = TRUE)
+        )
+      )
+    }
+  }
+  
   # HARD STOP: Validate summary dataframe has required stats
   if (nrow(summary_df) > 0) {
     required_stats <- c("carries", "rushing_yards", "receptions", "receiving_yards", "total_touchdowns")
@@ -190,9 +217,20 @@ print_player_simulation <- function(result) {
         0
       }
       
-      rush_tds <- 0
-      rec_tds <- 0
-      total_tds <- 0
+      rush_tds <- if ("rushing_tds" %in% names(row)) {
+        val <- row$rushing_tds
+        ifelse(is.na(val), 0, as.numeric(val))
+      } else {
+        0
+      }
+      
+      rec_tds <- if ("receiving_tds" %in% names(row)) {
+        val <- row$receiving_tds
+        ifelse(is.na(val), 0, as.numeric(val))
+      } else {
+        0
+      }
+      total_tds <- rush_tds + rec_tds
       
       # Compute PPR fantasy points safely
       ppr_points <- 0
@@ -215,6 +253,8 @@ print_player_simulation <- function(result) {
       
       gameday_str <- if ("gameday" %in% names(row) && !is.na(row$gameday)) {
         as.character(row$gameday)
+      } else if ("game_date" %in% names(row) && !is.na(row$game_date)) {
+        as.character(row$game_date)
       } else {
         "(missing)"
       }

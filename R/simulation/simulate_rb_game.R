@@ -187,10 +187,18 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
       next
     }
     rolling_features <- grep("_roll[0-9]+$", cand_features, value = TRUE)
-    na_rolling <- rolling_features[sapply(rolling_features, function(f) is.na(feature_row[[f]][1]))]
-    strict_features <- setdiff(cand_features, c(rolling_features, "is_home"))
+    stopifnot(all(rolling_features %in% names(feature_row)))
+    optional_features <- c(
+      "is_home",
+      "is_rookie",
+      "draft_round",
+      "draft_pick_overall",
+      grep("^prev_season", cand_features, value = TRUE),
+      grep("_roll1$", cand_features, value = TRUE)
+    )
+    strict_features <- setdiff(cand_features, optional_features)
     na_strict <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
-    if (length(na_rolling) > 0 || length(na_strict) > 0) {
+    if (length(na_strict) > 0) {
       next
     }
     prediction_regime <- cand
@@ -218,7 +226,15 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   
   # NOTE: Rolling features may be NA in early weeks or with limited history. This mirrors training-time behavior.
   rolling_features <- grep("_roll[0-9]+$", required_features, value = TRUE)
-  strict_features <- setdiff(required_features, c(rolling_features, "is_home"))
+  optional_features <- c(
+    "is_home",
+    "is_rookie",
+    "draft_round",
+    "draft_pick_overall",
+    grep("^prev_season", required_features, value = TRUE),
+    grep("_roll1$", required_features, value = TRUE)
+  )
+  strict_features <- setdiff(required_features, optional_features)
   na_features <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
   if (length(na_features) > 0) {
     error_msg <- paste(
@@ -400,7 +416,14 @@ prepare_prediction_data <- function(feature_row, week = NULL, required_features 
       stop("Missing required features for week ", week, ": ", paste(missing_features, collapse = ", "))
     }
     rolling_features <- grep("_roll[0-9]+$", required_features, value = TRUE)
-    optional_na_features <- c(rolling_features, "is_home")
+    optional_na_features <- c(
+      "is_home",
+      "is_rookie",
+      "draft_round",
+      "draft_pick_overall",
+      grep("^prev_season", required_features, value = TRUE),
+      grep("_roll1$", required_features, value = TRUE)
+    )
     strict_features <- setdiff(required_features, optional_na_features)
     na_features <- sapply(strict_features, function(f) f %in% names(df) && is.na(df[[f]][1]))
     if (any(na_features)) {
@@ -414,7 +437,14 @@ prepare_prediction_data <- function(feature_row, week = NULL, required_features 
       stop("Missing required features: ", paste(missing_features, collapse = ", "))
     }
     rolling_features <- grep("_roll[0-9]+$", required_features, value = TRUE)
-    optional_na_features <- c(rolling_features, "is_home")
+    optional_na_features <- c(
+      "is_home",
+      "is_rookie",
+      "draft_round",
+      "draft_pick_overall",
+      grep("^prev_season", required_features, value = TRUE),
+      grep("_roll1$", required_features, value = TRUE)
+    )
     strict_features <- setdiff(required_features, optional_na_features)
     na_features <- sapply(strict_features, function(f) f %in% names(df) && is.na(df[[f]][1]))
     if (any(na_features)) {
@@ -434,7 +464,14 @@ prepare_prediction_data <- function(feature_row, week = NULL, required_features 
           stop("Missing required features for regime '", regime, "': ", paste(missing_features, collapse = ", "))
         }
         rolling_features <- grep("_roll[0-9]+$", required_features, value = TRUE)
-        optional_na_features <- c(rolling_features, "is_home")
+        optional_na_features <- c(
+          "is_home",
+          "is_rookie",
+          "draft_round",
+          "draft_pick_overall",
+          grep("^prev_season", required_features, value = TRUE),
+          grep("_roll1$", required_features, value = TRUE)
+        )
         strict_features <- setdiff(required_features, optional_na_features)
         na_features <- sapply(strict_features, function(f) f %in% names(df) && is.na(df[[f]][1]))
         if (any(na_features)) {
@@ -442,22 +479,6 @@ prepare_prediction_data <- function(feature_row, week = NULL, required_features 
                paste(strict_features[na_features], collapse = ", "))
         }
       }
-    }
-  }
-  
-  # Set defaults for optional features (use reasonable fallbacks)
-  # TIME-AWARE: Only set defaults for features not in required_features
-  default_values <- list(
-    is_home = 0
-  )
-  
-  # Only set defaults for features not in required_features (they should already be validated)
-  optional_features <- setdiff(names(default_values), required_features)
-  for (col in optional_features) {
-    if (col %in% names(df)) {
-      df[[col]] <- ifelse(is.na(df[[col]]), default_values[[col]], df[[col]])
-    } else {
-      df[[col]] <- default_values[[col]]
     }
   }
   

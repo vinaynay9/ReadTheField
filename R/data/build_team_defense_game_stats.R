@@ -347,7 +347,8 @@ build_team_defense_game_stats <- function(seasons) {
         def_agg[, c("game_id", "defense_team", "def_sacks", "def_tfl", 
                    "def_interceptions")],
         by = c("game_id", "defense_team"),
-        all.x = TRUE
+        all.x = TRUE,
+        sort = FALSE
       )
     } else if ("season" %in% names(def_agg) && "week" %in% names(def_agg)) {
       # Join on season, week, defense_team (fallback when game_id not available)
@@ -356,7 +357,8 @@ build_team_defense_game_stats <- function(seasons) {
         def_agg[, c("season", "week", "defense_team", "def_sacks", "def_tfl",
                    "def_interceptions")],
         by = c("season", "week", "defense_team"),
-        all.x = TRUE
+        all.x = TRUE,
+        sort = FALSE
       )
     } else {
       warning("Cannot join defensive stats: missing join keys")
@@ -381,7 +383,8 @@ build_team_defense_game_stats <- function(seasons) {
         off_agg[, c("game_id", "offense_team", "rush_yards", "pass_yards", "rush_attempts"), drop = FALSE],
         by.x = c("game_id", "opponent_team"),
         by.y = c("game_id", "offense_team"),
-        all.x = TRUE
+        all.x = TRUE,
+        sort = FALSE
       )
     } else if ("season" %in% names(off_agg) && "week" %in% names(off_agg)) {
       yards_allowed <- merge(
@@ -389,7 +392,8 @@ build_team_defense_game_stats <- function(seasons) {
         off_agg[, c("season", "week", "offense_team", "rush_yards", "pass_yards", "rush_attempts"), drop = FALSE],
         by.x = c("season", "week", "opponent_team"),
         by.y = c("season", "week", "offense_team"),
-        all.x = TRUE
+        all.x = TRUE,
+        sort = FALSE
       )
     } else {
       warning("Cannot join offensive stats for yards allowed: missing join keys")
@@ -406,6 +410,7 @@ build_team_defense_game_stats <- function(seasons) {
     result$rush_yards_allowed <- yards_allowed$rush_yards
     result$pass_yards_allowed <- yards_allowed$pass_yards
     result$rush_attempts_allowed <- yards_allowed$rush_attempts
+    result$yards_source_found <- !is.na(yards_allowed$rush_yards) | !is.na(yards_allowed$pass_yards)
     result$total_yards_allowed <- ifelse(
       is.na(result$rush_yards_allowed) | is.na(result$pass_yards_allowed),
       NA_real_,
@@ -423,14 +428,12 @@ build_team_defense_game_stats <- function(seasons) {
     result$rush_attempts_allowed <- NA_integer_
     result$total_yards_allowed <- NA_real_
     result$yards_per_rush_allowed <- NA_real_
+    result$yards_source_found <- FALSE
   }
   
   # Points allowed = opponent score
   result$points_allowed <- as.integer(result$opponent_score)
-  
-  # Clean up temporary columns
-  result$opponent_team <- NULL
-  result$opponent_score <- NULL
+  result$points_source_found <- !is.na(result$opponent_score)
   
   # Replace NA defensive stats with 0 (if stat was available but missing for this game)
   if (def_stats_available) {
@@ -463,6 +466,29 @@ build_team_defense_game_stats <- function(seasons) {
     warning(paste(missing_points, "games missing points allowed (opponent score)"))
   }
   
+  # Categorize missingness for diagnostics (logging only; no file writes)
+  if (missing_yards > 0 || missing_points > 0) {
+    missing_detail <- result[, c("game_id", "season", "week", "defense_team", "opponent_team",
+                                 "yards_source_found", "points_source_found"), drop = FALSE]
+    missing_detail$yards_missing <- is.na(result$total_yards_allowed)
+    missing_detail$points_missing <- is.na(result$points_allowed)
+    
+    if (missing_yards > 0) {
+      cat("  Yards allowed missing by category:\n")
+      cat("    No offensive stats match: ", sum(missing_detail$yards_missing & !missing_detail$yards_source_found), "\n", sep = "")
+      cat("    Unknown cause: ", sum(missing_detail$yards_missing & missing_detail$yards_source_found), "\n", sep = "")
+    }
+    if (missing_points > 0) {
+      cat("  Points allowed missing by category:\n")
+      cat("    Schedule score missing: ", sum(missing_detail$points_missing & !missing_detail$points_source_found), "\n", sep = "")
+      cat("    Unknown cause: ", sum(missing_detail$points_missing & missing_detail$points_source_found), "\n", sep = "")
+    }
+  }
+  
+  # Availability flags for downstream diagnostics
+  result$defense_data_available <- result$yards_source_found | result$points_source_found |
+    (!is.na(result$def_sacks)) | (!is.na(result$def_tfl))
+  
   message(paste("Built defensive stats for", nrow(result), "team-game records"))
   
   # Validation: Ensure no future-looking data
@@ -490,16 +516,18 @@ build_team_defense_game_stats <- function(seasons) {
     stop("Defensive weekly features are empty before writing. Cannot create defense_weekly_features.parquet.")
   }
   
-  # Keep only roll5 features and keys; rename defense_team -> team
-  roll5_cols <- grep("_roll5$", names(def_weekly_features), value = TRUE)
+  # Keep only rolling features and keys (roll1 + roll5) plus diagnostics
+  roll_cols <- grep("_roll[0-9]+$", names(def_weekly_features), value = TRUE)
   required_cols <- c("season", "week", "defense_team")
+  optional_diag_cols <- intersect(c("defense_data_available", "rolling_window_complete", "rolling_window_complete_roll1"), names(def_weekly_features))
   missing_required <- setdiff(required_cols, names(def_weekly_features))
   if (length(missing_required) > 0) {
     stop("Defensive weekly features missing required keys: ", paste(missing_required, collapse = ", "))
   }
   
-  def_weekly_features <- def_weekly_features[, c(required_cols, roll5_cols), drop = FALSE]
-  names(def_weekly_features)[names(def_weekly_features) == "defense_team"] <- "team"
+  # Preserve defense_team and also provide team alias for compatibility
+  def_weekly_features <- def_weekly_features[, c(required_cols, optional_diag_cols, roll_cols), drop = FALSE]
+  def_weekly_features$team <- def_weekly_features$defense_team
   
   if (!requireNamespace("arrow", quietly = TRUE)) {
     stop("Package 'arrow' is required to write defensive weekly features.")

@@ -75,6 +75,13 @@ tryCatch({
       by = c("player_id", "season", "week")
     )
   
+  if (!any(grepl("team_qb_pass", names(train_df)))) {
+    stop("Team offense context features missing from training data.")
+  }
+  if (!any(grepl("prev_season_", names(train_df)))) {
+    stop("Prior-season aggregate features missing from training data.")
+  }
+  
   if (nrow(train_df) == 0) {
     stop("Training join produced zero rows.")
   }

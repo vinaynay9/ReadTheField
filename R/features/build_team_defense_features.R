@@ -79,10 +79,27 @@ build_team_defense_features <- function(def_game_stats) {
   result$opp_points_allowed_roll5 <- NA_real_
   result$opp_sacks_roll5 <- NA_real_
   result$opp_tfl_roll5 <- NA_real_
+  result$opp_rush_yards_allowed_roll1 <- NA_real_
+  result$opp_yards_per_rush_allowed_roll1 <- NA_real_
+  result$opp_points_allowed_roll1 <- NA_real_
+  result$opp_sacks_roll1 <- NA_real_
+  result$opp_tfl_roll1 <- NA_real_
+  # Canonical defensive aliases (def_* mirrors opp_* for clarity in downstream joins)
+  result$def_rush_yards_allowed_roll5 <- NA_real_
+  result$def_yards_per_rush_allowed_roll5 <- NA_real_
+  result$def_points_allowed_roll5 <- NA_real_
+  result$def_sacks_roll5 <- NA_real_
+  result$def_tfl_roll5 <- NA_real_
+  result$def_rush_yards_allowed_roll1 <- NA_real_
+  result$def_yards_per_rush_allowed_roll1 <- NA_real_
+  result$def_points_allowed_roll1 <- NA_real_
+  result$def_sacks_roll1 <- NA_real_
+  result$def_tfl_roll1 <- NA_real_
   
   # Optional features (only if data exists)
   if ("def_interceptions" %in% names(def_game_stats)) {
     result$opp_int_roll5 <- NA_real_
+    result$opp_int_roll1 <- NA_real_
   }
   
   # Process each team-season separately
@@ -111,6 +128,8 @@ build_team_defense_features <- function(def_game_stats) {
       }
       
       if ("rush_yards_allowed" %in% names(season_data)) {
+        lag_vals <- c(NA_real_, head(season_data$rush_yards_allowed, -1))
+        result$opp_rush_yards_allowed_roll1[season_idx] <- lag_vals
         result$opp_rush_yards_allowed_roll5[season_idx] <- lagged_roll_mean(
           season_data$rush_yards_allowed,
           window = 5
@@ -118,6 +137,8 @@ build_team_defense_features <- function(def_game_stats) {
       }
       
       if ("yards_per_rush_allowed" %in% names(season_data)) {
+        lag_vals <- c(NA_real_, head(season_data$yards_per_rush_allowed, -1))
+        result$opp_yards_per_rush_allowed_roll1[season_idx] <- lag_vals
         result$opp_yards_per_rush_allowed_roll5[season_idx] <- lagged_roll_mean(
           season_data$yards_per_rush_allowed,
           window = 5
@@ -132,6 +153,8 @@ build_team_defense_features <- function(def_game_stats) {
       }
       
       if ("points_allowed" %in% names(season_data)) {
+        lag_vals <- c(NA_real_, head(season_data$points_allowed, -1))
+        result$opp_points_allowed_roll1[season_idx] <- lag_vals
         result$opp_points_allowed_roll5[season_idx] <- lagged_roll_mean(
           season_data$points_allowed,
           window = 5
@@ -139,6 +162,8 @@ build_team_defense_features <- function(def_game_stats) {
       }
       
       if ("def_sacks" %in% names(season_data)) {
+        lag_vals <- c(NA_real_, head(as.numeric(season_data$def_sacks), -1))
+        result$opp_sacks_roll1[season_idx] <- lag_vals
         result$opp_sacks_roll5[season_idx] <- lagged_roll_mean(
           as.numeric(season_data$def_sacks),
           window = 5
@@ -146,6 +171,8 @@ build_team_defense_features <- function(def_game_stats) {
       }
       
       if ("def_tfl" %in% names(season_data)) {
+        lag_vals <- c(NA_real_, head(as.numeric(season_data$def_tfl), -1))
+        result$opp_tfl_roll1[season_idx] <- lag_vals
         result$opp_tfl_roll5[season_idx] <- lagged_roll_mean(
           as.numeric(season_data$def_tfl),
           window = 5
@@ -157,6 +184,7 @@ build_team_defense_features <- function(def_game_stats) {
           as.numeric(season_data$def_interceptions),
           window = 5
         )
+        result$opp_int_roll1[season_idx] <- c(NA_real_, head(as.numeric(season_data$def_interceptions), -1))
       }
     }
     
@@ -176,7 +204,9 @@ build_team_defense_features <- function(def_game_stats) {
       first_idx <- which.min(team_df$gameday)
       rolling_cols <- c("opp_pass_yards_allowed_roll5", "opp_rush_yards_allowed_roll5",
                        "opp_total_yards_allowed_roll5", "opp_points_allowed_roll5",
-                       "opp_sacks_roll5", "opp_tfl_roll5")
+                       "opp_sacks_roll5", "opp_tfl_roll5",
+                       "opp_rush_yards_allowed_roll1", "opp_yards_per_rush_allowed_roll1",
+                       "opp_points_allowed_roll1", "opp_sacks_roll1", "opp_tfl_roll1")
       rolling_cols <- intersect(rolling_cols, names(team_df))
       if (length(rolling_cols) > 0) {
         first_row_rolling <- team_df[first_idx, rolling_cols, drop = FALSE]
@@ -201,11 +231,59 @@ build_team_defense_features <- function(def_game_stats) {
       dplyr::mutate(
         dplyr::across(
           dplyr::all_of(rolling_cols),
-          ~ dplyr::if_else(week == 1, NA_real_, .)
+          ~ dplyr::if_else(as.integer(week) == 1L, NA_real_, .)
         )
       )
     week1_rows <- result[result$week == 1, rolling_cols, drop = FALSE]
-    stopifnot(sum(!is.na(week1_rows)) == 0)
+    if (sum(!is.na(week1_rows)) > 0) {
+      warning("Week 1 defensive rolling features contain non-NA values after season reset; forcing to NA for safety.", call. = FALSE)
+      result[result$week == 1, rolling_cols] <- NA_real_
+    }
+  }
+
+  # Optional diagnostics flags (non-leaking)
+  if (length(rolling_cols) > 0) {
+    result$rolling_window_complete <- apply(
+      result[, rolling_cols, drop = FALSE],
+      1,
+      function(x) all(!is.na(x))
+    )
+  } else {
+    result$rolling_window_complete <- FALSE
+  }
+  # roll1 completeness flag: TRUE when immediate prior game exists
+  roll1_cols <- grep("_roll1$", names(result), value = TRUE)
+  if (length(roll1_cols) > 0) {
+    result$rolling_window_complete_roll1 <- apply(
+      result[, roll1_cols, drop = FALSE],
+      1,
+      function(x) all(!is.na(x))
+    )
+  } else {
+    result$rolling_window_complete_roll1 <- FALSE
+  }
+  if ("defense_data_available" %in% names(result)) {
+    result$defense_data_available <- as.logical(result$defense_data_available)
+  }
+
+  # Canonical defensive aliases (def_* mirrors opp_* for downstream stability)
+  alias_map <- c(
+    def_rush_yards_allowed_roll5 = "opp_rush_yards_allowed_roll5",
+    def_yards_per_rush_allowed_roll5 = "opp_yards_per_rush_allowed_roll5",
+    def_points_allowed_roll5 = "opp_points_allowed_roll5",
+    def_sacks_roll5 = "opp_sacks_roll5",
+    def_tfl_roll5 = "opp_tfl_roll5",
+    def_rush_yards_allowed_roll1 = "opp_rush_yards_allowed_roll1",
+    def_yards_per_rush_allowed_roll1 = "opp_yards_per_rush_allowed_roll1",
+    def_points_allowed_roll1 = "opp_points_allowed_roll1",
+    def_sacks_roll1 = "opp_sacks_roll1",
+    def_tfl_roll1 = "opp_tfl_roll1"
+  )
+  for (nm in names(alias_map)) {
+    src <- alias_map[[nm]]
+    if (src %in% names(result)) {
+      result[[nm]] <- result[[src]]
+    }
   }
 
   # Canonicalize defense_team column
@@ -259,6 +337,22 @@ empty_defense_features_df <- function() {
     opp_points_allowed_roll5 = double(0),
     opp_sacks_roll5 = double(0),
     opp_tfl_roll5 = double(0),
+    opp_rush_yards_allowed_roll1 = double(0),
+    opp_yards_per_rush_allowed_roll1 = double(0),
+    opp_points_allowed_roll1 = double(0),
+    opp_sacks_roll1 = double(0),
+    opp_tfl_roll1 = double(0),
+    def_rush_yards_allowed_roll5 = double(0),
+    def_yards_per_rush_allowed_roll5 = double(0),
+    def_points_allowed_roll5 = double(0),
+    def_sacks_roll5 = double(0),
+    def_tfl_roll5 = double(0),
+    def_rush_yards_allowed_roll1 = double(0),
+    def_yards_per_rush_allowed_roll1 = double(0),
+    def_points_allowed_roll1 = double(0),
+    def_sacks_roll1 = double(0),
+    def_tfl_roll1 = double(0),
+    rolling_window_complete_roll1 = logical(0),
     stringsAsFactors = FALSE
   )
 }

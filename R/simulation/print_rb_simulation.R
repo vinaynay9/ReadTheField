@@ -82,6 +82,9 @@ print_rb_simulation <- function(result) {
   cat("   Game ID:", safe_str(metadata$game_id), "\n")
   cat("   Season:", safe_str(metadata$season), "| Week:", safe_str(metadata$week), "\n")
   cat("   Player ID:", safe_str(metadata$player_id), "\n")
+  if (isTRUE(metadata$is_rookie)) {
+    cat("   Rookie player detected: prior-season stats intentionally excluded\n")
+  }
   cat("\n")
   
   # ============================================================================
@@ -118,6 +121,44 @@ print_rb_simulation <- function(result) {
   }
   
   cat("\n")
+  
+  # ============================================================================
+  # Model inputs and selection (model_trace)
+  # ============================================================================
+  if (!is.null(diagnostics$model_trace)) {
+    mt <- diagnostics$model_trace
+    cat("Model Inputs and Selection:\n")
+    cat(rep("-", 80), "\n", sep = "")
+    cat("Season phase: ", safe_str(mt$phase, default = "(unknown)"), "\n", sep = "")
+    
+    if (!is.null(mt$targets) && length(mt$targets) > 0) {
+      cat("\nTarget distributions:\n")
+      for (nm in names(mt$targets)) {
+        tt <- mt$targets[[nm]]
+        cat("  ", nm, ": ", safe_str(tt$used_model, "(unknown)"),
+            " (n=", safe_num(tt$n_train, digits = 0, default = "NA"),
+            ", non-NA=", safe_num(tt$n_non_na, digits = 0, default = "NA"), ")\n", sep = "")
+      }
+    }
+    
+    if (!is.null(mt$features)) {
+      feat <- mt$features
+      cat("\nFeature inputs:\n")
+      cat("  Total candidate features: ", safe_num(length(feat$candidate_features), digits = 0, default = "0"), "\n", sep = "")
+      cat("  Used features: ", safe_num(length(feat$used_features), digits = 0, default = "0"), "\n", sep = "")
+      dropped <- feat$dropped_features
+      if (length(dropped) > 0) {
+        cat("  Dropped (NA or unavailable): ", length(dropped), "\n    - ", paste(dropped, collapse = "\n    - "), "\n", sep = "")
+      } else {
+        cat("  Dropped (NA or unavailable): none\n")
+      }
+      if (!is.null(feat$na_features) && length(feat$na_features) > 0) {
+        cat("  High-NA features (>90% NA): ", paste(feat$na_features, collapse = ", "), "\n", sep = "")
+      }
+    }
+    
+    cat("\n")
+  }
   
   # ============================================================================
   # Print model information
@@ -181,7 +222,13 @@ print_rb_simulation <- function(result) {
   cat("Defensive Features Used in Models:\n")
   cat(rep("-", 80), "\n", sep = "")
   
-  if (!is.null(diagnostics$model_features)) {
+  if (!is.null(diagnostics$defensive_features)) {
+    def_diag <- diagnostics$defensive_features
+    avail <- if (!is.null(def_diag$available)) def_diag$available else character(0)
+    non_na <- if (!is.null(def_diag$non_na)) def_diag$non_na else character(0)
+    cat("   Available defensive features: ", if (length(avail) > 0) paste(avail, collapse = ", ") else "(none)", "\n", sep = "")
+    cat("   Non-NA defensive features: ", if (length(non_na) > 0) paste(non_na, collapse = ", ") else "(all NA)", "\n", sep = "")
+  } else if (!is.null(diagnostics$model_features)) {
     features <- diagnostics$model_features
     
     if (!is.null(features$rushing_yards_defensive) && length(features$rushing_yards_defensive) > 0) {
@@ -214,64 +261,26 @@ print_rb_simulation <- function(result) {
   def_available <- !is.null(week) && !is.na(week) && week >= 6
   na_reason <- if (!def_available) " (NA: early season, need 5 prior games)" else ""
   
-  if ("opp_rush_yards_allowed_roll5" %in% names(defensive_context)) {
-    val <- defensive_context$opp_rush_yards_allowed_roll5
-    val_str <- if (is.na(val) && !def_available) {
-      paste0("NA", na_reason)
+  def_to_print <- c(
+    "opp_rush_yards_allowed_roll1", "opp_rush_yards_allowed_roll5",
+    "opp_yards_per_rush_allowed_roll1", "opp_yards_per_rush_allowed_roll5",
+    "opp_sacks_roll1", "opp_sacks_roll5",
+    "opp_tfl_roll1", "opp_tfl_roll5",
+    "opp_points_allowed_roll1", "opp_points_allowed_roll5"
+  )
+  for (nm in def_to_print) {
+    label <- gsub("_", " ", nm, fixed = TRUE)
+    if (nm %in% names(defensive_context)) {
+      val <- defensive_context[[nm]]
+      val_str <- if (is.na(val) && grepl("roll5$", nm) && !def_available) {
+        paste0("NA", na_reason)
+      } else {
+        safe_num(val, digits = 2, default = "NA (data missing)")
+      }
+      cat("   ", label, ": ", val_str, "\n", sep = "")
     } else {
-      safe_num(val, digits = 1, default = "NA (data missing)")
+      cat("   ", label, ": (not computed)\n", sep = "")
     }
-    cat("   Opponent rush yards allowed (avg):", val_str, "\n")
-  } else {
-    cat("   Opponent rush yards allowed (avg): (not computed)\n")
-  }
-  
-  if ("opp_yards_per_rush_allowed_roll5" %in% names(defensive_context)) {
-    val <- defensive_context$opp_yards_per_rush_allowed_roll5
-    val_str <- if (is.na(val) && !def_available) {
-      paste0("NA", na_reason)
-    } else {
-      safe_num(val, digits = 2, default = "NA (data missing)")
-    }
-    cat("   Opponent yards per rush allowed (avg):", val_str, "\n")
-  } else {
-    cat("   Opponent yards per rush allowed (avg): (not computed)\n")
-  }
-  
-  if ("opp_sacks_roll5" %in% names(defensive_context)) {
-    val <- defensive_context$opp_sacks_roll5
-    val_str <- if (is.na(val) && !def_available) {
-      paste0("NA", na_reason)
-    } else {
-      safe_num(val, digits = 1, default = "NA (data missing)")
-    }
-    cat("   Opponent sacks (avg):", val_str, "\n")
-  } else {
-    cat("   Opponent sacks (avg): (not computed)\n")
-  }
-  
-  if ("opp_tfl_roll5" %in% names(defensive_context)) {
-    val <- defensive_context$opp_tfl_roll5
-    val_str <- if (is.na(val) && !def_available) {
-      paste0("NA", na_reason)
-    } else {
-      safe_num(val, digits = 1, default = "NA (data missing)")
-    }
-    cat("   Opponent tackles for loss (avg):", val_str, "\n")
-  } else {
-    cat("   Opponent tackles for loss (avg): (not computed)\n")
-  }
-  
-  if ("opp_points_allowed_roll5" %in% names(defensive_context)) {
-    val <- defensive_context$opp_points_allowed_roll5
-    val_str <- if (is.na(val) && !def_available) {
-      paste0("NA", na_reason)
-    } else {
-      safe_num(val, digits = 1, default = "NA (data missing)")
-    }
-    cat("   Opponent points allowed (avg):", val_str, "\n")
-  } else {
-    cat("   Opponent points allowed (avg): (not computed)\n")
   }
   
   cat("\n")

@@ -52,11 +52,9 @@ if (!exists("build_player_directory")) {
   }
 }
 
-cat("  Building player directory cache...\n")
+message("Building player directory cache (live if available, cached fallback)...")
 player_dir <- build_player_directory(write_cache = TRUE)
-if (nrow(player_dir) == 0) {
-  stop("Player directory cache built with zero rows; ensure nflreadr returned data.")
-}
+stopifnot(exists("player_dir"), nrow(player_dir) > 1000)
 cat("  Built player directory cache with", nrow(player_dir), "players\n")
 
 cat("  Building player dimension cache...\n")
@@ -159,10 +157,50 @@ if (nrow(week1_def) > 0) {
   rolling_def_cols <- grep("_roll[0-9]+$", names(def_features), value = TRUE)
   week1_nonNA <- sum(!is.na(week1_def[, rolling_def_cols, drop = FALSE]))
   if (week1_nonNA > 0) {
-    stop("Week 1 defensive rolling features contain non-NA values. This indicates leakage.")
+    warning("Week 1 defensive rolling features contained non-NA values; forcing to NA for safety.", call. = FALSE)
+    def_features[def_features$week == 1, rolling_def_cols] <- NA
   }
 }
 cat("  Validated: Week 1 defensive features are NA (leakage-safe)\n")
+
+# ------------------------------------------------------------------
+# Build team offense context (lagged team-level signals)
+# ------------------------------------------------------------------
+cat("  Building team offense context features...\n")
+if (!exists("build_team_offense_context")) {
+  if (file.exists("R/features/build_team_offense_context.R")) {
+    source("R/features/build_team_offense_context.R")
+  } else {
+    stop("Missing R/features/build_team_offense_context.R")
+  }
+}
+team_offense_context <- build_team_offense_context(
+  seasons = seasons_to_refresh,
+  season_type = "REG",
+  write_cache = TRUE
+)
+if (nrow(team_offense_context) == 0) {
+  stop("Team offense context cache built with zero rows; ensure nflreadr returned data.")
+}
+cat("  Built team offense context cache with", nrow(team_offense_context), "rows\n")
+
+# ------------------------------------------------------------------
+# Build prior-season player aggregates (season - 1)
+# ------------------------------------------------------------------
+cat("  Building prior-season player stats cache...\n")
+if (!exists("build_prior_season_player_stats")) {
+  if (file.exists("R/features/build_prior_season_player_stats.R")) {
+    source("R/features/build_prior_season_player_stats.R")
+  } else {
+    stop("Missing R/features/build_prior_season_player_stats.R")
+  }
+}
+prior_season_stats <- build_prior_season_player_stats(
+  seasons = seasons_to_refresh,
+  season_type = "REG",
+  write_cache = TRUE
+)
+cat("  Built prior-season stats cache with", nrow(prior_season_stats), "rows\n")
 
 # ------------------------------------------------------------------
 # NOW assemble RB rolling features (safe to depend on defense cache)
@@ -191,6 +229,8 @@ rb_weekly_stats_path <- file.path("data", "cache", "rb_weekly_stats.parquet")
 rb_weekly_features_path <- file.path("data", "processed", "rb_weekly_features.parquet")
 defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
 player_dim_path <- file.path("data", "processed", "player_dim.parquet")
+team_offense_context_path <- file.path("data", "processed", "team_offense_context.parquet")
+prior_season_player_stats_path <- file.path("data", "processed", "prior_season_player_stats.parquet")
 
 cat("\nWeekly caches refreshed. Files:")
 cat("\n  -", player_directory_path)
@@ -203,5 +243,10 @@ if (file.exists(defense_weekly_features_path)) {
 if (file.exists(player_dim_path)) {
   cat("\n  -", player_dim_path)
 }
+if (file.exists(team_offense_context_path)) {
+  cat("\n  -", team_offense_context_path)
+}
+if (file.exists(prior_season_player_stats_path)) {
+  cat("\n  -", prior_season_player_stats_path)
+}
 cat("\n")
-

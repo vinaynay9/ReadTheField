@@ -57,13 +57,19 @@ build_rb_features <- function(rb_data) {
   # Initialize feature columns (RB v1: roll3, roll5, roll7 only - no roll10)
   n <- nrow(rb_data)
   rb_data$carries_roll3 <- NA_real_
+  rb_data$carries_roll1 <- NA_real_
   rb_data$carries_roll5 <- NA_real_
   rb_data$carries_roll7 <- NA_real_
   rb_data$targets_roll3 <- NA_real_
+  rb_data$targets_roll1 <- NA_real_
   rb_data$targets_roll5 <- NA_real_
   rb_data$targets_roll7 <- NA_real_
+  rb_data$rush_yards_roll1 <- NA_real_
   rb_data$rush_yards_roll3 <- NA_real_
+  rb_data$rec_yards_roll1 <- NA_real_
   rb_data$rec_yards_roll3 <- NA_real_
+  rb_data$rush_tds_roll1 <- NA_real_
+  rb_data$rec_tds_roll1 <- NA_real_
   rb_data$yards_per_carry_roll5 <- NA_real_
   rb_data$yards_per_target_roll5 <- NA_real_
   rb_data$catch_rate_roll5 <- NA_real_
@@ -106,18 +112,24 @@ build_rb_features <- function(rb_data) {
     # Compute rolling means (lagged) - RB v1: roll3, roll5, roll7 only
     # Rolling windows reset at season boundary (only use weeks within this season)
     # Strict window semantics: requires exactly N prior games (no partial windows)
+    rb_data$carries_roll1[idx] <- c(NA_real_, head(carries, -1))
     rb_data$carries_roll3[idx] <- lagged_roll_mean(carries, window = 3)
     rb_data$carries_roll5[idx] <- lagged_roll_mean(carries, window = 5)
     rb_data$carries_roll7[idx] <- lagged_roll_mean(carries, window = 7)
     
+    rb_data$targets_roll1[idx] <- c(NA_real_, head(targets, -1))
     rb_data$targets_roll3[idx] <- lagged_roll_mean(targets, window = 3)
     rb_data$targets_roll5[idx] <- lagged_roll_mean(targets, window = 5)
     rb_data$targets_roll7[idx] <- lagged_roll_mean(targets, window = 7)
     
+    rb_data$rush_yards_roll1[idx] <- c(NA_real_, head(rush_yards, -1))
     rb_data$rush_yards_roll3[idx] <- lagged_roll_mean(rush_yards, window = 3)
+    rb_data$rec_yards_roll1[idx] <- c(NA_real_, head(rec_yards, -1))
     rb_data$rec_yards_roll3[idx] <- lagged_roll_mean(rec_yards, window = 3)
     
+    rb_data$rush_tds_roll1[idx] <- c(NA_real_, head(rush_tds, -1))
     rb_data$rush_tds_roll5[idx] <- lagged_roll_mean(rush_tds, window = 5)
+    rb_data$rec_tds_roll1[idx] <- c(NA_real_, head(rec_tds, -1))
     rb_data$rec_tds_roll5[idx] <- lagged_roll_mean(rec_tds, window = 5)
     
     # Compute ratio-of-sums efficiency metrics (lagged)
@@ -132,6 +144,15 @@ build_rb_features <- function(rb_data) {
       receptions, targets, window = 5
     )
   }
+  
+  # Enforce Week 1 roll1 features are NA (season-boundary safety)
+  rb_data <- rb_data |>
+    dplyr::mutate(
+      dplyr::across(
+        dplyr::ends_with("_roll1"),
+        ~ dplyr::if_else(week == 1, NA_real_, .)
+      )
+    )
   
   rownames(rb_data) <- NULL
   return(rb_data)
@@ -157,18 +178,24 @@ empty_rb_features_df <- function() {
     receptions = integer(0),
     rec_yards = double(0),
     rec_tds = integer(0),
+    carries_roll1 = double(0),
     carries_roll3 = double(0),
     carries_roll5 = double(0),
     carries_roll7 = double(0),
+    targets_roll1 = double(0),
     targets_roll3 = double(0),
     targets_roll5 = double(0),
     targets_roll7 = double(0),
+    rush_yards_roll1 = double(0),
     rush_yards_roll3 = double(0),
+    rec_yards_roll1 = double(0),
     rec_yards_roll3 = double(0),
     yards_per_carry_roll5 = double(0),
     yards_per_target_roll5 = double(0),
     catch_rate_roll5 = double(0),
+    rush_tds_roll1 = double(0),
     rush_tds_roll5 = double(0),
+    rec_tds_roll1 = double(0),
     rec_tds_roll5 = double(0),
     stringsAsFactors = FALSE
   )

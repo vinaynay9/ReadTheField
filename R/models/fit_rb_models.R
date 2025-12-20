@@ -359,6 +359,11 @@ fit_rb_models <- function(training_data, min_rows = 200) {
   if (!"rb_regime" %in% names(training_data)) {
     stop("Missing rb_regime column in training data. Regime-based modeling requires rb_regime.")
   }
+
+  # Drop rows with missing regimes (diagnostics only; preserves modeling integrity)
+  if (any(is.na(training_data$rb_regime))) {
+    training_data <- training_data[!is.na(training_data$rb_regime), , drop = FALSE]
+  }
   
   # Validate regimes are valid
   valid_regimes <- get_rb_regimes()
@@ -455,10 +460,8 @@ fit_rb_models <- function(training_data, min_rows = 200) {
       
       n_rows_available <- nrow(training_data_regime)
       
-      # CRITICAL FIX: is_home is a context feature, not a learned signal
-      # Default is_home to 0 if missing (allow NA values)
+      # Preserve is_home as provided (no imputation)
       if ("is_home" %in% names(training_data_regime)) {
-        training_data_regime$is_home[is.na(training_data_regime$is_home)] <- 0
         training_data_regime$is_home <- as.numeric(training_data_regime$is_home)
       }
       
@@ -474,7 +477,10 @@ fit_rb_models <- function(training_data, min_rows = 200) {
              ". Time-aware feature contract must be satisfied. ",
              "Available feature columns (sample): ", paste(available_cols_sample, collapse = ", "))
       }
-      
+
+      # Determine model type based on target (defined early for fallbacks)
+      is_count <- TRUE  # All RB v1 targets are counts
+
       # Drop zero-variance features (e.g., is_home all NA/0) to avoid rank-deficient fits
       zero_var_features <- c()
       for (feat in required_features) {
@@ -489,13 +495,27 @@ fit_rb_models <- function(training_data, min_rows = 200) {
         required_features <- setdiff(required_features, zero_var_features)
       }
       if (length(required_features) == 0) {
-        stop("All required features dropped due to zero variance for ", model_key, ". Cannot fit model.")
+        log_msg("  All features zero-variance for ", model_key, " - using baseline fallback")
+        y <- training_data_regime[[target]]
+        result$models[[model_key]] <- create_baseline_model(target, y, is_count = is_count)
+        result$diagnostics[[model_key]]$fit_type <- "baseline"
+        result$diagnostics[[model_key]]$fallback_used <- TRUE
+        result$diagnostics[[model_key]]$fallback_reason <- "zero_variance_features"
+        next
       }
       
       # CRITICAL FIX: Filter only on rolling features (not is_home or player priors)
-      # is_home is optional and has been defaulted above
+      # is_home is optional and preserved as provided
       # Player priors (cum_mean, _cum) are also optional (available for established players)
-      non_rolling_features <- c("is_home", grep("_cum", required_features, value = TRUE))
+      non_rolling_features <- c(
+        "is_home",
+        "is_rookie",
+        "draft_round",
+        "draft_pick_overall",
+        grep("_cum", required_features, value = TRUE),
+        grep("_roll1$", required_features, value = TRUE),
+        grep("^prev_season", required_features, value = TRUE)
+      )
       rolling_features <- setdiff(required_features, non_rolling_features)
       
       if (length(rolling_features) > 0) {
@@ -503,14 +523,18 @@ fit_rb_models <- function(training_data, min_rows = 200) {
         training_data_regime <- training_data_regime %>%
           filter(if_all(all_of(rolling_features), ~ !is.na(.)))
       }
-      # Note: is_home is NOT filtered - it's optional and defaulted to 0 if missing
+      # Note: is_home is NOT filtered - it's optional and preserved as provided
       
       n_rows_final <- nrow(training_data_regime)
-      
+
       # Diagnostic: Log features used and row counts to file
       log_msg("  Features used:", paste(required_features, collapse = ", "))
       log_msg("  Rows available:", n_rows_available)
       log_msg("  Rows used:", n_rows_final)
+
+      if (n_rows_final == 0) {
+        stop("Training data empty after feature/NA filtering for ", model_key, ". This indicates an upstream filtering issue.")
+      }
       
       # Determine model type based on target
       is_count <- TRUE  # All RB v1 targets are counts
@@ -529,9 +553,10 @@ fit_rb_models <- function(training_data, min_rows = 200) {
         fit_type = "none",
         converged = FALSE,
         warnings = character(0),
-        fallback_used = FALSE
+        fallback_used = FALSE,
+        fallback_reason = NULL
       )
-      
+
       # Check minimum rows
       if (n_rows_final < min_rows) {
         log_msg("  Insufficient rows:", n_rows_final, "<", min_rows, "- Using baseline")
@@ -539,6 +564,7 @@ fit_rb_models <- function(training_data, min_rows = 200) {
         result$models[[model_key]] <- create_baseline_model(target, y, is_count = is_count)
         result$diagnostics[[model_key]]$fit_type <- "baseline"
         result$diagnostics[[model_key]]$fallback_used <- TRUE
+        result$diagnostics[[model_key]]$fallback_reason <- "insufficient_rows"
         log_msg("  Model:", model_key, "| Features:", paste(required_features, collapse = ", "),
                  "| Rows available:", n_rows_available, "| Rows used:", n_rows_final,
                  "| Fit: baseline | Fallback: TRUE")
@@ -553,6 +579,7 @@ fit_rb_models <- function(training_data, min_rows = 200) {
         result$models[[model_key]] <- create_baseline_model(target, y, is_count = is_count)
         result$diagnostics[[model_key]]$fit_type <- "baseline"
         result$diagnostics[[model_key]]$fallback_used <- TRUE
+        result$diagnostics[[model_key]]$fallback_reason <- "zero_variance_target"
         log_msg("  Model:", model_key, "| Features:", paste(required_features, collapse = ", "),
                  "| Rows available:", n_rows_available, "| Rows used:", n_rows_final,
                  "| Fit: baseline | Fallback: TRUE")
@@ -567,6 +594,7 @@ fit_rb_models <- function(training_data, min_rows = 200) {
           result$models[[model_key]] <- create_baseline_model(target, y, is_count = TRUE)
           result$diagnostics[[model_key]]$fit_type <- "baseline"
           result$diagnostics[[model_key]]$fallback_used <- TRUE
+          result$diagnostics[[model_key]]$fallback_reason <- "insufficient_positive_outcomes"
           log_msg("  Model:", model_key, "| Features:", paste(required_features, collapse = ", "),
                    "| Rows available:", n_rows_available, "| Rows used:", n_rows_final,
                    "| Fit: baseline | Fallback: TRUE")

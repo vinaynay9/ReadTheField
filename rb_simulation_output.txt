@@ -1,99 +1,108 @@
-Simulation started at 2025-12-17 18:28:34.862689 
+Simulation started at 2025-12-20 09:25:40.208877 
 Output will be saved to: rb_simulation_output.txt 
 
 
 ================================================================================ 
-Player Simulation — B.Robinson vs TB ((unknown))
+Player Simulation — B.Robinson vs TB (2024-10-27)
 ================================================================================ 
 
 Recent Performance (Last 3 Games):
 --------------------------------------------------------------------------------
 Date         Opponent  Carries     Rush Yds  Targets  Receptions    Rec Yds  Total TDs   PPR Points
 --------------------------------------------------------------------------------
-(missing)    (missing)        0            0        0           0          0          0          0.0
+(missing)    SEA            21          103        5           3         40          1         23.3
+(missing)    CAR            15           95        4           3         10          2         25.5
+(missing)    TB             12           61        3           3         16          0         10.7
 
 Projected Stat Line (Median):
 --------------------------------------------------------------------------------
-   Carries: 8 
-   Rush yards: NA 
-   Receptions: 1 
-   Receiving yards: NA 
-   Total TDs: NA 
-   PPR Fantasy Points: 1 
+   Carries: 15 
+   Rush yards: 67 
+   Receptions: 3 
+   Receiving yards: 22 
+   Total TDs: 0 
+   PPR Fantasy Points: 11.9 
 
 Confidence Intervals (25th / 50th / 75th Percentiles):
 --------------------------------------------------------------------------------
-   Carries: 6 / 8 / 10 
-   Rush yards: NA / NA / NA 
-   Receptions: 0 / 1 / 2 
-   Receiving yards: NA / NA / NA 
-   Total TDs: NA / NA / NA 
-   PPR Fantasy Points: NA / 1 / NA 
+   Carries: 13 / 15 / 18 
+   Rush yards: 58 / 67 / 80 
+   Receptions: 2 / 3 / 4 
+   Receiving yards: 14 / 22 / 29 
+   Total TDs: 0 / 0 / 1 
+   PPR Fantasy Points: NA / 11.9 / NA 
 
 Touchdown Probabilities:
 --------------------------------------------------------------------------------
-   Probability of 0 TDs: 97.7% 
-   Probability of ≥1 TD: 2.3% 
-   Probability of ≥2 TDs: 0.0% 
+   Probability of 0 TDs: 52.9% 
+   Probability of ≥1 TD: 47.1% 
+   Probability of ≥2 TDs: 13.7% 
 
 ================================================================================ 
 
 
 ================================================================================ 
 RB Simulation — Technical Diagnostics
-Player: B.Robinson | Game: ATL vs TB ((unknown))
+Player: B.Robinson | Game: ATL vs TB (2024-10-27)
 ================================================================================ 
 
 Simulation Parameters:
 --------------------------------------------------------------------------------
    Number of Monte Carlo simulations: 5000 
-   Game ID: (missing) 
+   Game ID: 2024_wk08_nodate_ATL_TB_00-0038542 
    Season: 2024 | Week: 8 
    Player ID: 00-0038542 
 
 Training Data Used:
 --------------------------------------------------------------------------------
-   Date range: (missing) to (missing) 
+   Date range: 1999-01-01 to 2024-12-31 
    Seasons included: 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024 
    Number of unique players: 977 
-   Number of unique games: 1 
+   Number of unique games: 13138 
+
+Model Inputs and Selection:
+--------------------------------------------------------------------------------
+Season phase: standard
+
+Target distributions:
+  target_carries: fitted (n=10491, non-NA=36700)
+  target_receptions: fitted (n=10491, non-NA=36700)
+  target_rush_tds: fitted (n=10491, non-NA=36700)
+  target_rec_tds: fitted (n=10491, non-NA=36700)
+
+Feature inputs:
+  Total candidate features: 51
+  Used features: 51
+  Dropped (NA or unavailable): none
+  High-NA features (>90% NA): is_home, prev_season_snap_share_avg, team_rb_snaps_total_roll1
 
 Model Information:
 --------------------------------------------------------------------------------
    Model fitting diagnostics:
-   WARNING: The following models fell back to baseline:
-     - target_carries__early 
-     - target_carries__mid 
-     - target_carries__late 
-     - target_carries__standard 
-     - target_receptions__early 
-     - target_receptions__mid 
-     - target_receptions__late 
-     - target_receptions__standard 
-     - target_rush_tds__early 
-     - target_rush_tds__mid 
-     - target_rush_tds__late 
-     - target_rush_tds__standard 
-     - target_rec_tds__early 
-     - target_rec_tds__mid 
-     - target_rec_tds__late 
-     - target_rec_tds__standard 
 
 Defensive Features Used in Models:
 --------------------------------------------------------------------------------
-   Defensive feature information not available
+   Available defensive features: opp_rush_yards_allowed_roll1, opp_yards_per_rush_allowed_roll1, opp_points_allowed_roll1, opp_sacks_roll1, opp_tfl_roll1, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5, opp_points_allowed_roll5
+   Non-NA defensive features: opp_rush_yards_allowed_roll1, opp_yards_per_rush_allowed_roll1, opp_points_allowed_roll1, opp_sacks_roll1, opp_tfl_roll1, opp_rush_yards_allowed_roll5, opp_yards_per_rush_allowed_roll5, opp_sacks_roll5, opp_tfl_roll5, opp_points_allowed_roll5
 
 Defensive Context Values (Opponent's Last 5 Games):
 --------------------------------------------------------------------------------
-   Opponent rush yards allowed (avg): (missing) 
-   Opponent sacks (avg): (missing) 
-   Opponent tackles for loss (avg): (missing) 
-   Opponent points allowed (avg): (missing) 
+   opp rush yards allowed roll1: 74
+   opp rush yards allowed roll5: 84.6
+   opp yards per rush allowed roll1: 3.52
+   opp yards per rush allowed roll5: 4.1
+   opp sacks roll1: 3
+   opp sacks roll5: 2.8
+   opp tfl roll1: 6
+   opp tfl roll5: 5.2
+   opp points allowed roll1: 41
+   opp points allowed roll5: 29.2
 
 Simulation Distribution Statistics:
 --------------------------------------------------------------------------------
-   Carries - Mean: 7.97 , SD: 2.88 
-   Rush yards - Mean: 35.68 , SD: 12.88 
+   Carries - Mean: 15.34 , SD: 3.79 
+   Rushing yards - Mean: 68.53 , SD: 16.94 
+   Receiving yards - Mean: 22.76 , SD: 12.59 
 
 ================================================================================ 
 Technical diagnostics complete.
