@@ -8,3 +8,9 @@
 
 # Cache directory (local nflverse data cache)
 data/cache/
+
+# Simulation outputs and logs
+rb_simulation_output.txt
+bijan_simulation_output.txt
+rb_debug.log
+*.log

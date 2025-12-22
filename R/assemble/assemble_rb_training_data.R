@@ -450,6 +450,7 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
     draft_meta$draft_pick_overall <- as.integer(draft_meta$draft_pick_overall)
     draft_meta <- draft_meta[!duplicated(draft_meta$player_id), ]
     features <- features %>%
+      dplyr::select(-dplyr::any_of(c("draft_round", "draft_pick_overall"))) %>%
       left_join(draft_meta, by = "player_id")
   }
   if (!"draft_round" %in% names(features)) {
@@ -838,6 +839,7 @@ assemble_rb_training_data <- function(seasons) {
     draft_meta$draft_pick_overall <- as.integer(draft_meta$draft_pick_overall)
     draft_meta <- draft_meta[!duplicated(draft_meta$player_id), ]
     rb_data <- rb_data %>%
+      dplyr::select(-dplyr::any_of(c("draft_round", "draft_pick_overall"))) %>%
       left_join(draft_meta, by = "player_id")
   }
   if (!"draft_round" %in% names(rb_data)) {

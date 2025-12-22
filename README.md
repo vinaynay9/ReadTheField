@@ -1,85 +1,103 @@
-# Read the Field (V1)
+# ReadTheField
 
-Read the Field is a probabilistic NFL player projection system focused on offensive skill positions and kickers. Rather than producing single point predictions, the system estimates distributions of possible outcomes for a given player matchup, explicitly modeling uncertainty and variance in player performance.
+## Project Overview
+ReadTheField simulates NFL running back (RB) stat distributions using a Monte Carlo engine. It produces probabilistic, matchup-aware projections (quantiles and outcome probabilities) instead of point forecasts. This is not a deterministic fantasy model; it is a distributional simulator with explicit uncertainty.
 
-The project is built around the idea that NFL production is a conditional, noisy process. A player's stat line depends not only on their own historical usage and efficiency, but also on team context, opponent defensive tendencies, and game conditions. Read the Field encodes these factors as pre-game features and uses historical data to learn how player outcomes vary under similar conditions.
+## High-level Architecture
+- Data ingestion
+  - `nflreadr` schedules and weekly player stats
+  - cache-first loading with local parquet outputs
+- Feature engineering layers
+  - player-week identity and RB weekly stats
+  - rolling player features and team/opponent context
+  - prior-season aggregates and rookie/draft metadata
+- Training vs simulation separation
+  - global historical training data only
+  - simulated player-week row never contaminates training
+- Monte Carlo simulation engine
+  - distributional outputs, not point estimates
+- Policy layers
+  - in-progress season handling (exclude from training)
+  - availability policy (observed vs counterfactual rows)
 
-V1 uses publicly available NFL data to construct a leakage-safe modeling dataset at the player-game level. For each game, features are computed using only information available prior to kickoff, including recent usage trends, snap share, team offensive tendencies, opponent defensive aggregates, and basic player attributes. Post-game outcomes are stored separately and used only for training and validation.
+## Simulation Philosophy
+- Monte Carlo sampling captures variance and tail risk.
+- Uncertainty intervals represent the distribution of plausible outcomes.
+- Observed simulations use real player-week rows; counterfactual simulations construct a leakage-safe feature row when a player-week is missing or inactive.
+- `availability_policy` controls whether missing/inactive player-weeks are allowed and how feature rows are constructed.
 
-Models are trained to predict key offensive statistics for quarterbacks, running backs, wide receivers, tight ends, and kickers. Instead of relying on a single deterministic model, Read the Field introduces stochasticity through resampling and ensemble methods. Multiple simulations are run for each matchup, producing a distribution of predicted outcomes rather than a single estimate. Outputs include expected values as well as percentile bands that describe the range of likely results.
+## Feature System (detailed)
+Feature categories are explicit and time-aware. No missing values are imputed.
 
-The system is designed as an end-to-end analytics pipeline. Data ingestion, feature engineering, model training, simulation, and output generation are modular and reproducible. Model outputs are persisted and can be surfaced through a web interface that visualizes both the prediction process and the resulting distributions.
+- Player rolling features (roll1 / roll3 / roll5)
+  - Lagged usage and efficiency from prior games.
+  - Included only when the rolling window exists; early weeks remain NA.
+- Recent performance features
+  - Cumulative career priors and decayed priors.
+  - Included when derived from historical games; dropped in counterfactual modes if exposure is missing.
+- Prior-season stats
+  - Season-1 aggregates (carries, targets, yards, games).
+  - Used as early-season signal; rookies have these set to NA.
+- Draft and rookie indicators
+  - `is_rookie`, `draft_round`, `draft_pick_overall`.
+  - Provide explicit signal when prior-season stats are unavailable.
+- Player physical attributes
+  - Sourced from player metadata where available.
+  - Used only as static, non-leaking signals.
+- Team offensive context
+  - Lagged team-level usage and passing context.
+  - Joined by team and week.
+- Opponent defensive rolling features
+  - Defensive roll1 and roll5 features derived from opponent offense allowed.
+  - Always lagged; no current-game leakage.
+- Home/away indicator
+  - Derived from schedule; no string parsing.
+- Season phase handling
+  - Early/mid/late/standard regimes select which feature sets are available.
+  - Phase never changes feature computation, only model selection.
 
-V1 intentionally prioritizes correctness, transparency, and extensibility over breadth. Defensive player predictions and play-by-play micro-analysis are explicitly out of scope at this stage, as public data for those tasks is sparse and noisy. The current design provides a stable foundation that can be extended in future versions without rewriting the core system.
+## Availability and Counterfactual Simulation
+Availability controls whether a player-week row must exist and how to build a feature row when it does not.
 
-**v1 intentionally excludes fumbles and other low-frequency turnover events. These may be added in future versions after validation infrastructure is complete.**
+- `played_only` (default)
+  - Requires an observed player-week row with meaningful exposure.
+  - Missing or inactive rows stop with a clear error.
+- `expected_active`
+  - If observed row is missing or inactive, builds a counterfactual row.
+  - Drops exposure-dependent feature groups (player rolling + recent performance).
+- `force_counterfactual`
+  - Always builds a counterfactual row, even when an observed row exists.
 
-## System Architecture
+Counterfactual rows use leakage-safe sources only:
+prior-season stats, rookie/draft metadata, player attributes, team context, opponent defense, and schedule-derived game metadata.
 
-The repository follows a modular pipeline architecture organized around distinct stages of the analytics workflow. Data flows from raw ingestion through feature engineering, model training, validation, and simulation. Each stage operates independently with well-defined interfaces, enabling parallel development and testing. The architecture separates concerns between data management, feature engineering, modeling, validation, and deployment components.
+## Data Integrity Guarantees
+- No imputation: missing features remain NA.
+- No leakage: rolling features exclude the current game and future weeks.
+- No future data in training: in-progress seasons are excluded.
+- Defensive features are derived only from opponent offensive output.
 
-## Data Flow
+## How to Run
+Refresh caches:
+```
+Rscript scripts/refresh_weekly_cache.R
+```
 
-Raw data enters the system through snapshot-based ingestion into the data/raw directory structure. Processed data transformations convert raw inputs into standardized weekly aggregations for players, defenses, and game contexts. Feature engineering modules transform processed data into modeling-ready feature matrices. Trained models consume these features to generate predictions, which flow through validation pipelines before being used in simulation workflows. Artifacts including trained models and predictions are stored separately for deployment and analysis.
+Smoke test:
+```
+Rscript scripts/smoke_test_rb_simulation.R
+```
 
-## Modeling Philosophy
+Run a simulation:
+```
+Rscript scripts/run_rb_simulation_cli.R --player="Christian McCaffrey" --season=2024 --week=8 --n_sims=5000 --availability_policy=expected_active
+```
 
-The modeling approach emphasizes probabilistic predictions with uncertainty quantification. Models are trained using time-based cross-validation to ensure temporal validity and prevent data leakage. Calibration and interval coverage validation ensure that predicted probabilities and confidence intervals match observed outcomes. Simulation workflows use bootstrap resampling and Monte Carlo methods to generate full probability distributions rather than point estimates, enabling decision-making under uncertainty.
-
-## Intended Usage
-
-The repository supports end-to-end workflows from data ingestion to prediction generation. Users execute scripts in sequence to refresh data, rebuild features, retrain models, validate performance, and run simulations. The modular design allows selective execution of pipeline stages based on specific needs. Future API and frontend components will consume model artifacts to serve predictions and visualizations without requiring direct access to the modeling codebase.
-
-
-Stats Used + Returned:
-All:
- - Used: Height, Weight, Injured?, Home/Away, Previous Seasons, Comparable players (by height/weight within 0.2 standard deviations), % of Plays Played
- - Returned: PPR Fantasy (offensive)
-
-QB:
- - Used: PYD, PTD, RUYD, RTD, P Attempts, R Attempts, PPR Fantasy, COmpletions
- - Returned: PYD, PTD, RYD, RTD, P Attempts, R Attempts, Completions
-
-RB:
- - Used: RUYD, RUTD, Receptions, RECYD, RECTD, Targets, Carries
- - Returned: RUYD, RECYD, TOTTD, Carries
-
-WR:
- - Used: Receptions, RECYD, RECTD, targets, YAC
- - Returned: Receptions, RECYD, RECTD
-
-TE:
- - Used: Receptions, RECYD, RECTD, targets, YAC
- - Returned: Receptions, RECYD, RECTD
-
-OL:
- - Used: # Snaps, 
- - Returned: 
-
-DT:
- - Used: Tackles, Sacks, FF, FR, Passes Blocked, TFL
- - Returned: Tackles, Sacks, FF, TFL
-
-DE:
- - Used: Tackles, Sacks, FF, FR, Passes Blocked, TFL
- - Returned: Tackles, Sacks, FF, TFL
-
-S:
- - Used: Sacks, Tackles, Interceptions, FF, FR, TFL
- - Returned: Sacks, Tackles, Interceptions, TFL
-
-CB:
- - Used: Sacks, Tackles, Interceptions, FF, FR, TFL
- - Returned: Sacks, Tackles, Interceptions, TFL
-
-LB:
- - Used: Sacks, Tackles, Interceptions, FF, FR, Passes Blocked, TFL
- - Returned: Sacks, Tackles, FF, TFL
-
-K:
- - Used: Made (by distance), PAT (attempts and made), Season longest
- - Returned: FG Made, FG Attempts, # PAT
-
-P:
- - Used: # Punts, Average punt distance, Season long
- - Returned: # Punts
+## Repo Structure
+- `R/` core simulation engine, features, models, policies, and printing
+- `scripts/` cache refresh, smoke tests, and CLI entrypoint
+- `data/` cached and processed artifacts (parquet)
+- `docs/` schema and engineering docs
+- `frontend/` static pages and assets for UI integration
+- `api/` API documentation and placeholders
+- `archive/` superseded scripts and historical notes

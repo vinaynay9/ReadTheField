@@ -58,6 +58,15 @@ print_rb_simulation <- function(result) {
   metadata <- result$metadata
   diagnostics <- if (!is.null(result$diagnostics)) result$diagnostics else list()
   defensive_context <- if (!is.null(result$defensive_context)) result$defensive_context else list()
+  position <- if (!is.null(metadata$position) && length(metadata$position) > 0) metadata$position else "RB"
+  position <- toupper(as.character(position))
+  if (is.na(position) || position == "") position <- "RB"
+  is_rb <- position == "RB"
+  if (!is_rb && !exists("get_passing_defense_roll1_features")) {
+    if (file.exists("R/positions/passing_defense_features.R")) {
+      source("R/positions/passing_defense_features.R", local = TRUE)
+    }
+  }
   
   # ============================================================================
   # Print header
@@ -65,7 +74,7 @@ print_rb_simulation <- function(result) {
   
   cat("\n")
   cat(paste0(rep("=", 80), collapse = ""), "\n")
-  cat("RB Simulation — Technical Diagnostics\n")
+  cat(paste0(position, " Simulation - Technical Diagnostics\n"))
   cat("Player: ", safe_str(metadata$player_name, default = "(unknown)"), 
       " | Game: ", safe_str(metadata$team, default = "(unknown)"), 
       " vs ", safe_str(metadata$opponent, default = "(unknown)"), 
@@ -84,6 +93,37 @@ print_rb_simulation <- function(result) {
   cat("   Player ID:", safe_str(metadata$player_id), "\n")
   if (isTRUE(metadata$is_rookie)) {
     cat("   Rookie player detected: prior-season stats intentionally excluded\n")
+  }
+  if (isTRUE(metadata$current_season_in_progress)) {
+    cat("   NOTE: Current season detected (in-progress). Rolling features may be incomplete.\n")
+  }
+  if (!is.null(diagnostics$availability)) {
+    avail <- diagnostics$availability
+    cat("   Availability policy:", safe_str(avail$policy, default = "(missing)"), "\n")
+    cat("   Availability state:", safe_str(avail$state, default = "(missing)"), "\n")
+    cat("   Counterfactual:", if (isTRUE(avail$counterfactual)) "YES" else "NO", "\n")
+    dropped_groups <- if (!is.null(avail$dropped_feature_groups) && length(avail$dropped_feature_groups) > 0) {
+      paste(avail$dropped_feature_groups, collapse = ", ")
+    } else {
+      "none"
+    }
+    dropped_feats <- if (!is.null(avail$dropped_features) && length(avail$dropped_features) > 0) {
+      avail$dropped_features
+    } else {
+      character(0)
+    }
+    cat("   Dropped feature groups:", dropped_groups, "\n")
+    cat("   Dropped feature count:", length(dropped_feats), "\n")
+  }
+  if (!is.null(diagnostics$regime_selection)) {
+    reg <- diagnostics$regime_selection
+    cat("   Selected regime:", safe_str(reg$regime_selected, default = "(missing)"), "\n")
+    if (isTRUE(reg$fallback_used)) {
+      cat("   Availability policy fallback: counterfactual_prior regime selected\n")
+      if (!is.null(reg$fallback_reason) && !is.na(reg$fallback_reason)) {
+        cat("   Fallback reason:", safe_str(reg$fallback_reason, default = "(missing)"), "\n")
+      }
+    }
   }
   cat("\n")
   
@@ -159,6 +199,19 @@ print_rb_simulation <- function(result) {
     
     cat("\n")
   }
+
+  if (!is.null(diagnostics$feature_usage)) {
+    fu <- diagnostics$feature_usage
+    used_list <- if (!is.null(fu$used_features) && length(fu$used_features) > 0) {
+      paste(fu$used_features, collapse = ", ")
+    } else {
+      "(none)"
+    }
+    cat("Final Model Features Used:\n")
+    cat(rep("-", 80), "\n", sep = "")
+    cat("  ", used_list, "\n", sep = "")
+    cat("\n")
+  }
   
   # ============================================================================
   # Print model information
@@ -167,18 +220,52 @@ print_rb_simulation <- function(result) {
   cat("Model Information:\n")
   cat(rep("-", 80), "\n", sep = "")
   
-  # Print model diagnostics (new format with per-target diagnostics)
+  # Print model diagnostics (per-target, regime-aware)
   if (!is.null(diagnostics$model_diagnostics)) {
     model_diag <- diagnostics$model_diagnostics
     cat("   Model fitting diagnostics:\n")
-    
-    targets <- c("carries", "rushing_yards", "receptions", "receiving_yards", "total_touchdowns")
-    for (target in targets) {
-      if (target %in% names(model_diag)) {
-        diag <- model_diag[[target]]
-        fit_type <- if (!is.null(diag$fit_type)) diag$fit_type else "(unknown)"
-        n_rows <- safe_num(diag$n_rows_used, digits = 0, default = "N/A")
-        cat("     ", target, ": ", fit_type, " (", n_rows, " rows)\n", sep = "")
+
+    resolve_targets <- function() {
+      if (is_rb && exists("get_rb_v1_targets")) return(get_rb_v1_targets())
+      if (!is_rb && position == "WR" && exists("get_wr_v1_targets")) return(get_wr_v1_targets())
+      if (!is_rb && position == "TE" && exists("get_te_v1_targets")) return(get_te_v1_targets())
+      NULL
+    }
+
+    resolve_model_key <- function(target, regime) {
+      if (is_rb && exists("get_model_key")) return(get_model_key(target, regime))
+      if (!is_rb && position == "WR" && exists("get_wr_model_key")) return(get_wr_model_key(target, regime))
+      if (!is_rb && position == "TE" && exists("get_te_model_key")) return(get_te_model_key(target, regime))
+      paste0(target, "__", regime)
+    }
+
+    targets <- resolve_targets()
+    regime <- if (!is.null(diagnostics$regime_selection) &&
+                  !is.null(diagnostics$regime_selection$regime_selected) &&
+                  !is.na(diagnostics$regime_selection$regime_selected)) {
+      diagnostics$regime_selection$regime_selected
+    } else if (!is.null(diagnostics$model_trace) && !is.null(diagnostics$model_trace$phase)) {
+      diagnostics$model_trace$phase
+    } else {
+      NA_character_
+    }
+
+    if (!is.null(targets) && !is.na(regime)) {
+      for (target in targets) {
+        model_key <- resolve_model_key(target, regime)
+        if (model_key %in% names(model_diag)) {
+          diag <- model_diag[[model_key]]
+          fit_type <- if (!is.null(diag$fit_type)) diag$fit_type else "(unknown)"
+          n_rows_val <- if (!is.null(diag$n_rows_final)) {
+            diag$n_rows_final
+          } else if (!is.null(diag$n_rows_used)) {
+            diag$n_rows_used
+          } else {
+            NA_real_
+          }
+          n_rows <- safe_num(n_rows_val, digits = 0, default = "N/A")
+          cat("     ", target, ": ", fit_type, " (", n_rows, " rows)\n", sep = "")
+        }
       }
     }
   } else if (!is.null(diagnostics$model_info)) {
@@ -261,13 +348,21 @@ print_rb_simulation <- function(result) {
   def_available <- !is.null(week) && !is.na(week) && week >= 6
   na_reason <- if (!def_available) " (NA: early season, need 5 prior games)" else ""
   
-  def_to_print <- c(
-    "opp_rush_yards_allowed_roll1", "opp_rush_yards_allowed_roll5",
-    "opp_yards_per_rush_allowed_roll1", "opp_yards_per_rush_allowed_roll5",
-    "opp_sacks_roll1", "opp_sacks_roll5",
-    "opp_tfl_roll1", "opp_tfl_roll5",
-    "opp_points_allowed_roll1", "opp_points_allowed_roll5"
-  )
+  def_to_print <- if (is_rb) {
+    c(
+      "opp_rush_yards_allowed_roll1", "opp_rush_yards_allowed_roll5",
+      "opp_yards_per_rush_allowed_roll1", "opp_yards_per_rush_allowed_roll5",
+      "opp_sacks_roll1", "opp_sacks_roll5",
+      "opp_tfl_roll1", "opp_tfl_roll5",
+      "opp_points_allowed_roll1", "opp_points_allowed_roll5"
+    )
+  } else {
+    c(
+      get_passing_defense_roll1_features(),
+      get_passing_defense_roll3_features(),
+      get_passing_defense_roll5_features()
+    )
+  }
   for (nm in def_to_print) {
     label <- gsub("_", " ", nm, fixed = TRUE)
     if (nm %in% names(defensive_context)) {
@@ -295,29 +390,49 @@ print_rb_simulation <- function(result) {
   if (!is.null(diagnostics$distribution_stats)) {
     dist_stats <- diagnostics$distribution_stats
     
-    # HARD STOP: Validate critical stats are present and numeric
-    critical_stats <- c("carries_mean", "rushing_yards_mean", "receiving_yards_mean")
-    for (stat in critical_stats) {
-      if (is.null(dist_stats[[stat]])) {
-        stop("PRINT ERROR: Distribution stat '", stat, "' is missing. ",
-             "Cannot print distribution statistics. This indicates incomplete diagnostics.")
+    if (is_rb) {
+      critical_stats <- c("carries_mean", "rushing_yards_mean", "receiving_yards_mean")
+      for (stat in critical_stats) {
+        if (is.null(dist_stats[[stat]])) {
+          stop("PRINT ERROR: Distribution stat '", stat, "' is missing. ",
+               "Cannot print distribution statistics. This indicates incomplete diagnostics.")
+        }
+        if (!is.numeric(dist_stats[[stat]])) {
+          stop("PRINT ERROR: Distribution stat '", stat, "' is not numeric (type: ",
+               class(dist_stats[[stat]]), "). Cannot print statistics.")
+        }
       }
-      if (!is.numeric(dist_stats[[stat]])) {
-        stop("PRINT ERROR: Distribution stat '", stat, "' is not numeric (type: ", 
-             class(dist_stats[[stat]]), "). Cannot print statistics.")
+      carries_mean <- safe_num(dist_stats$carries_mean, digits = 2, default = "N/A")
+      carries_sd <- safe_num(dist_stats$carries_sd, digits = 2, default = "N/A")
+      rush_yds_mean <- safe_num(dist_stats$rushing_yards_mean, digits = 2, default = "N/A")
+      rush_yds_sd <- safe_num(dist_stats$rushing_yards_sd, digits = 2, default = "N/A")
+      rec_yds_mean <- safe_num(dist_stats$receiving_yards_mean, digits = 2, default = "N/A")
+      rec_yds_sd <- safe_num(dist_stats$receiving_yards_sd, digits = 2, default = "N/A")
+      cat("   Carries - Mean:", carries_mean, ", SD:", carries_sd, "\n")
+      cat("   Rushing yards - Mean:", rush_yds_mean, ", SD:", rush_yds_sd, "\n")
+      cat("   Receiving yards - Mean:", rec_yds_mean, ", SD:", rec_yds_sd, "\n")
+    } else {
+      critical_stats <- c("targets_mean", "receptions_mean", "receiving_yards_mean")
+      for (stat in critical_stats) {
+        if (is.null(dist_stats[[stat]])) {
+          stop("PRINT ERROR: Distribution stat '", stat, "' is missing. ",
+               "Cannot print distribution statistics. This indicates incomplete diagnostics.")
+        }
+        if (!is.numeric(dist_stats[[stat]])) {
+          stop("PRINT ERROR: Distribution stat '", stat, "' is not numeric (type: ",
+               class(dist_stats[[stat]]), "). Cannot print statistics.")
+        }
       }
+      targets_mean <- safe_num(dist_stats$targets_mean, digits = 2, default = "N/A")
+      targets_sd <- safe_num(dist_stats$targets_sd, digits = 2, default = "N/A")
+      receptions_mean <- safe_num(dist_stats$receptions_mean, digits = 2, default = "N/A")
+      receptions_sd <- safe_num(dist_stats$receptions_sd, digits = 2, default = "N/A")
+      rec_yds_mean <- safe_num(dist_stats$receiving_yards_mean, digits = 2, default = "N/A")
+      rec_yds_sd <- safe_num(dist_stats$receiving_yards_sd, digits = 2, default = "N/A")
+      cat("   Targets - Mean:", targets_mean, ", SD:", targets_sd, "\n")
+      cat("   Receptions - Mean:", receptions_mean, ", SD:", receptions_sd, "\n")
+      cat("   Receiving yards - Mean:", rec_yds_mean, ", SD:", rec_yds_sd, "\n")
     }
-    
-    carries_mean <- safe_num(dist_stats$carries_mean, digits = 2, default = "N/A")
-    carries_sd <- safe_num(dist_stats$carries_sd, digits = 2, default = "N/A")
-    rush_yds_mean <- safe_num(dist_stats$rushing_yards_mean, digits = 2, default = "N/A")
-    rush_yds_sd <- safe_num(dist_stats$rushing_yards_sd, digits = 2, default = "N/A")
-    rec_yds_mean <- safe_num(dist_stats$receiving_yards_mean, digits = 2, default = "N/A")
-    rec_yds_sd <- safe_num(dist_stats$receiving_yards_sd, digits = 2, default = "N/A")
-    
-    cat("   Carries - Mean:", carries_mean, ", SD:", carries_sd, "\n")
-    cat("   Rushing yards - Mean:", rush_yds_mean, ", SD:", rush_yds_sd, "\n")
-    cat("   Receiving yards - Mean:", rec_yds_mean, ", SD:", rec_yds_sd, "\n")
   } else {
     cat("   Distribution statistics not available\n")
   }

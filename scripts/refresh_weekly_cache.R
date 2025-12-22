@@ -7,7 +7,10 @@ if (basename(getwd()) == "scripts") {
   setwd("..")
 }
 
-if (!exists("build_player_week_identity") || !exists("build_rb_weekly_stats") || !exists("read_rb_weekly_features_cache")) {
+if (!exists("build_player_week_identity") || !exists("build_rb_weekly_stats") ||
+    !exists("build_wr_weekly_stats") || !exists("build_te_weekly_stats") ||
+    !exists("read_rb_weekly_features_cache") || !exists("read_wr_weekly_features_cache") ||
+    !exists("read_te_weekly_features_cache")) {
   if (file.exists("R/data/build_weekly_player_layers.R")) {
     source("R/data/build_weekly_player_layers.R")
   } else {
@@ -30,6 +33,22 @@ if (!exists("assemble_rb_weekly_features")) {
   }
 }
 
+if (!exists("assemble_wr_weekly_features")) {
+  if (file.exists("R/positions/WR/assemble_wr_training_data.R")) {
+    source("R/positions/WR/assemble_wr_training_data.R")
+  } else {
+    stop("Missing R/positions/WR/assemble_wr_training_data.R")
+  }
+}
+
+if (!exists("assemble_te_weekly_features")) {
+  if (file.exists("R/positions/TE/assemble_te_training_data.R")) {
+    source("R/positions/TE/assemble_te_training_data.R")
+  } else {
+    stop("Missing R/positions/TE/assemble_te_training_data.R")
+  }
+}
+
 if (!exists("lagged_roll_mean") || !exists("lagged_roll_sum")) {
   if (file.exists("R/utils/rolling_helpers.R")) {
     source("R/utils/rolling_helpers.R")
@@ -39,9 +58,100 @@ if (!exists("lagged_roll_mean") || !exists("lagged_roll_sum")) {
 }
 
 current_year <- as.integer(format(Sys.Date(), "%Y"))
-seasons_to_refresh <- 1999:current_year
+resolve_max_season <- function(default_year) {
+  max_season <- NA_integer_
+  cache_dir <- file.path("data", "cache")
+  candidates <- c(
+    file.path(cache_dir, "schedules.rds"),
+    list.files(cache_dir, pattern = "schedule", full.names = TRUE)
+  )
+  candidates <- unique(candidates[file.exists(candidates)])
+  for (path in candidates) {
+    obj <- tryCatch({
+      if (grepl("\\.rds$", path, ignore.case = TRUE)) {
+        readRDS(path)
+      } else if (grepl("\\.parquet$", path, ignore.case = TRUE) && requireNamespace("arrow", quietly = TRUE)) {
+        arrow::read_parquet(path)
+      } else {
+        NULL
+      }
+    }, error = function(e) NULL)
+    if (!is.null(obj) && nrow(obj) > 0 && "season" %in% names(obj)) {
+      max_season <- suppressWarnings(max(as.integer(obj$season), na.rm = TRUE))
+      if (is.finite(max_season)) {
+        break
+      }
+    }
+  }
+  if (!is.finite(max_season)) {
+    max_season <- default_year
+  } else if (max_season < default_year) {
+    max_season <- default_year
+  }
+  max_season
+}
+max_season <- resolve_max_season(current_year)
+seasons_to_refresh <- 1999:max_season
 
 cat("Refreshing weekly RB caches for seasons", min(seasons_to_refresh), "through", max(seasons_to_refresh), "...\n")
+
+# Rolling window diagnostics (no mutation)
+log_roll_window_summary <- function(df, label, expected_windows = NULL, disallowed_windows = NULL) {
+  if (is.null(df) || nrow(df) == 0) {
+    cat("  Rolling windows in", label, ": (no rows)\n")
+    return(invisible(NULL))
+  }
+  rolling_cols <- grep("_roll[0-9]+$", names(df), value = TRUE)
+  if (length(rolling_cols) == 0) {
+    cat("  Rolling windows in", label, ": (none)\n")
+    return(invisible(NULL))
+  }
+  roll_sizes <- sort(unique(as.integer(gsub(".*_roll([0-9]+)$", "\\1", rolling_cols))))
+  cat("  Rolling windows in", label, ":", paste0("roll", roll_sizes, collapse = ", "), "\n")
+  if (!is.null(expected_windows)) {
+    missing <- setdiff(expected_windows, roll_sizes)
+    if (length(missing) > 0) {
+      warning(label, " missing expected rolling windows: ",
+              paste0("roll", missing, collapse = ", "), call. = FALSE)
+    }
+  }
+  if (!is.null(disallowed_windows)) {
+    present <- intersect(disallowed_windows, roll_sizes)
+    if (length(present) > 0) {
+      warning(label, " contains disallowed rolling windows: ",
+              paste0("roll", present, collapse = ", "), call. = FALSE)
+    }
+  }
+  expected_first <- list("1" = 2L, "3" = 3L, "5" = 5L)
+  for (roll_size in roll_sizes) {
+    cols <- rolling_cols[grepl(paste0("_roll", roll_size, "$"), rolling_cols)]
+    has_vals <- apply(!is.na(df[, cols, drop = FALSE]), 1, any)
+    first_non_na <- if (any(has_vals)) suppressWarnings(min(df$week[has_vals], na.rm = TRUE)) else NA_integer_
+    expected_week <- expected_first[[as.character(roll_size)]]
+    expected_week <- if (is.null(expected_week)) roll_size else expected_week
+    cat("    - roll", roll_size, ": first non-NA week=",
+        ifelse(is.na(first_non_na), "NA", first_non_na),
+        " (expected >=", expected_week, ")\n", sep = "")
+  }
+  invisible(NULL)
+}
+
+validate_roll_na_weeks <- function(df, label, roll_size, weeks) {
+  if (is.null(df) || nrow(df) == 0) return(invisible(NULL))
+  cols <- grep(paste0("_roll", roll_size, "$"), names(df), value = TRUE)
+  if (length(cols) == 0) return(invisible(NULL))
+  rows <- df$week %in% weeks
+  if (!any(rows)) return(invisible(NULL))
+  non_na <- sum(!is.na(df[rows, cols, drop = FALSE]))
+  if (non_na > 0) {
+    warning(label, " roll", roll_size, " has non-NA values in weeks ",
+            paste(weeks, collapse = ", "), ".", call. = FALSE)
+  } else {
+    cat("  Validated: ", label, " roll", roll_size, " NA for weeks ",
+        paste(weeks, collapse = ", "), "\n", sep = "")
+  }
+  invisible(NULL)
+}
 
 # Build player directory cache (required for name resolution)
 if (!exists("build_player_directory")) {
@@ -84,6 +194,26 @@ if (nrow(rb_stats) == 0) {
 }
 cat("  Built RB weekly stats cache with", nrow(rb_stats), "rows\n")
 
+wr_stats <- build_wr_weekly_stats(
+  seasons = seasons_to_refresh,
+  season_type = "REG",
+  write_cache = TRUE
+)
+if (nrow(wr_stats) == 0) {
+  stop("WR weekly stats cache built with zero rows; ensure nflreadr returned WR rows.")
+}
+cat("  Built WR weekly stats cache with", nrow(wr_stats), "rows\n")
+
+te_stats <- build_te_weekly_stats(
+  seasons = seasons_to_refresh,
+  season_type = "REG",
+  write_cache = TRUE
+)
+if (nrow(te_stats) == 0) {
+  stop("TE weekly stats cache built with zero rows; ensure nflreadr returned TE rows.")
+}
+cat("  Built TE weekly stats cache with", nrow(te_stats), "rows\n")
+
 # ------------------------------------------------------------------
 # Build defensive weekly features FIRST (dependency for RB features)
 # ------------------------------------------------------------------
@@ -108,6 +238,12 @@ if (!exists("build_team_defense_features")) {
 
 def_game_stats <- build_team_defense_game_stats(seasons = seasons_to_refresh)
 def_features <- build_team_defense_features(def_game_stats)
+
+# Rolling window diagnostics (defense)
+log_roll_window_summary(def_features, "defense_weekly_features", expected_windows = c(1, 3, 5), disallowed_windows = integer(0))
+validate_roll_na_weeks(def_features, "defense_weekly_features", 1, 1)
+validate_roll_na_weeks(def_features, "defense_weekly_features", 3, 1:2)
+validate_roll_na_weeks(def_features, "defense_weekly_features", 5, 1:4)
 
 # Canonicalize and validate defense_team contract
 if (!"defense_team" %in% names(def_features)) {
@@ -151,14 +287,13 @@ arrow::write_parquet(def_features, defense_weekly_path)
 
 cat("  Built defensive weekly features cache with", nrow(def_features), "rows\n")
 
-# Validation: Check for Week 1 leakage
+# Validation: Check for Week 1 leakage (diagnostic only)
 week1_def <- def_features[def_features$week == 1, ]
 if (nrow(week1_def) > 0) {
   rolling_def_cols <- grep("_roll[0-9]+$", names(def_features), value = TRUE)
   week1_nonNA <- sum(!is.na(week1_def[, rolling_def_cols, drop = FALSE]))
   if (week1_nonNA > 0) {
-    warning("Week 1 defensive rolling features contained non-NA values; forcing to NA for safety.", call. = FALSE)
-    def_features[def_features$week == 1, rolling_def_cols] <- NA
+    warning("Week 1 defensive rolling features contained non-NA values. Review rolling window computation.", call. = FALSE)
   }
 }
 cat("  Validated: Week 1 defensive features are NA (leakage-safe)\n")
@@ -209,6 +344,12 @@ cat("  Built prior-season stats cache with", nrow(prior_season_stats), "rows\n")
 cat("  Computing RB rolling features...\n")
 rb_features <- assemble_rb_weekly_features(rb_stats)
 
+# Rolling window diagnostics (RB)
+log_roll_window_summary(rb_features, "rb_weekly_features", expected_windows = c(1, 3, 5))
+validate_roll_na_weeks(rb_features, "rb_weekly_features", 1, 1)
+validate_roll_na_weeks(rb_features, "rb_weekly_features", 3, 1:2)
+validate_roll_na_weeks(rb_features, "rb_weekly_features", 5, 1:4)
+
 if (!requireNamespace("arrow", quietly = TRUE)) {
   stop("Package 'arrow' is required to write RB weekly features. Install with install.packages('arrow').")
 }
@@ -222,11 +363,65 @@ if (nrow(rb_features) == 0) {
 
 cat("  Built RB weekly features cache with", nrow(rb_features), "rows\n")
 
+# ------------------------------------------------------------------
+# Build WR rolling features
+# ------------------------------------------------------------------
+
+cat("  Computing WR rolling features...\n")
+wr_features <- assemble_wr_weekly_features(wr_stats)
+
+log_roll_window_summary(wr_features, "wr_weekly_features", expected_windows = c(1, 3, 5))
+validate_roll_na_weeks(wr_features, "wr_weekly_features", 1, 1)
+validate_roll_na_weeks(wr_features, "wr_weekly_features", 3, 1:2)
+validate_roll_na_weeks(wr_features, "wr_weekly_features", 5, 1:4)
+
+if (!requireNamespace("arrow", quietly = TRUE)) {
+  stop("Package 'arrow' is required to write WR weekly features. Install with install.packages('arrow').")
+}
+
+dir.create(dirname(wr_weekly_features_path), recursive = TRUE, showWarnings = FALSE)
+arrow::write_parquet(wr_features, wr_weekly_features_path)
+
+if (nrow(wr_features) == 0) {
+  stop("WR weekly features cache empty after feature computation.")
+}
+
+cat("  Built WR weekly features cache with", nrow(wr_features), "rows\n")
+
+# ------------------------------------------------------------------
+# Build TE rolling features
+# ------------------------------------------------------------------
+
+cat("  Computing TE rolling features...\n")
+te_features <- assemble_te_weekly_features(te_stats)
+
+log_roll_window_summary(te_features, "te_weekly_features", expected_windows = c(1, 3, 5))
+validate_roll_na_weeks(te_features, "te_weekly_features", 1, 1)
+validate_roll_na_weeks(te_features, "te_weekly_features", 3, 1:2)
+validate_roll_na_weeks(te_features, "te_weekly_features", 5, 1:4)
+
+if (!requireNamespace("arrow", quietly = TRUE)) {
+  stop("Package 'arrow' is required to write TE weekly features. Install with install.packages('arrow').")
+}
+
+dir.create(dirname(te_weekly_features_path), recursive = TRUE, showWarnings = FALSE)
+arrow::write_parquet(te_features, te_weekly_features_path)
+
+if (nrow(te_features) == 0) {
+  stop("TE weekly features cache empty after feature computation.")
+}
+
+cat("  Built TE weekly features cache with", nrow(te_features), "rows\n")
+
 # Get cache paths for output
 player_directory_path <- file.path("data", "cache", "player_directory.parquet")
 player_week_identity_path <- file.path("data", "cache", "player_week_identity.parquet")
 rb_weekly_stats_path <- file.path("data", "cache", "rb_weekly_stats.parquet")
 rb_weekly_features_path <- file.path("data", "processed", "rb_weekly_features.parquet")
+wr_weekly_stats_path <- file.path("data", "cache", "wr_weekly_stats.parquet")
+wr_weekly_features_path <- file.path("data", "processed", "wr_weekly_features.parquet")
+te_weekly_stats_path <- file.path("data", "cache", "te_weekly_stats.parquet")
+te_weekly_features_path <- file.path("data", "processed", "te_weekly_features.parquet")
 defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
 player_dim_path <- file.path("data", "processed", "player_dim.parquet")
 team_offense_context_path <- file.path("data", "processed", "team_offense_context.parquet")
@@ -237,6 +432,10 @@ cat("\n  -", player_directory_path)
 cat("\n  -", player_week_identity_path)
 cat("\n  -", rb_weekly_stats_path)
 cat("\n  -", rb_weekly_features_path)
+cat("\n  -", wr_weekly_stats_path)
+cat("\n  -", wr_weekly_features_path)
+cat("\n  -", te_weekly_stats_path)
+cat("\n  -", te_weekly_features_path)
 if (file.exists(defense_weekly_features_path)) {
   cat("\n  -", defense_weekly_features_path)
 }

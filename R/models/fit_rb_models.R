@@ -431,7 +431,7 @@ fit_rb_models <- function(training_data, min_rows = 200) {
       }
       
       # Enforce carries model feature requirements (player usage priors + opponent defense when available)
-      if (target == "target_carries") {
+      if (target == "target_carries" && regime != "counterfactual_prior") {
         if (!any(c("carries_prior", "carries_cum_mean") %in% required_features)) {
           stop("Carries model feature contract missing player usage priors. ",
                "Expected carries_prior and/or carries_cum_mean for regime: ", regime)
@@ -450,9 +450,14 @@ fit_rb_models <- function(training_data, min_rows = 200) {
       
       # Filter to rows matching this regime and target non-NA
       # CRITICAL: Only filter by this specific target, NOT all targets
-      training_data_regime <- training_data %>%
-        filter(rb_regime == regime) %>%
-        filter(!is.na(.data[[target]]))
+      training_data_regime <- if (regime == "counterfactual_prior") {
+        # Availability-only regime: use all historical rows for robust priors
+        training_data %>% filter(!is.na(.data[[target]]))
+      } else {
+        training_data %>%
+          filter(rb_regime == regime) %>%
+          filter(!is.na(.data[[target]]))
+      }
       
       # Drop tibble list-cols and enforce base data.frame for modeling stability
       training_data_regime <- as.data.frame(training_data_regime, stringsAsFactors = FALSE)
@@ -524,7 +529,36 @@ fit_rb_models <- function(training_data, min_rows = 200) {
           filter(if_all(all_of(rolling_features), ~ !is.na(.)))
       }
       # Note: is_home is NOT filtered - it's optional and preserved as provided
-      
+
+      # Align with glm NA handling: drop rows with NA in required features
+      if (length(required_features) > 0) {
+        complete_mask <- complete.cases(training_data_regime[, required_features, drop = FALSE])
+        training_data_regime <- training_data_regime[complete_mask, , drop = FALSE]
+      }
+
+      # Drop zero-variance features again after NA filtering
+      zero_var_features <- c()
+      for (feat in required_features) {
+        vals <- training_data_regime[[feat]]
+        vals <- vals[!is.na(vals)]
+        if (length(unique(vals)) <= 1) {
+          zero_var_features <- c(zero_var_features, feat)
+        }
+      }
+      if (length(zero_var_features) > 0) {
+        log_msg("  Dropping zero-variance features after NA filtering: ", paste(zero_var_features, collapse = ", "))
+        required_features <- setdiff(required_features, zero_var_features)
+      }
+      if (length(required_features) == 0) {
+        log_msg("  All features zero-variance after NA filtering for ", model_key, " - using baseline fallback")
+        y <- training_data_regime[[target]]
+        result$models[[model_key]] <- create_baseline_model(target, y, is_count = is_count)
+        result$diagnostics[[model_key]]$fit_type <- "baseline"
+        result$diagnostics[[model_key]]$fallback_used <- TRUE
+        result$diagnostics[[model_key]]$fallback_reason <- "zero_variance_features_post_na"
+        next
+      }
+
       n_rows_final <- nrow(training_data_regime)
 
       # Diagnostic: Log features used and row counts to file
@@ -542,7 +576,38 @@ fit_rb_models <- function(training_data, min_rows = 200) {
       
       # Build formula from regime-specific features
       formula_str <- paste0(target, " ~ ", paste(required_features, collapse = " + "))
-      
+
+      # Preflight: drop features that yield NA coefficients (rank deficiency)
+      prefit <- tryCatch(
+        glm(as.formula(formula_str), data = training_data_regime, family = poisson(link = "log")),
+        error = function(e) NULL
+      )
+      if (!is.null(prefit)) {
+        na_coefs <- names(coef(prefit))[is.na(coef(prefit))]
+        if (length(na_coefs) > 0) {
+          drop_features <- character(0)
+          for (feat in required_features) {
+            if (any(grepl(paste0("^", feat), na_coefs))) {
+              drop_features <- c(drop_features, feat)
+            }
+          }
+          if (length(drop_features) > 0) {
+            log_msg("  Dropping rank-deficient features: ", paste(drop_features, collapse = ", "))
+            required_features <- setdiff(required_features, drop_features)
+            if (length(required_features) == 0) {
+              log_msg("  All features rank-deficient for ", model_key, " - using baseline fallback")
+              y <- training_data_regime[[target]]
+              result$models[[model_key]] <- create_baseline_model(target, y, is_count = is_count)
+              result$diagnostics[[model_key]]$fit_type <- "baseline"
+              result$diagnostics[[model_key]]$fallback_used <- TRUE
+              result$diagnostics[[model_key]]$fallback_reason <- "rank_deficient_features"
+              next
+            }
+            formula_str <- paste0(target, " ~ ", paste(required_features, collapse = " + "))
+          }
+        }
+      }
+
       # Store diagnostics with time-aware feature information
       result$diagnostics[[model_key]] <- list(
         target = target,

@@ -54,4 +54,3 @@ tryCatch({
 cat("=== Test Complete ===\n")
 cat("If all tests show 0 rows, there may be a nflreadr version issue.\n")
 cat("Try: update.packages('nflreadr')\n")
-

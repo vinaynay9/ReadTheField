@@ -40,8 +40,10 @@ build_prior_season_player_stats <- function(seasons,
   weeks <- as.integer(stats$week)
   carries <- as.numeric(select_first_available(stats, c("carries", "rush_attempts", "rushing_attempts"), 0))
   targets <- as.numeric(select_first_available(stats, c("targets"), 0))
+  receptions <- as.numeric(select_first_available(stats, c("receptions", "rec", "rec_catches"), 0))
   rush_yards <- as.numeric(select_first_available(stats, c("rushing_yards", "rush_yards"), 0))
   rec_yards <- as.numeric(select_first_available(stats, c("receiving_yards", "rec_yards"), 0))
+  rec_tds <- as.numeric(select_first_available(stats, c("receiving_tds", "rec_tds"), 0))
 
   df <- data.frame(
     player_id = player_ids,
@@ -49,8 +51,10 @@ build_prior_season_player_stats <- function(seasons,
     week = weeks,
     carries = carries,
     targets = targets,
+    receptions = receptions,
     rush_yards = rush_yards,
     rec_yards = rec_yards,
+    rec_tds = rec_tds,
     stringsAsFactors = FALSE
   ) %>%
     filter(!is.na(player_id), player_id != "", !is.na(season), !is.na(week))
@@ -60,8 +64,10 @@ build_prior_season_player_stats <- function(seasons,
     summarise(
       prev_season_carries_total = sum(carries, na.rm = TRUE),
       prev_season_targets_total = sum(targets, na.rm = TRUE),
+      prev_season_receptions_total = sum(receptions, na.rm = TRUE),
       prev_season_rush_yards_total = sum(rush_yards, na.rm = TRUE),
       prev_season_rec_yards_total = sum(rec_yards, na.rm = TRUE),
+      prev_season_rec_tds_total = sum(rec_tds, na.rm = TRUE),
       prev_season_games_played = dplyr::n_distinct(week),
       .groups = "drop"
     ) %>%

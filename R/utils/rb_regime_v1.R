@@ -127,6 +127,13 @@ get_rb_features_by_regime <- function() {
     "opp_rush_yards_allowed_roll1", "opp_yards_per_rush_allowed_roll1",
     "opp_points_allowed_roll1", "opp_sacks_roll1", "opp_tfl_roll1"
   )
+  defense_roll1_features <- c(
+    "opp_rush_yards_allowed_roll1",
+    "opp_yards_per_rush_allowed_roll1",
+    "opp_points_allowed_roll1",
+    "opp_sacks_roll1",
+    "opp_tfl_roll1"
+  )
   prior_season_features <- c(
     "prev_season_carries_total",
     "prev_season_targets_total",
@@ -144,6 +151,14 @@ get_rb_features_by_regime <- function() {
     "team_rb_carries_total_roll1", "team_rb_targets_total_roll1",
     "team_rb_carry_share_top1_roll1", "team_rb_carry_share_top2_roll1",
     "team_wr_targets_total_roll1", "team_wr_receiving_yards_roll1", "team_wr_air_yards_roll1"
+  )
+  counterfactual_features <- c(
+    "is_home",
+    "position",
+    prior_season_features,
+    rookie_features,
+    team_context_features,
+    defense_roll1_features
   )
   list(
     early = c(
@@ -231,7 +246,9 @@ get_rb_features_by_regime <- function() {
       "opp_points_allowed_roll5",
       "opp_sacks_roll5",
       "opp_tfl_roll5"
-    )
+    ),
+    # Availability-only regime: used when exposure-dependent features are unavailable
+    counterfactual_prior = counterfactual_features
   )
 }
 

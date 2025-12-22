@@ -38,7 +38,7 @@
 #'   - draws: data.frame with n_sims rows of simulated stat lines (4 outcomes)
 #'   - summary: data.frame with p25, p50, p75 for each outcome
 #'   - status: character indicating simulation status
-simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
+simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000, availability_policy = "played_only") {
   
   # Initialize file-based diagnostic logging (project root)
   log_file <- "rb_debug.log"
@@ -100,6 +100,10 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
     error_msg <- "Missing R/utils/rb_regime_v1.R"
     log_msg("FATAL:", error_msg)
     stop(error_msg)
+  }
+  
+  if (exists("validate_availability_policy")) {
+    availability_policy <- validate_availability_policy(availability_policy)
   }
   
   # Determine regime from week (forward-only: as-of-now predictions)
@@ -178,6 +182,8 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   
   prediction_regime <- NULL
   required_features <- NULL
+  fallback_used <- FALSE
+  fallback_reason <- NA_character_
   
   for (cand in candidate_regimes) {
     cand_features <- feature_contracts[[cand]]
@@ -207,10 +213,38 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   }
   
   if (is.null(prediction_regime)) {
-    stop(
-      "simulate_rb_game could not find a valid regime for prediction. ",
-      "Missing columns or NA strict features across regimes."
-    )
+    if (availability_policy %in% c("expected_active", "force_counterfactual")) {
+      cf_regime <- "counterfactual_prior"
+      cand_features <- feature_contracts[[cf_regime]]
+      if (is.null(cand_features)) {
+        stop("Counterfactual regime contract missing. Cannot proceed with fallback.", call. = FALSE)
+      }
+      missing_cols <- setdiff(cand_features, names(feature_row))
+      if (length(missing_cols) == 0) {
+        optional_features <- c(
+          "is_home",
+          "is_rookie",
+          "draft_round",
+          "draft_pick_overall",
+          grep("^prev_season", cand_features, value = TRUE),
+          grep("_roll1$", cand_features, value = TRUE)
+        )
+        strict_features <- setdiff(cand_features, optional_features)
+        na_strict <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
+        if (length(na_strict) == 0) {
+          prediction_regime <- cf_regime
+          required_features <- cand_features
+          fallback_used <- TRUE
+          fallback_reason <- "No standard regime eligible (exposure-dependent features missing)."
+        }
+      }
+    }
+    if (is.null(prediction_regime)) {
+      stop(
+        "simulate_rb_game could not find a valid regime for prediction. ",
+        "Missing columns or NA strict features across regimes."
+      )
+    }
   }
   
   # Validate presence of required columns for selected regime
@@ -264,6 +298,54 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   # TIME-AWARE FIX: Prepare prediction data using week-based features only
   # This ensures training and prediction feature sets match exactly
   pred_data <- prepare_prediction_data(feature_row, week = week, required_features = required_features)
+
+  get_baseline_value <- function(target_name, regime_name = NULL) {
+    if (!is.null(regime_name)) {
+      key <- get_model_key(target_name, regime_name)
+      model <- models_list[[key]]
+      if (!is.null(model) && !is.null(model$type) && model$type == "baseline") {
+        return(as.numeric(model$value))
+      }
+    }
+    baseline_keys <- names(models_list)[grepl(paste0("^", target_name, "__"), names(models_list))]
+    for (key in baseline_keys) {
+      model <- models_list[[key]]
+      if (!is.null(model) && !is.null(model$type) && model$type == "baseline") {
+        return(as.numeric(model$value))
+      }
+    }
+    NA_real_
+  }
+
+  get_player_prior_mu <- function(target_name) {
+    if (target_name == "target_carries") {
+      if ("carries_prior" %in% names(feature_row) && is.finite(feature_row$carries_prior[1])) {
+        return(as.numeric(feature_row$carries_prior[1]))
+      }
+      if ("carries_cum_mean" %in% names(feature_row) && is.finite(feature_row$carries_cum_mean[1])) {
+        return(as.numeric(feature_row$carries_cum_mean[1]))
+      }
+    }
+    if (target_name == "target_receptions") {
+      if ("targets_prior" %in% names(feature_row) && is.finite(feature_row$targets_prior[1])) {
+        return(as.numeric(feature_row$targets_prior[1]))
+      }
+      if ("targets_cum_mean" %in% names(feature_row) && is.finite(feature_row$targets_cum_mean[1])) {
+        return(as.numeric(feature_row$targets_cum_mean[1]))
+      }
+    }
+    NA_real_
+  }
+
+  build_fallback_mu <- function(target_name, regime_name) {
+    player_prior <- get_player_prior_mu(target_name)
+    if (is.finite(player_prior)) return(player_prior)
+    regime_median <- get_baseline_value(target_name, regime_name)
+    if (is.finite(regime_median)) return(regime_median)
+    global_median <- get_baseline_value(target_name, NULL)
+    if (is.finite(global_median)) return(global_median)
+    0.5
+  }
   
   # Initialize simulation storage (RB v1 outcomes only)
   sim_carries <- numeric(n_sims)
@@ -286,16 +368,40 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   for (i in seq_len(n_sims)) {
     
     # 1. Sample carries
-    sim_carries[i] <- sample_from_model(carries_model, pred_data, n_samples = 1)
+    sim_carries[i] <- sample_from_model(
+      carries_model,
+      pred_data,
+      n_samples = 1,
+      availability_policy = availability_policy,
+      fallback_mu = build_fallback_mu("target_carries", prediction_regime)
+    )
     
     # 2. Sample receptions
-    sim_receptions[i] <- sample_from_model(receptions_model, pred_data, n_samples = 1)
+    sim_receptions[i] <- sample_from_model(
+      receptions_model,
+      pred_data,
+      n_samples = 1,
+      availability_policy = availability_policy,
+      fallback_mu = build_fallback_mu("target_receptions", prediction_regime)
+    )
     
     # 3. Sample rush_tds
-    sim_rush_tds[i] <- sample_from_model(rush_tds_model, pred_data, n_samples = 1)
+    sim_rush_tds[i] <- sample_from_model(
+      rush_tds_model,
+      pred_data,
+      n_samples = 1,
+      availability_policy = availability_policy,
+      fallback_mu = build_fallback_mu("target_rush_tds", prediction_regime)
+    )
     
     # 4. Sample rec_tds
-    sim_rec_tds[i] <- sample_from_model(rec_tds_model, pred_data, n_samples = 1)
+    sim_rec_tds[i] <- sample_from_model(
+      rec_tds_model,
+      pred_data,
+      n_samples = 1,
+      availability_policy = availability_policy,
+      fallback_mu = build_fallback_mu("target_rec_tds", prediction_regime)
+    )
   }
   
   # Derive yardage (RB v1: yardage is derived, not modeled)
@@ -319,6 +425,17 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
     7.0
   }
   
+  if (availability_policy %in% c("expected_active", "force_counterfactual")) {
+    if (!is.finite(ypc)) {
+      # Counterfactual fallback: use safe median YPC
+      ypc <- 4.0
+    }
+    if (!is.finite(ypt)) {
+      # Counterfactual fallback: use safe median YPT
+      ypt <- 7.0
+    }
+  }
+  
   # Opponent-adjusted YPC (defensive context)
   opp_ypc_allowed <- if ("opp_yards_per_rush_allowed_roll5" %in% names(feature_row) &&
                          !is.na(feature_row$opp_yards_per_rush_allowed_roll5[1])) {
@@ -336,6 +453,16 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   sim_rushing_yards <- as.numeric(sim_rush_yards)
   sim_receiving_yards <- as.numeric(sim_rec_yards)
   sim_total_yards <- sim_rushing_yards + sim_receiving_yards
+  
+  if (availability_policy %in% c("expected_active", "force_counterfactual")) {
+    sim_carries[!is.finite(sim_carries)] <- 0
+    sim_receptions[!is.finite(sim_receptions)] <- 0
+    sim_rush_tds[!is.finite(sim_rush_tds)] <- 0
+    sim_rec_tds[!is.finite(sim_rec_tds)] <- 0
+    sim_rushing_yards[!is.finite(sim_rushing_yards)] <- 0
+    sim_receiving_yards[!is.finite(sim_receiving_yards)] <- 0
+    sim_total_yards[!is.finite(sim_total_yards)] <- 0
+  }
   
   # Guardrails: ensure derived yardage is present and numeric
   if (any(!is.finite(sim_rushing_yards)) || any(!is.finite(sim_receiving_yards))) {
@@ -387,6 +514,11 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000) {
   # Compute percentiles
   result$summary <- compute_rb_percentiles(result$draws)
   result$status <- "success"
+  result$diagnostics <- list(
+    regime_selected = prediction_regime,
+    fallback_used = fallback_used,
+    fallback_reason = fallback_reason
+  )
   
   return(result)
 }
@@ -493,7 +625,8 @@ prepare_prediction_data <- function(feature_row, week = NULL, required_features 
 #' @param type Prediction type (default "response")
 #' @param n_samples Integer, number of samples to generate (for baseline models)
 #' @return Numeric vector of predictions
-predict_safe <- function(model, newdata, type = "response", n_samples = 1) {
+predict_safe <- function(model, newdata, type = "response", n_samples = 1,
+                         availability_policy = "played_only", fallback_mu = 0.5) {
   if (is.null(model)) {
     stop("Model is NULL. Cannot make prediction. This indicates a model/data mismatch.")
   }
@@ -502,7 +635,15 @@ predict_safe <- function(model, newdata, type = "response", n_samples = 1) {
   if (!is.null(model$type) && model$type == "baseline") {
     if (model$is_count) {
       # For counts, use Poisson with mean = value
-      result <- rpois(n_samples, lambda = max(0.01, model$value))
+      mu <- as.numeric(model$value)
+      if (availability_policy %in% c("expected_active", "force_counterfactual")) {
+        if (!is.finite(mu)) {
+          # Counterfactual fallback: ensure finite Poisson mean
+          mu <- fallback_mu
+        }
+      }
+      mu <- pmax(mu, 0.01)
+      result <- rpois(n_samples, lambda = mu)
     } else {
       # For continuous, use Gaussian with truncation at 0
       result <- pmax(0, rnorm(n_samples, mean = model$value, sd = model$sd))
@@ -526,7 +667,7 @@ predict_safe <- function(model, newdata, type = "response", n_samples = 1) {
 #' @param newdata data.frame for prediction
 #' @param n_samples Integer, number of samples
 #' @return Numeric vector of samples
-sample_from_model <- function(model, newdata, n_samples = 1) {
+sample_from_model <- function(model, newdata, n_samples = 1, availability_policy = "played_only", fallback_mu = 0.5) {
   if (is.null(model)) {
     stop("Model is NULL. Cannot sample. This indicates a model/data mismatch.")
   }
@@ -535,7 +676,15 @@ sample_from_model <- function(model, newdata, n_samples = 1) {
   if (!is.null(model$type) && model$type == "baseline") {
     if (model$is_count) {
       # For counts, use Poisson with mean = value, round to integer
-      return(pmax(0L, as.integer(round(rpois(n_samples, lambda = max(0.01, model$value))))))
+      mu <- as.numeric(model$value)
+      if (availability_policy %in% c("expected_active", "force_counterfactual")) {
+        if (!is.finite(mu)) {
+          # Counterfactual fallback for baseline Poisson
+          mu <- fallback_mu
+        }
+      }
+      mu <- pmax(mu, 0.01)
+      return(pmax(0L, as.integer(round(rpois(n_samples, lambda = mu)))))
     } else {
       # For continuous, use Gaussian with truncation at 0
       return(pmax(0, rnorm(n_samples, mean = model$value, sd = model$sd)))
@@ -544,18 +693,33 @@ sample_from_model <- function(model, newdata, n_samples = 1) {
   
   # Handle regular models
   # Get mean prediction
-  mu <- predict_safe(model, newdata, type = "response", n_samples = 1)
+  mu <- predict_safe(
+    model,
+    newdata,
+    type = "response",
+    n_samples = 1,
+    availability_policy = availability_policy,
+    fallback_mu = fallback_mu
+  )
   
   # Determine model type and sample accordingly
   if (inherits(model, "glm")) {
     family_name <- model$family$family
     if (family_name == "poisson" || family_name == "quasipoisson") {
       # Poisson: sample directly
-      return(pmax(0L, as.integer(round(rpois(n_samples, lambda = pmax(0.01, mu))))))
+      if (availability_policy %in% c("expected_active", "force_counterfactual")) {
+        mu[!is.finite(mu)] <- fallback_mu
+      }
+      mu <- pmax(mu, 0.01)
+      return(pmax(0L, as.integer(round(rpois(n_samples, lambda = mu)))))
     } else if (family_name == "negbin" || inherits(model, "negbin")) {
       # Negative Binomial: need theta
       theta <- if (!is.null(model$theta)) model$theta else 1.0
-      return(pmax(0L, as.integer(round(rnbinom(n_samples, size = theta, mu = pmax(0.01, mu))))))
+      if (availability_policy %in% c("expected_active", "force_counterfactual")) {
+        mu[!is.finite(mu)] <- fallback_mu
+      }
+      mu <- pmax(mu, 0.01)
+      return(pmax(0L, as.integer(round(rnbinom(n_samples, size = theta, mu = mu))))) 
     }
   } else if (inherits(model, "lm")) {
     # Linear model: check for transform

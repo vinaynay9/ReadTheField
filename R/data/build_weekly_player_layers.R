@@ -9,6 +9,10 @@
 player_week_identity_path <- file.path("data", "cache", "player_week_identity.parquet")
 rb_weekly_stats_path <- file.path("data", "cache", "rb_weekly_stats.parquet")
 rb_weekly_features_path <- file.path("data", "processed", "rb_weekly_features.parquet")
+wr_weekly_stats_path <- file.path("data", "cache", "wr_weekly_stats.parquet")
+wr_weekly_features_path <- file.path("data", "processed", "wr_weekly_features.parquet")
+te_weekly_stats_path <- file.path("data", "cache", "te_weekly_stats.parquet")
+te_weekly_features_path <- file.path("data", "processed", "te_weekly_features.parquet")
 player_directory_path <- file.path("data", "cache", "player_directory.parquet")
 
 # Ensure cache helpers are available for build_game_key
@@ -18,6 +22,24 @@ if (!exists("build_game_key")) {
   } else {
     stop("R/utils/cache_helpers.R is required for building game keys")
   }
+}
+
+normalize_team_abbr <- function(team, season) {
+  team <- toupper(trimws(as.character(team)))
+  season <- as.integer(season)
+  # Align legacy team codes to schedule-era abbreviations
+  team <- ifelse(!is.na(season) & season <= 2019 & team == "LV", "OAK", team)
+  team <- ifelse(!is.na(season) & season >= 2020 & team == "OAK", "LV", team)
+  team <- ifelse(!is.na(season) & season <= 2016 & team == "LAC", "SD", team)
+  team <- ifelse(!is.na(season) & season >= 2017 & team == "SD", "LAC", team)
+  team <- ifelse(!is.na(season) & season <= 2015 & team == "LAR", "STL", team)
+  team <- ifelse(!is.na(season) & season >= 2016 & team == "STL", "LAR", team)
+  team <- ifelse(!is.na(season) & season <= 2015 & team == "LA", "STL", team)
+  team <- ifelse(!is.na(season) & season >= 2016 & team == "LA", "LAR", team)
+  team <- ifelse(team == "JAC", "JAX", team)
+  team <- ifelse(!is.na(season) & season <= 2019 & team == "WSH", "WAS", team)
+  team <- ifelse(!is.na(season) & season >= 2020 & team == "WAS", "WSH", team)
+  team
 }
 
 build_schedule_team_lookup <- function(seasons) {
@@ -38,10 +60,10 @@ build_schedule_team_lookup <- function(seasons) {
     season = schedules$season,
     week = schedules$week,
     gameday = schedules$gameday,
-    team = schedules$home_team,
-    opponent = schedules$away_team,
-    home_team = schedules$home_team,
-    away_team = schedules$away_team,
+    team = normalize_team_abbr(schedules$home_team, schedules$season),
+    opponent = normalize_team_abbr(schedules$away_team, schedules$season),
+    home_team = normalize_team_abbr(schedules$home_team, schedules$season),
+    away_team = normalize_team_abbr(schedules$away_team, schedules$season),
     home_away = "HOME",
     is_home = 1L,
     stringsAsFactors = FALSE
@@ -51,10 +73,10 @@ build_schedule_team_lookup <- function(seasons) {
     season = schedules$season,
     week = schedules$week,
     gameday = schedules$gameday,
-    team = schedules$away_team,
-    opponent = schedules$home_team,
-    home_team = schedules$home_team,
-    away_team = schedules$away_team,
+    team = normalize_team_abbr(schedules$away_team, schedules$season),
+    opponent = normalize_team_abbr(schedules$home_team, schedules$season),
+    home_team = normalize_team_abbr(schedules$home_team, schedules$season),
+    away_team = normalize_team_abbr(schedules$away_team, schedules$season),
     home_away = "AWAY",
     is_home = 0L,
     stringsAsFactors = FALSE
@@ -227,8 +249,8 @@ build_player_week_identity <- function(seasons,
 
   player_ids <- as.character(select_first_available(stats, c("player_id", "gsis_id", "gsis_id_season"), NA))
   player_names <- as.character(select_first_available(stats, c("player_name", "player_display_name", "name"), NA))
-  teams <- toupper(as.character(select_first_available(stats, c("team", "team_abbr", "team_name"), NA)))
-  opponents <- toupper(as.character(select_first_available(stats, c("opponent_team", "opponent", "opp_team", "defteam"), NA)))
+  teams <- normalize_team_abbr(select_first_available(stats, c("team", "team_abbr", "team_name"), NA), stats$season)
+  opponents <- normalize_team_abbr(select_first_available(stats, c("opponent_team", "opponent", "opp_team", "defteam"), NA), stats$season)
   game_dates <- safe_parse_date(select_first_available(stats, c("gameday", "game_date", "date"), NA), nrow(stats))
   home_aways <- normalize_home_away(select_first_available(stats, c("home_away", "location", "game_location"), NA))
   season_types <- if ("season_type" %in% names(stats)) {
@@ -323,7 +345,49 @@ build_player_week_identity <- function(seasons,
     if ("is_home" %in% names(identity)) {
       identity$is_home <- as.integer(identity$is_home)
     }
+    # Fallback: fill missing schedule context by game_id + team
+    if (any(is.na(identity$is_home)) && "game_id" %in% names(identity)) {
+      schedule_by_game <- unique(schedule_lookup[, c("game_id", "team", "opponent",
+                                                     "home_team", "away_team", "home_away",
+                                                     "is_home", "gameday"), drop = FALSE])
+      identity <- merge(
+        identity,
+        schedule_by_game,
+        by = c("game_id", "team"),
+        all.x = TRUE,
+        suffixes = c("", "_game")
+      )
+      identity$is_home <- ifelse(is.na(identity$is_home), identity$is_home_game, identity$is_home)
+      identity$home_away <- ifelse(is.na(identity$home_away), identity$home_away_game, identity$home_away)
+      identity$opponent <- ifelse(is.na(identity$opponent), identity$opponent_game, identity$opponent)
+      identity$home_team <- ifelse(is.na(identity$home_team), identity$home_team_game, identity$home_team)
+      identity$away_team <- ifelse(is.na(identity$away_team), identity$away_team_game, identity$away_team)
+      identity$gameday <- ifelse(is.na(identity$gameday), identity$gameday_game, identity$gameday)
+      identity$game_date <- ifelse(is.na(identity$game_date), identity$gameday_game, identity$game_date)
+    }
+    # Fallback: fill missing schedule context by season/week/team
+    if (any(is.na(identity$is_home))) {
+      schedule_by_team <- unique(schedule_lookup[, c("season", "week", "team", "opponent",
+                                                     "home_team", "away_team", "home_away",
+                                                     "is_home", "gameday"), drop = FALSE])
+      identity <- merge(
+        identity,
+        schedule_by_team,
+        by = c("season", "week", "team"),
+        all.x = TRUE,
+        suffixes = c("", "_team")
+      )
+      identity$is_home <- ifelse(is.na(identity$is_home), identity$is_home_team, identity$is_home)
+      identity$home_away <- ifelse(is.na(identity$home_away), identity$home_away_team, identity$home_away)
+      identity$opponent <- ifelse(is.na(identity$opponent), identity$opponent_team, identity$opponent)
+      identity$home_team <- ifelse(is.na(identity$home_team), identity$home_team_team, identity$home_team)
+      identity$away_team <- ifelse(is.na(identity$away_team), identity$away_team_team, identity$away_team)
+      identity$gameday <- ifelse(is.na(identity$gameday), identity$gameday_team, identity$gameday)
+      identity$game_date <- ifelse(is.na(identity$game_date), identity$gameday_team, identity$game_date)
+    }
     helper_cols <- grep("(_sched)$", names(identity), value = TRUE)
+    helper_cols <- c(helper_cols, grep("(_game)$", names(identity), value = TRUE))
+    helper_cols <- c(helper_cols, grep("(_team)$", names(identity), value = TRUE))
     if (length(helper_cols) > 0) {
       identity <- identity[, setdiff(names(identity), helper_cols), drop = FALSE]
     }
@@ -373,8 +437,8 @@ build_rb_weekly_stats <- function(seasons,
 
   player_ids <- as.character(select_first_available(rb_stats, c("player_id", "gsis_id"), NA))
   player_names <- as.character(select_first_available(rb_stats, c("player_name", "player_display_name", "name"), NA))
-  teams <- toupper(as.character(select_first_available(rb_stats, c("team", "team_abbr", "team_name"), NA)))
-  opponents <- toupper(as.character(select_first_available(rb_stats, c("opponent_team", "opponent", "opp_team", "defteam"), NA)))
+  teams <- normalize_team_abbr(select_first_available(rb_stats, c("team", "team_abbr", "team_name"), NA), rb_stats$season)
+  opponents <- normalize_team_abbr(select_first_available(rb_stats, c("opponent_team", "opponent", "opp_team", "defteam"), NA), rb_stats$season)
   game_dates <- safe_parse_date(select_first_available(rb_stats, c("gameday", "game_date", "date"), NA), nrow(rb_stats))
   home_aways <- normalize_home_away(select_first_available(rb_stats, c("home_away", "location", "game_location"), NA))
   game_ids <- as.character(select_first_available(rb_stats, c("game_id"), NA))
@@ -443,7 +507,49 @@ build_rb_weekly_stats <- function(seasons,
       rb_dataset$home_away <- rb_dataset$home_away_sched
     }
     rb_dataset$is_home <- if ("is_home" %in% names(rb_dataset)) as.integer(rb_dataset$is_home) else NA_integer_
+    # Fallback: fill missing schedule context by game_id + team
+    if (any(is.na(rb_dataset$is_home)) && "game_id" %in% names(rb_dataset)) {
+      schedule_by_game <- unique(schedule_lookup[, c("game_id", "team", "opponent",
+                                                     "home_team", "away_team", "home_away",
+                                                     "is_home", "gameday"), drop = FALSE])
+      rb_dataset <- merge(
+        rb_dataset,
+        schedule_by_game,
+        by = c("game_id", "team"),
+        all.x = TRUE,
+        suffixes = c("", "_game")
+      )
+      rb_dataset$is_home <- ifelse(is.na(rb_dataset$is_home), rb_dataset$is_home_game, rb_dataset$is_home)
+      rb_dataset$home_away <- ifelse(is.na(rb_dataset$home_away), rb_dataset$home_away_game, rb_dataset$home_away)
+      rb_dataset$opponent <- ifelse(is.na(rb_dataset$opponent), rb_dataset$opponent_game, rb_dataset$opponent)
+      rb_dataset$home_team <- ifelse(is.na(rb_dataset$home_team), rb_dataset$home_team_game, rb_dataset$home_team)
+      rb_dataset$away_team <- ifelse(is.na(rb_dataset$away_team), rb_dataset$away_team_game, rb_dataset$away_team)
+      rb_dataset$gameday <- ifelse(is.na(rb_dataset$gameday), rb_dataset$gameday_game, rb_dataset$gameday)
+      rb_dataset$game_date <- ifelse(is.na(rb_dataset$game_date), rb_dataset$gameday_game, rb_dataset$game_date)
+    }
+    # Fallback: fill missing schedule context by season/week/team
+    if (any(is.na(rb_dataset$is_home))) {
+      schedule_by_team <- unique(schedule_lookup[, c("season", "week", "team", "opponent",
+                                                     "home_team", "away_team", "home_away",
+                                                     "is_home", "gameday"), drop = FALSE])
+      rb_dataset <- merge(
+        rb_dataset,
+        schedule_by_team,
+        by = c("season", "week", "team"),
+        all.x = TRUE,
+        suffixes = c("", "_team")
+      )
+      rb_dataset$is_home <- ifelse(is.na(rb_dataset$is_home), rb_dataset$is_home_team, rb_dataset$is_home)
+      rb_dataset$home_away <- ifelse(is.na(rb_dataset$home_away), rb_dataset$home_away_team, rb_dataset$home_away)
+      rb_dataset$opponent <- ifelse(is.na(rb_dataset$opponent), rb_dataset$opponent_team, rb_dataset$opponent)
+      rb_dataset$home_team <- ifelse(is.na(rb_dataset$home_team), rb_dataset$home_team_team, rb_dataset$home_team)
+      rb_dataset$away_team <- ifelse(is.na(rb_dataset$away_team), rb_dataset$away_team_team, rb_dataset$away_team)
+      rb_dataset$gameday <- ifelse(is.na(rb_dataset$gameday), rb_dataset$gameday_team, rb_dataset$gameday)
+      rb_dataset$game_date <- ifelse(is.na(rb_dataset$game_date), rb_dataset$gameday_team, rb_dataset$game_date)
+    }
     helper_cols <- grep("(_sched)$", names(rb_dataset), value = TRUE)
+    helper_cols <- c(helper_cols, grep("(_game)$", names(rb_dataset), value = TRUE))
+    helper_cols <- c(helper_cols, grep("(_team)$", names(rb_dataset), value = TRUE))
     if (length(helper_cols) > 0) {
       rb_dataset <- rb_dataset[, setdiff(names(rb_dataset), helper_cols), drop = FALSE]
     }
@@ -513,6 +619,370 @@ build_rb_weekly_stats <- function(seasons,
   rb_dataset
 }
 
+build_wr_weekly_stats <- function(seasons,
+                                  season_type = "REG",
+                                  write_cache = TRUE) {
+  stats <- load_weekly_player_stats_from_nflreadr(seasons, season_type)
+
+  positions <- normalize_position(select_first_available(stats, c("position", "position_group"), NA))
+  stats$position <- positions
+
+  wr_mask <- stats$position == "WR"
+  if (sum(wr_mask, na.rm = TRUE) == 0) {
+    stop("No WR rows found for seasons: ", paste(seasons, collapse = ", "))
+  }
+
+  wr_stats <- stats[wr_mask, , drop = FALSE]
+
+  player_ids <- as.character(select_first_available(wr_stats, c("player_id", "gsis_id"), NA))
+  player_names <- as.character(select_first_available(wr_stats, c("player_name", "player_display_name", "name"), NA))
+  teams <- normalize_team_abbr(select_first_available(wr_stats, c("team", "team_abbr", "team_name"), NA), wr_stats$season)
+  opponents <- normalize_team_abbr(select_first_available(wr_stats, c("opponent_team", "opponent", "opp_team", "defteam"), NA), wr_stats$season)
+  game_dates <- safe_parse_date(select_first_available(wr_stats, c("gameday", "game_date", "date"), NA), nrow(wr_stats))
+  home_aways <- normalize_home_away(select_first_available(wr_stats, c("home_away", "location", "game_location"), NA))
+  game_ids <- as.character(select_first_available(wr_stats, c("game_id"), NA))
+  team_ids <- as.character(select_first_available(wr_stats, c("team_id", "team_id_alt"), NA))
+  season_types <- if ("season_type" %in% names(wr_stats)) {
+    as.character(wr_stats$season_type)
+  } else {
+    rep(toupper(trimws(season_type)), nrow(wr_stats))
+  }
+
+  targets <- as.integer(select_first_available(wr_stats, c("targets"), 0))
+  receptions <- as.integer(select_first_available(wr_stats, c("receptions", "rec", "rec_catches"), 0))
+  receiving_yards <- as.double(select_first_available(wr_stats, c("receiving_yards", "rec_yards"), 0))
+  receiving_tds <- as.integer(select_first_available(wr_stats, c("receiving_tds", "rec_tds"), 0))
+  air_yards <- as.double(select_first_available(wr_stats, c("air_yards", "rec_air_yards", "receiving_air_yards"), NA))
+
+  wr_dataset <- data.frame(
+    player_id = player_ids,
+    player_name = player_names,
+    season = as.integer(wr_stats$season),
+    week = as.integer(wr_stats$week),
+    team = teams,
+    opponent = opponents,
+    home_away = home_aways,
+    season_type = season_types,
+    team_id = team_ids,
+    game_id = game_ids,
+    game_date = game_dates,
+    targets = targets,
+    receptions = receptions,
+    receiving_yards = receiving_yards,
+    receiving_tds = receiving_tds,
+    air_yards = air_yards,
+    position = "WR",
+    stringsAsFactors = FALSE
+  )
+
+  # Schedule-derived home/away context (no string parsing)
+  schedule_lookup <- build_schedule_team_lookup(seasons)
+  if (!is.null(schedule_lookup)) {
+    wr_dataset <- merge(
+      wr_dataset,
+      schedule_lookup[, c("season", "week", "team", "opponent", "game_id",
+                          "gameday", "home_team", "away_team", "home_away", "is_home"),
+                      drop = FALSE],
+      by = c("season", "week", "team", "opponent"),
+      all.x = TRUE,
+      suffixes = c("", "_sched")
+    )
+    if ("game_id_sched" %in% names(wr_dataset)) {
+      wr_dataset$game_id <- ifelse(
+        is.na(wr_dataset$game_id) | wr_dataset$game_id == "",
+        wr_dataset$game_id_sched,
+        wr_dataset$game_id
+      )
+    }
+    if ("gameday_sched" %in% names(wr_dataset)) {
+      wr_dataset$game_date <- ifelse(is.na(wr_dataset$game_date), wr_dataset$gameday_sched, wr_dataset$game_date)
+      wr_dataset$gameday <- ifelse(is.na(wr_dataset$gameday), wr_dataset$gameday_sched, wr_dataset$gameday)
+    }
+    if ("home_away_sched" %in% names(wr_dataset)) {
+      wr_dataset$home_away <- wr_dataset$home_away_sched
+    }
+    wr_dataset$is_home <- if ("is_home" %in% names(wr_dataset)) as.integer(wr_dataset$is_home) else NA_integer_
+    # Fallback: fill missing schedule context by game_id + team
+    if (any(is.na(wr_dataset$is_home)) && "game_id" %in% names(wr_dataset)) {
+      schedule_by_game <- unique(schedule_lookup[, c("game_id", "team", "opponent",
+                                                     "home_team", "away_team", "home_away",
+                                                     "is_home", "gameday"), drop = FALSE])
+      wr_dataset <- merge(
+        wr_dataset,
+        schedule_by_game,
+        by = c("game_id", "team"),
+        all.x = TRUE,
+        suffixes = c("", "_game")
+      )
+      wr_dataset$is_home <- ifelse(is.na(wr_dataset$is_home), wr_dataset$is_home_game, wr_dataset$is_home)
+      wr_dataset$home_away <- ifelse(is.na(wr_dataset$home_away), wr_dataset$home_away_game, wr_dataset$home_away)
+      wr_dataset$opponent <- ifelse(is.na(wr_dataset$opponent), wr_dataset$opponent_game, wr_dataset$opponent)
+      wr_dataset$home_team <- ifelse(is.na(wr_dataset$home_team), wr_dataset$home_team_game, wr_dataset$home_team)
+      wr_dataset$away_team <- ifelse(is.na(wr_dataset$away_team), wr_dataset$away_team_game, wr_dataset$away_team)
+      wr_dataset$gameday <- ifelse(is.na(wr_dataset$gameday), wr_dataset$gameday_game, wr_dataset$gameday)
+      wr_dataset$game_date <- ifelse(is.na(wr_dataset$game_date), wr_dataset$gameday_game, wr_dataset$game_date)
+    }
+    # Fallback: fill missing schedule context by season/week/team
+    if (any(is.na(wr_dataset$is_home))) {
+      schedule_by_team <- unique(schedule_lookup[, c("season", "week", "team", "opponent",
+                                                     "home_team", "away_team", "home_away",
+                                                     "is_home", "gameday"), drop = FALSE])
+      wr_dataset <- merge(
+        wr_dataset,
+        schedule_by_team,
+        by = c("season", "week", "team"),
+        all.x = TRUE,
+        suffixes = c("", "_team")
+      )
+      wr_dataset$is_home <- ifelse(is.na(wr_dataset$is_home), wr_dataset$is_home_team, wr_dataset$is_home)
+      wr_dataset$home_away <- ifelse(is.na(wr_dataset$home_away), wr_dataset$home_away_team, wr_dataset$home_away)
+      wr_dataset$opponent <- ifelse(is.na(wr_dataset$opponent), wr_dataset$opponent_team, wr_dataset$opponent)
+      wr_dataset$home_team <- ifelse(is.na(wr_dataset$home_team), wr_dataset$home_team_team, wr_dataset$home_team)
+      wr_dataset$away_team <- ifelse(is.na(wr_dataset$away_team), wr_dataset$away_team_team, wr_dataset$away_team)
+      wr_dataset$gameday <- ifelse(is.na(wr_dataset$gameday), wr_dataset$gameday_team, wr_dataset$gameday)
+      wr_dataset$game_date <- ifelse(is.na(wr_dataset$game_date), wr_dataset$gameday_team, wr_dataset$game_date)
+    }
+    helper_cols <- grep("(_sched)$", names(wr_dataset), value = TRUE)
+    helper_cols <- c(helper_cols, grep("(_game)$", names(wr_dataset), value = TRUE))
+    helper_cols <- c(helper_cols, grep("(_team)$", names(wr_dataset), value = TRUE))
+    if (length(helper_cols) > 0) {
+      wr_dataset <- wr_dataset[, setdiff(names(wr_dataset), helper_cols), drop = FALSE]
+    }
+  } else {
+    wr_dataset$is_home <- NA_integer_
+  }
+
+  wr_dataset$game_key <- mapply(
+    build_player_game_key,
+    season = wr_dataset$season,
+    week = wr_dataset$week,
+    team = wr_dataset$team,
+    opponent = wr_dataset$opponent,
+    game_date = wr_dataset$game_date,
+    game_id = wr_dataset$game_id,
+    player_id = wr_dataset$player_id,
+    USE.NAMES = FALSE
+  )
+
+  wr_dataset$gameday <- wr_dataset$game_date
+  wr_dataset <- wr_dataset[order(wr_dataset$player_id, wr_dataset$season, wr_dataset$week, wr_dataset$game_date), ]
+  wr_dataset <- wr_dataset[!duplicated(wr_dataset[, c("player_id", "game_key")]), ]
+
+  count_cols <- c("targets", "receptions", "receiving_tds")
+  for (col in count_cols) {
+    wr_dataset[[col]] <- ifelse(is.na(wr_dataset[[col]]), 0L, wr_dataset[[col]])
+  }
+  wr_dataset$receiving_yards <- ifelse(is.na(wr_dataset$receiving_yards), 0, wr_dataset$receiving_yards)
+
+  # Canonical opponent / defense mapping
+  wr_dataset$defense_team <- wr_dataset$opponent
+
+  # Drop rows without real opponents (bye / inactive / malformed)
+  invalid <- is.na(wr_dataset$defense_team) | wr_dataset$defense_team == ""
+  if (any(invalid)) {
+    warning(
+      sprintf(
+        "Dropping %d WR weekly rows without opponent (bye/inactive)",
+        sum(invalid)
+      ),
+      call. = FALSE
+    )
+    wr_dataset <- wr_dataset[!invalid, , drop = FALSE]
+  }
+
+  stopifnot(!any(is.na(wr_dataset$defense_team)))
+
+  rownames(wr_dataset) <- NULL
+
+  if (write_cache) {
+    write_parquet_cache(wr_dataset, wr_weekly_stats_path, "WR weekly stats")
+  }
+
+  wr_dataset
+}
+
+build_te_weekly_stats <- function(seasons,
+                                  season_type = "REG",
+                                  write_cache = TRUE) {
+  stats <- load_weekly_player_stats_from_nflreadr(seasons, season_type)
+
+  positions <- normalize_position(select_first_available(stats, c("position", "position_group"), NA))
+  stats$position <- positions
+
+  te_mask <- stats$position == "TE"
+  if (sum(te_mask, na.rm = TRUE) == 0) {
+    stop("No TE rows found for seasons: ", paste(seasons, collapse = ", "))
+  }
+
+  te_stats <- stats[te_mask, , drop = FALSE]
+
+  player_ids <- as.character(select_first_available(te_stats, c("player_id", "gsis_id"), NA))
+  player_names <- as.character(select_first_available(te_stats, c("player_name", "player_display_name", "name"), NA))
+  teams <- normalize_team_abbr(select_first_available(te_stats, c("team", "team_abbr", "team_name"), NA), te_stats$season)
+  opponents <- normalize_team_abbr(select_first_available(te_stats, c("opponent_team", "opponent", "opp_team", "defteam"), NA), te_stats$season)
+  game_dates <- safe_parse_date(select_first_available(te_stats, c("gameday", "game_date", "date"), NA), nrow(te_stats))
+  home_aways <- normalize_home_away(select_first_available(te_stats, c("home_away", "location", "game_location"), NA))
+  game_ids <- as.character(select_first_available(te_stats, c("game_id"), NA))
+  team_ids <- as.character(select_first_available(te_stats, c("team_id", "team_id_alt"), NA))
+  season_types <- if ("season_type" %in% names(te_stats)) {
+    as.character(te_stats$season_type)
+  } else {
+    rep(toupper(trimws(season_type)), nrow(te_stats))
+  }
+
+  targets <- as.integer(select_first_available(te_stats, c("targets"), 0))
+  receptions <- as.integer(select_first_available(te_stats, c("receptions", "rec", "rec_catches"), 0))
+  receiving_yards <- as.double(select_first_available(te_stats, c("receiving_yards", "rec_yards"), 0))
+  receiving_tds <- as.integer(select_first_available(te_stats, c("receiving_tds", "rec_tds"), 0))
+  air_yards <- as.double(select_first_available(te_stats, c("air_yards", "rec_air_yards", "receiving_air_yards"), NA))
+
+  te_dataset <- data.frame(
+    player_id = player_ids,
+    player_name = player_names,
+    season = as.integer(te_stats$season),
+    week = as.integer(te_stats$week),
+    team = teams,
+    opponent = opponents,
+    home_away = home_aways,
+    season_type = season_types,
+    team_id = team_ids,
+    game_id = game_ids,
+    game_date = game_dates,
+    targets = targets,
+    receptions = receptions,
+    receiving_yards = receiving_yards,
+    receiving_tds = receiving_tds,
+    air_yards = air_yards,
+    position = "TE",
+    stringsAsFactors = FALSE
+  )
+
+  # Schedule-derived home/away context (no string parsing)
+  schedule_lookup <- build_schedule_team_lookup(seasons)
+  if (!is.null(schedule_lookup)) {
+    te_dataset <- merge(
+      te_dataset,
+      schedule_lookup[, c("season", "week", "team", "opponent", "game_id",
+                          "gameday", "home_team", "away_team", "home_away", "is_home"),
+                      drop = FALSE],
+      by = c("season", "week", "team", "opponent"),
+      all.x = TRUE,
+      suffixes = c("", "_sched")
+    )
+    if ("game_id_sched" %in% names(te_dataset)) {
+      te_dataset$game_id <- ifelse(
+        is.na(te_dataset$game_id) | te_dataset$game_id == "",
+        te_dataset$game_id_sched,
+        te_dataset$game_id
+      )
+    }
+    if ("gameday_sched" %in% names(te_dataset)) {
+      te_dataset$game_date <- ifelse(is.na(te_dataset$game_date), te_dataset$gameday_sched, te_dataset$game_date)
+      te_dataset$gameday <- ifelse(is.na(te_dataset$gameday), te_dataset$gameday_sched, te_dataset$gameday)
+    }
+    if ("home_away_sched" %in% names(te_dataset)) {
+      te_dataset$home_away <- te_dataset$home_away_sched
+    }
+    te_dataset$is_home <- if ("is_home" %in% names(te_dataset)) as.integer(te_dataset$is_home) else NA_integer_
+    # Fallback: fill missing schedule context by game_id + team
+    if (any(is.na(te_dataset$is_home)) && "game_id" %in% names(te_dataset)) {
+      schedule_by_game <- unique(schedule_lookup[, c("game_id", "team", "opponent",
+                                                     "home_team", "away_team", "home_away",
+                                                     "is_home", "gameday"), drop = FALSE])
+      te_dataset <- merge(
+        te_dataset,
+        schedule_by_game,
+        by = c("game_id", "team"),
+        all.x = TRUE,
+        suffixes = c("", "_game")
+      )
+      te_dataset$is_home <- ifelse(is.na(te_dataset$is_home), te_dataset$is_home_game, te_dataset$is_home)
+      te_dataset$home_away <- ifelse(is.na(te_dataset$home_away), te_dataset$home_away_game, te_dataset$home_away)
+      te_dataset$opponent <- ifelse(is.na(te_dataset$opponent), te_dataset$opponent_game, te_dataset$opponent)
+      te_dataset$home_team <- ifelse(is.na(te_dataset$home_team), te_dataset$home_team_game, te_dataset$home_team)
+      te_dataset$away_team <- ifelse(is.na(te_dataset$away_team), te_dataset$away_team_game, te_dataset$away_team)
+      te_dataset$gameday <- ifelse(is.na(te_dataset$gameday), te_dataset$gameday_game, te_dataset$gameday)
+      te_dataset$game_date <- ifelse(is.na(te_dataset$game_date), te_dataset$gameday_game, te_dataset$game_date)
+    }
+    # Fallback: fill missing schedule context by season/week/team
+    if (any(is.na(te_dataset$is_home))) {
+      schedule_by_team <- unique(schedule_lookup[, c("season", "week", "team", "opponent",
+                                                     "home_team", "away_team", "home_away",
+                                                     "is_home", "gameday"), drop = FALSE])
+      te_dataset <- merge(
+        te_dataset,
+        schedule_by_team,
+        by = c("season", "week", "team"),
+        all.x = TRUE,
+        suffixes = c("", "_team")
+      )
+      te_dataset$is_home <- ifelse(is.na(te_dataset$is_home), te_dataset$is_home_team, te_dataset$is_home)
+      te_dataset$home_away <- ifelse(is.na(te_dataset$home_away), te_dataset$home_away_team, te_dataset$home_away)
+      te_dataset$opponent <- ifelse(is.na(te_dataset$opponent), te_dataset$opponent_team, te_dataset$opponent)
+      te_dataset$home_team <- ifelse(is.na(te_dataset$home_team), te_dataset$home_team_team, te_dataset$home_team)
+      te_dataset$away_team <- ifelse(is.na(te_dataset$away_team), te_dataset$away_team_team, te_dataset$away_team)
+      te_dataset$gameday <- ifelse(is.na(te_dataset$gameday), te_dataset$gameday_team, te_dataset$gameday)
+      te_dataset$game_date <- ifelse(is.na(te_dataset$game_date), te_dataset$gameday_team, te_dataset$game_date)
+    }
+    helper_cols <- grep("(_sched)$", names(te_dataset), value = TRUE)
+    helper_cols <- c(helper_cols, grep("(_game)$", names(te_dataset), value = TRUE))
+    helper_cols <- c(helper_cols, grep("(_team)$", names(te_dataset), value = TRUE))
+    if (length(helper_cols) > 0) {
+      te_dataset <- te_dataset[, setdiff(names(te_dataset), helper_cols), drop = FALSE]
+    }
+  } else {
+    te_dataset$is_home <- NA_integer_
+  }
+
+  te_dataset$game_key <- mapply(
+    build_player_game_key,
+    season = te_dataset$season,
+    week = te_dataset$week,
+    team = te_dataset$team,
+    opponent = te_dataset$opponent,
+    game_date = te_dataset$game_date,
+    game_id = te_dataset$game_id,
+    player_id = te_dataset$player_id,
+    USE.NAMES = FALSE
+  )
+
+  te_dataset$gameday <- te_dataset$game_date
+  te_dataset <- te_dataset[order(te_dataset$player_id, te_dataset$season, te_dataset$week, te_dataset$game_date), ]
+  te_dataset <- te_dataset[!duplicated(te_dataset[, c("player_id", "game_key")]), ]
+
+  count_cols <- c("targets", "receptions", "receiving_tds")
+  for (col in count_cols) {
+    te_dataset[[col]] <- ifelse(is.na(te_dataset[[col]]), 0L, te_dataset[[col]])
+  }
+  te_dataset$receiving_yards <- ifelse(is.na(te_dataset$receiving_yards), 0, te_dataset$receiving_yards)
+
+  # Canonical opponent / defense mapping
+  te_dataset$defense_team <- te_dataset$opponent
+
+  # Drop rows without real opponents (bye / inactive / malformed)
+  invalid <- is.na(te_dataset$defense_team) | te_dataset$defense_team == ""
+  if (any(invalid)) {
+    warning(
+      sprintf(
+        "Dropping %d TE weekly rows without opponent (bye/inactive)",
+        sum(invalid)
+      ),
+      call. = FALSE
+    )
+    te_dataset <- te_dataset[!invalid, , drop = FALSE]
+  }
+
+  stopifnot(!any(is.na(te_dataset$defense_team)))
+
+  rownames(te_dataset) <- NULL
+
+  if (write_cache) {
+    write_parquet_cache(te_dataset, te_weekly_stats_path, "TE weekly stats")
+  }
+
+  te_dataset
+}
+
 read_player_week_identity_cache <- function() {
   read_parquet_cache(player_week_identity_path, "Player week identity cache", "scripts/refresh_weekly_cache.R")
 }
@@ -523,6 +993,22 @@ read_rb_weekly_stats_cache <- function() {
 
 read_rb_weekly_features_cache <- function() {
   read_parquet_cache(rb_weekly_features_path, "RB weekly features cache", "scripts/refresh_weekly_cache.R")
+}
+
+read_wr_weekly_stats_cache <- function() {
+  read_parquet_cache(wr_weekly_stats_path, "WR weekly stats cache", "scripts/refresh_weekly_cache.R")
+}
+
+read_wr_weekly_features_cache <- function() {
+  read_parquet_cache(wr_weekly_features_path, "WR weekly features cache", "scripts/refresh_weekly_cache.R")
+}
+
+read_te_weekly_stats_cache <- function() {
+  read_parquet_cache(te_weekly_stats_path, "TE weekly stats cache", "scripts/refresh_weekly_cache.R")
+}
+
+read_te_weekly_features_cache <- function() {
+  read_parquet_cache(te_weekly_features_path, "TE weekly features cache", "scripts/refresh_weekly_cache.R")
 }
 
 #' Build player directory cache from nflreadr

@@ -2,6 +2,8 @@
 #
 # Computes rolling defensive features using lagged windows.
 # All features use strictly lagged data (current game excluded).
+# NOTE: Defensive roll3 is intentionally excluded except for passing
+# disruption stats (interceptions, passes defended).
 #
 # Dependencies:
 #   - R/data/build_team_defense_game_stats.R
@@ -73,8 +75,11 @@ build_team_defense_features <- function(def_game_stats) {
   
   # Initialize rolling feature columns
   result$opp_pass_yards_allowed_roll5 <- NA_real_
+  result$opp_pass_yards_allowed_roll1 <- NA_real_
   result$opp_rush_yards_allowed_roll5 <- NA_real_
   result$opp_yards_per_rush_allowed_roll5 <- NA_real_
+  result$opp_yards_per_pass_allowed_roll5 <- NA_real_
+  result$opp_yards_per_pass_allowed_roll1 <- NA_real_
   result$opp_total_yards_allowed_roll5 <- NA_real_
   result$opp_points_allowed_roll5 <- NA_real_
   result$opp_sacks_roll5 <- NA_real_
@@ -100,6 +105,18 @@ build_team_defense_features <- function(def_game_stats) {
   if ("def_interceptions" %in% names(def_game_stats)) {
     result$opp_int_roll5 <- NA_real_
     result$opp_int_roll1 <- NA_real_
+    result$opp_interceptions_roll5 <- NA_real_
+    result$opp_interceptions_roll3 <- NA_real_
+    result$opp_interceptions_roll1 <- NA_real_
+    result$def_interceptions_roll5 <- NA_real_
+    result$def_interceptions_roll3 <- NA_real_
+  }
+  if ("def_passes_defended" %in% names(def_game_stats)) {
+    result$opp_passes_defended_roll5 <- NA_real_
+    result$opp_passes_defended_roll3 <- NA_real_
+    result$opp_passes_defended_roll1 <- NA_real_
+    result$def_passes_defended_roll5 <- NA_real_
+    result$def_passes_defended_roll3 <- NA_real_
   }
   
   # Process each team-season separately
@@ -121,6 +138,7 @@ build_team_defense_features <- function(def_game_stats) {
       
       # Compute rolling features using lagged windows (window = 5)
       if ("pass_yards_allowed" %in% names(season_data)) {
+        result$opp_pass_yards_allowed_roll1[season_idx] <- c(NA_real_, head(season_data$pass_yards_allowed, -1))
         result$opp_pass_yards_allowed_roll5[season_idx] <- lagged_roll_mean(
           season_data$pass_yards_allowed,
           window = 5
@@ -141,6 +159,15 @@ build_team_defense_features <- function(def_game_stats) {
         result$opp_yards_per_rush_allowed_roll1[season_idx] <- lag_vals
         result$opp_yards_per_rush_allowed_roll5[season_idx] <- lagged_roll_mean(
           season_data$yards_per_rush_allowed,
+          window = 5
+        )
+      }
+
+      if ("yards_per_pass_allowed" %in% names(season_data)) {
+        lag_vals <- c(NA_real_, head(season_data$yards_per_pass_allowed, -1))
+        result$opp_yards_per_pass_allowed_roll1[season_idx] <- lag_vals
+        result$opp_yards_per_pass_allowed_roll5[season_idx] <- lagged_roll_mean(
+          season_data$yards_per_pass_allowed,
           window = 5
         )
       }
@@ -180,11 +207,19 @@ build_team_defense_features <- function(def_game_stats) {
       }
       
       if ("def_interceptions" %in% names(season_data) && "opp_int_roll5" %in% names(result)) {
-        result$opp_int_roll5[season_idx] <- lagged_roll_mean(
-          as.numeric(season_data$def_interceptions),
-          window = 5
-        )
-        result$opp_int_roll1[season_idx] <- c(NA_real_, head(as.numeric(season_data$def_interceptions), -1))
+        def_int <- as.numeric(season_data$def_interceptions)
+        result$opp_int_roll5[season_idx] <- lagged_roll_mean(def_int, window = 5)
+        result$opp_int_roll1[season_idx] <- c(NA_real_, head(def_int, -1))
+        result$opp_interceptions_roll5[season_idx] <- result$opp_int_roll5[season_idx]
+        result$opp_interceptions_roll3[season_idx] <- lagged_roll_mean(def_int, window = 3)
+        result$opp_interceptions_roll1[season_idx] <- result$opp_int_roll1[season_idx]
+      }
+      
+      if ("def_passes_defended" %in% names(season_data) && "opp_passes_defended_roll5" %in% names(result)) {
+        def_pd <- as.numeric(season_data$def_passes_defended)
+        result$opp_passes_defended_roll5[season_idx] <- lagged_roll_mean(def_pd, window = 5)
+        result$opp_passes_defended_roll3[season_idx] <- lagged_roll_mean(def_pd, window = 3)
+        result$opp_passes_defended_roll1[season_idx] <- c(NA_real_, head(def_pd, -1))
       }
     }
     
@@ -277,7 +312,11 @@ build_team_defense_features <- function(def_game_stats) {
     def_yards_per_rush_allowed_roll1 = "opp_yards_per_rush_allowed_roll1",
     def_points_allowed_roll1 = "opp_points_allowed_roll1",
     def_sacks_roll1 = "opp_sacks_roll1",
-    def_tfl_roll1 = "opp_tfl_roll1"
+    def_tfl_roll1 = "opp_tfl_roll1",
+    def_interceptions_roll5 = "opp_interceptions_roll5",
+    def_interceptions_roll3 = "opp_interceptions_roll3",
+    def_passes_defended_roll5 = "opp_passes_defended_roll5",
+    def_passes_defended_roll3 = "opp_passes_defended_roll3"
   )
   for (nm in names(alias_map)) {
     src <- alias_map[[nm]]
@@ -331,8 +370,11 @@ empty_defense_features_df <- function() {
     gameday = as.Date(character(0)),
     defense_team = character(0),
     opp_pass_yards_allowed_roll5 = double(0),
+    opp_pass_yards_allowed_roll1 = double(0),
     opp_rush_yards_allowed_roll5 = double(0),
     opp_yards_per_rush_allowed_roll5 = double(0),
+    opp_yards_per_pass_allowed_roll5 = double(0),
+    opp_yards_per_pass_allowed_roll1 = double(0),
     opp_total_yards_allowed_roll5 = double(0),
     opp_points_allowed_roll5 = double(0),
     opp_sacks_roll5 = double(0),
@@ -342,6 +384,16 @@ empty_defense_features_df <- function() {
     opp_points_allowed_roll1 = double(0),
     opp_sacks_roll1 = double(0),
     opp_tfl_roll1 = double(0),
+    opp_passes_defended_roll1 = double(0),
+    opp_passes_defended_roll3 = double(0),
+    opp_passes_defended_roll5 = double(0),
+    opp_interceptions_roll1 = double(0),
+    opp_interceptions_roll3 = double(0),
+    opp_interceptions_roll5 = double(0),
+    def_interceptions_roll3 = double(0),
+    def_interceptions_roll5 = double(0),
+    def_passes_defended_roll3 = double(0),
+    def_passes_defended_roll5 = double(0),
     def_rush_yards_allowed_roll5 = double(0),
     def_yards_per_rush_allowed_roll5 = double(0),
     def_points_allowed_roll5 = double(0),

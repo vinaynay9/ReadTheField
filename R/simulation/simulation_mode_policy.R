@@ -18,6 +18,7 @@
 #' @param target_week Integer or NA, week of the target game
 #' @param target_game_date Date, date of the target game
 #' @param available_seasons Integer vector, all seasons available in cache
+#' @param in_progress_season Integer, latest season if incomplete (optional)
 #' @return List with:
 #'   - seasons_allowed: integer vector of seasons allowed for training
 #'   - max_week_per_season: named list mapping season -> max week allowed (or NULL for all)
@@ -27,7 +28,8 @@ simulation_mode_policy <- function(mode = c("upcoming_game", "hypothetical_match
                                    target_season,
                                    target_week = NA_integer_,
                                    target_game_date = NULL,
-                                   available_seasons = NULL) {
+                                   available_seasons = NULL,
+                                   in_progress_season = NA_integer_) {
   mode <- match.arg(mode)
   
   # Validate inputs
@@ -101,6 +103,12 @@ simulation_mode_policy <- function(mode = c("upcoming_game", "hypothetical_match
   
   # Ensure seasons are sorted
   seasons_allowed <- sort(unique(seasons_allowed))
+
+  # Never train on in-progress season (diagnostic-only exclusion)
+  if (!is.na(in_progress_season) && in_progress_season %in% seasons_allowed) {
+    seasons_allowed <- setdiff(seasons_allowed, in_progress_season)
+    max_week_per_season[[as.character(in_progress_season)]] <- NULL
+  }
   
   # If no seasons allowed, this is an error condition
   if (length(seasons_allowed) == 0) {
@@ -115,5 +123,52 @@ simulation_mode_policy <- function(mode = c("upcoming_game", "hypothetical_match
     exclude_target_game = exclude_target_game,
     allow_post_game_data = allow_post_game_data
   )
+}
+
+#' Detect in-progress season using schedule completeness
+#'
+#' Returns the latest season if schedule weeks are incomplete; otherwise NA.
+detect_in_progress_season <- function(available_seasons, cache_only = TRUE) {
+  if (is.null(available_seasons) || length(available_seasons) == 0) {
+    return(NA_integer_)
+  }
+  if (!exists("load_schedules")) {
+    return(NA_integer_)
+  }
+  schedules <- tryCatch(
+    load_schedules(seasons = available_seasons, cache_only = cache_only),
+    error = function(e) NULL
+  )
+  if (is.null(schedules) || nrow(schedules) == 0) {
+    return(NA_integer_)
+  }
+  schedules$season <- as.integer(schedules$season)
+  schedules$week <- as.integer(schedules$week)
+  max_season <- suppressWarnings(max(schedules$season, na.rm = TRUE))
+  if (!is.finite(max_season)) {
+    return(NA_integer_)
+  }
+  max_by_season <- tapply(schedules$week, schedules$season, max, na.rm = TRUE)
+  if (length(max_by_season) == 0) {
+    return(NA_integer_)
+  }
+  prior_seasons <- setdiff(names(max_by_season), as.character(max_season))
+  expected_max_week <- NA_integer_
+  if (length(prior_seasons) > 0) {
+    prior_maxes <- as.integer(max_by_season[prior_seasons])
+    prior_maxes <- prior_maxes[!is.na(prior_maxes)]
+    if (length(prior_maxes) > 0) {
+      mode_counts <- sort(table(prior_maxes), decreasing = TRUE)
+      expected_max_week <- as.integer(names(mode_counts)[1])
+    }
+  }
+  if (is.na(expected_max_week)) {
+    expected_max_week <- as.integer(max(max_by_season, na.rm = TRUE))
+  }
+  current_max_week <- as.integer(max_by_season[as.character(max_season)])
+  if (!is.na(current_max_week) && !is.na(expected_max_week) && current_max_week < expected_max_week) {
+    return(as.integer(max_season))
+  }
+  NA_integer_
 }
 

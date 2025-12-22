@@ -147,7 +147,7 @@ TESTING INSTRUCTIONS
 Test Case 1: Week 2 Simulation (Early Regime)
 ----------------------------------------------
 Command:
-  Rscript scripts/run_bijan_simulation.R --season=2024 --week=2 --n_sims=1000
+  Rscript scripts/run_rb_simulation_cli.R --season=2024 --week=2 --n_sims=1000
 
 Expected Output:
   - rb_debug.log should show "Simulating for week 2 -> regime: early"
@@ -157,7 +157,7 @@ Expected Output:
 Test Case 2: Week 5 Simulation (Mid Regime)
 --------------------------------------------
 Command:
-  Rscript scripts/run_bijan_simulation.R --season=2024 --week=5 --n_sims=1000
+  Rscript scripts/run_rb_simulation_cli.R --season=2024 --week=5 --n_sims=1000
 
 Expected Output:
   - rb_debug.log should show "Simulating for week 5 -> regime: mid"
@@ -166,7 +166,7 @@ Expected Output:
 Test Case 3: Week 8 Simulation (Standard Regime)
 ------------------------------------------------
 Command:
-  Rscript scripts/run_bijan_simulation.R --season=2024 --week=8 --n_sims=1000
+  Rscript scripts/run_rb_simulation_cli.R --season=2024 --week=8 --n_sims=1000
 
 Expected Output:
   - rb_debug.log should show "Simulating for week 8 -> regime: standard"
@@ -245,5 +245,3 @@ The logging additions make it easy to verify correct behavior and diagnose
 any remaining issues.
 
 ================================================================================
-
-

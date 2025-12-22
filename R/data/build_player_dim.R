@@ -203,6 +203,9 @@ assert_required_cols <- function(df, required, context = "data frame") {
      last_name = as.character(players$last_name),
      display_name = as.character(players$display_name),
      headshot_url = as.character(players[[headshot_col]]),
+     height = if ("height" %in% names(players)) as.numeric(players$height) else NA_real_,
+     weight = if ("weight" %in% names(players)) as.numeric(players$weight) else NA_real_,
+     age = if ("age" %in% names(players)) as.numeric(players$age) else NA_real_,
      stringsAsFactors = FALSE
    )
    
@@ -220,6 +223,9 @@ assert_required_cols <- function(df, required, context = "data frame") {
     "display_name",
     "headshot_url",
     "has_headshot",
+    "height",
+    "weight",
+    "age",
     "active"
   )
   

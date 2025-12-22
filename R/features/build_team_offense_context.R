@@ -85,6 +85,15 @@ build_team_offense_context <- function(seasons,
     stringsAsFactors = FALSE
   ) %>% filter(position == "WR", !is.na(team), team != "", !is.na(season), !is.na(week))
 
+  te_df <- data.frame(
+    team = teams,
+    season = seasons_vec,
+    week = weeks,
+    position = positions,
+    targets = wr_targets,
+    stringsAsFactors = FALSE
+  ) %>% filter(position == "TE", !is.na(team), team != "", !is.na(season), !is.na(week))
+
   # Aggregations ---------------------------------------------------------------
   qb_agg <- qb_df %>%
     group_by(team, season, week) %>%
@@ -122,13 +131,34 @@ build_team_offense_context <- function(seasons,
       team_wr_targets_total = sum(targets, na.rm = TRUE),
       team_wr_receiving_yards = sum(receiving_yards, na.rm = TRUE),
       team_wr_air_yards = if (all(is.na(air_yards))) NA_real_ else sum(air_yards, na.rm = TRUE),
+      team_wr_target_share_top1 = {
+        total <- sum(targets, na.rm = TRUE)
+        if (total > 0) max(targets, na.rm = TRUE) / total else NA_real_
+      },
+      team_wr_target_share_top2 = {
+        total <- sum(targets, na.rm = TRUE)
+        if (total > 0) {
+          targets_vec <- sort(targets, decreasing = TRUE, na.last = TRUE)
+          sum(head(targets_vec[!is.na(targets_vec)], 2)) / total
+        } else {
+          NA_real_
+        }
+      },
+      .groups = "drop"
+    )
+
+  te_agg <- te_df %>%
+    group_by(team, season, week) %>%
+    summarise(
+      team_te_targets_total = sum(targets, na.rm = TRUE),
       .groups = "drop"
     )
 
   key_rows <- bind_rows(
     qb_agg %>% select(team, season, week),
     rb_agg %>% select(team, season, week),
-    wr_agg %>% select(team, season, week)
+    wr_agg %>% select(team, season, week),
+    te_agg %>% select(team, season, week)
   ) %>%
     distinct()
 
@@ -139,7 +169,8 @@ build_team_offense_context <- function(seasons,
   team_offense_context <- key_rows %>%
     left_join(qb_agg, by = c("team", "season", "week")) %>%
     left_join(rb_agg, by = c("team", "season", "week")) %>%
-    left_join(wr_agg, by = c("team", "season", "week"))
+    left_join(wr_agg, by = c("team", "season", "week")) %>%
+    left_join(te_agg, by = c("team", "season", "week"))
 
   # Derive lag-1 features (previous week only), enforcing season boundaries
   value_cols <- setdiff(names(team_offense_context), c("team", "season", "week"))

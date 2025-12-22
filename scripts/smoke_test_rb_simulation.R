@@ -237,6 +237,102 @@ tryCatch({
   quit(status = 1)
 })
 
+# Test 6: Availability policy (counterfactual) behavior
+cat("\nTest 6: Availability policy (counterfactual) behavior...\n")
+tryCatch({
+  test_season <- 2024
+  schedules <- load_schedules(seasons = test_season, cache_only = TRUE)
+  if (nrow(schedules) == 0) {
+    stop("Schedule data is empty for season ", test_season)
+  }
+  
+  player_dim <- read_player_dim_cache()
+  rb_stats_season <- rb_stats[rb_stats$season == test_season, , drop = FALSE]
+  if (nrow(rb_stats_season) == 0) {
+    stop("No RB stats found for season ", test_season)
+  }
+  
+  candidate <- NULL
+  player_ids <- unique(rb_stats_season$player_id)
+  for (pid in player_ids) {
+    weeks_played <- sort(unique(rb_stats_season$week[rb_stats_season$player_id == pid]))
+    if (length(weeks_played) == 0) next
+    max_week <- max(weeks_played, na.rm = TRUE)
+    if (is.na(max_week) || max_week < 7) next
+    
+    missing_weeks <- setdiff(7:max_week, weeks_played)
+    if (length(missing_weeks) == 0) next
+    
+    team_row <- player_dim[player_dim$gsis_id == pid & player_dim$season == test_season, , drop = FALSE]
+    if (nrow(team_row) == 0 || is.na(team_row$team[1]) || team_row$team[1] == "") next
+    team <- team_row$team[1]
+    
+    for (wk in missing_weeks) {
+      sched_match <- schedules[
+        schedules$season == test_season &
+          schedules$week == wk &
+          (schedules$home_team == team | schedules$away_team == team),
+        , drop = FALSE
+      ]
+      if (nrow(sched_match) > 0) {
+        candidate <- list(player_id = pid, week = wk, team = team)
+        break
+      }
+    }
+    if (!is.null(candidate)) break
+  }
+  
+  if (is.null(candidate)) {
+    stop("No missing-week candidate found for counterfactual test in season ", test_season)
+  }
+  
+  cat("  Candidate:", candidate$player_id, "team", candidate$team, "week", candidate$week, "\n")
+  
+  # played_only should fail
+  err <- tryCatch({
+    run_rb_simulation(
+      gsis_id = candidate$player_id,
+      season = test_season,
+      week = candidate$week,
+      n_sims = 200,
+      availability_policy = "played_only"
+    )
+    NULL
+  }, error = function(e) e)
+  if (is.null(err)) {
+    stop("Expected played_only to fail for missing/inactive player-week.")
+  }
+  
+  # expected_active should succeed and mark counterfactual
+  result_cf <- run_rb_simulation(
+    gsis_id = candidate$player_id,
+    season = test_season,
+    week = candidate$week,
+    n_sims = 200,
+    availability_policy = "expected_active"
+  )
+  
+  if (is.null(result_cf$diagnostics$availability) ||
+      !isTRUE(result_cf$diagnostics$availability$counterfactual)) {
+    stop("Counterfactual availability not recorded in diagnostics.")
+  }
+  
+  if (is.null(result_cf$diagnostics$regime_selection) ||
+      result_cf$diagnostics$regime_selection$regime_selected != "counterfactual_prior") {
+    stop("Counterfactual regime fallback not selected.")
+  }
+  
+  if (is.null(result_cf$draws) || nrow(result_cf$draws) != 200) {
+    stop("Counterfactual simulation draws invalid.")
+  }
+  
+  cat("  Availability policy fallback: counterfactual_prior regime selected\n")
+  cat("  Counterfactual simulation succeeded\n")
+}, error = function(e) {
+  cat("ERROR: Availability policy test failed:", conditionMessage(e), "\n")
+  quit(status = 1)
+})
+
 cat("\nAll smoke tests passed!\n")
 quit(status = 0)
 

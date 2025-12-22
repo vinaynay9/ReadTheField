@@ -71,6 +71,10 @@ print_player_simulation <- function(result) {
   metadata <- result$metadata
   summary_df <- if (!is.null(result$summary) && nrow(result$summary) > 0) result$summary else data.frame()
   recent_games <- if (!is.null(result$recent_games) && nrow(result$recent_games) > 0) result$recent_games else data.frame()
+  position <- if (!is.null(metadata$position) && length(metadata$position) > 0) metadata$position else "RB"
+  position <- toupper(as.character(position))
+  if (is.na(position) || position == "") position <- "RB"
+  is_rb <- position == "RB"
   
   # Normalize summary stat names and derive totals if missing
   if (nrow(summary_df) > 0 && "stat" %in% names(summary_df)) {
@@ -78,7 +82,8 @@ print_player_simulation <- function(result) {
       rush_yards = "rushing_yards",
       rec_yards = "receiving_yards",
       rush_tds = "rushing_tds",
-      rec_tds = "receiving_tds"
+      rec_tds = "receiving_tds",
+      receiving_tds = "receiving_tds"
     )
     for (nm in names(rename_map)) {
       summary_df$stat[summary_df$stat == nm] <- rename_map[[nm]]
@@ -101,7 +106,11 @@ print_player_simulation <- function(result) {
   
   # HARD STOP: Validate summary dataframe has required stats
   if (nrow(summary_df) > 0) {
-    required_stats <- c("carries", "rushing_yards", "receptions", "receiving_yards", "total_touchdowns")
+    required_stats <- if (is_rb) {
+      c("carries", "rushing_yards", "receptions", "receiving_yards", "total_touchdowns")
+    } else {
+      c("targets", "receptions", "receiving_yards", "total_touchdowns")
+    }
     if ("stat" %in% names(summary_df)) {
       available_stats <- summary_df$stat
       missing_stats <- setdiff(required_stats, available_stats)
@@ -149,28 +158,65 @@ print_player_simulation <- function(result) {
   cat("Recent Performance (Last 3 Games):\n")
   cat(rep("-", 80), "\n", sep = "")
   
-  # Print table header
-  cat(sprintf("%-12s %-8s %8s %12s %8s %11s %10s %10s %12s\n",
-              "Date", "Opponent", "Carries", "Rush Yds", "Targets", 
-              "Receptions", "Rec Yds", "Total TDs", "PPR Points"))
-  cat(rep("-", 80), "\n", sep = "")
-  
+  if (is_rb) {
+    cat(sprintf("%-12s %-8s %8s %12s %8s %11s %10s %10s %12s\n",
+                "Date", "Opponent", "Carries", "Rush Yds", "Targets",
+                "Receptions", "Rec Yds", "Total TDs", "PPR Points"))
+    cat(rep("-", 80), "\n", sep = "")
+  } else {
+    cat(sprintf("%-12s %-8s %8s %11s %10s %10s %10s %10s %12s\n",
+                "Date", "Opponent", "Targets", "Receptions", "Rec Yds",
+                "Air Yds", "Rec TDs", "Total TDs", "PPR Points"))
+    cat(rep("-", 80), "\n", sep = "")
+  }
+
   if (nrow(recent_games) > 0) {
-    # Print each game
     for (i in 1:min(3, nrow(recent_games))) {
       row <- recent_games[i, ]
-      
-      # Get actual stats with safe extraction
-      carries <- if ("target_carries" %in% names(row)) {
-        val <- row$target_carries
+
+      targets <- if ("target_targets" %in% names(row)) {
+        val <- row$target_targets
         ifelse(is.na(val), 0, as.numeric(val))
-      } else if ("carries" %in% names(row)) {
-        val <- row$carries
+      } else if ("targets" %in% names(row)) {
+        val <- row$targets
         ifelse(is.na(val), 0, as.numeric(val))
       } else {
         0
       }
-      
+
+      receptions <- if ("target_receptions" %in% names(row)) {
+        val <- row$target_receptions
+        ifelse(is.na(val), 0, as.numeric(val))
+      } else if ("receptions" %in% names(row)) {
+        val <- row$receptions
+        ifelse(is.na(val), 0, as.numeric(val))
+      } else {
+        0
+      }
+
+      rec_yds <- if ("target_receiving_yards" %in% names(row)) {
+        val <- row$target_receiving_yards
+        ifelse(is.na(val), 0, as.numeric(val))
+      } else if ("target_rec_yards" %in% names(row)) {
+        val <- row$target_rec_yards
+        ifelse(is.na(val), 0, as.numeric(val))
+      } else if ("rec_yards" %in% names(row)) {
+        val <- row$rec_yards
+        ifelse(is.na(val), 0, as.numeric(val))
+      } else if ("receiving_yards" %in% names(row)) {
+        val <- row$receiving_yards
+        ifelse(is.na(val), 0, as.numeric(val))
+      } else {
+        0
+      }
+
+      air_yds <- if ("air_yards" %in% names(row)) {
+        val <- row$air_yards
+        ifelse(is.na(val), 0, as.numeric(val))
+      } else {
+        0
+      }
+
       rush_yds <- if ("target_rushing_yards" %in% names(row)) {
         val <- row$target_rushing_yards
         ifelse(is.na(val), 0, as.numeric(val))
@@ -183,58 +229,37 @@ print_player_simulation <- function(result) {
       } else {
         0
       }
-      
-      targets <- if ("target_targets" %in% names(row)) {
-        val <- row$target_targets
+
+      carries <- if ("target_carries" %in% names(row)) {
+        val <- row$target_carries
         ifelse(is.na(val), 0, as.numeric(val))
-      } else if ("targets" %in% names(row)) {
-        val <- row$targets
-        ifelse(is.na(val), 0, as.numeric(val))
-      } else {
-        0
-      }
-      
-      receptions <- if ("target_receptions" %in% names(row)) {
-        val <- row$target_receptions
-        ifelse(is.na(val), 0, as.numeric(val))
-      } else if ("receptions" %in% names(row)) {
-        val <- row$receptions
+      } else if ("carries" %in% names(row)) {
+        val <- row$carries
         ifelse(is.na(val), 0, as.numeric(val))
       } else {
         0
       }
-      
-      rec_yds <- if ("target_receiving_yards" %in% names(row)) {
-        val <- row$target_receiving_yards
-        ifelse(is.na(val), 0, as.numeric(val))
-      } else if ("target_rec_yards" %in% names(row)) {
-        val <- row$target_rec_yards
-        ifelse(is.na(val), 0, as.numeric(val))
-      } else if ("rec_yards" %in% names(row)) {
-        val <- row$rec_yards
-        ifelse(is.na(val), 0, as.numeric(val))
-      } else {
-        0
-      }
-      
+
       rush_tds <- if ("rushing_tds" %in% names(row)) {
         val <- row$rushing_tds
         ifelse(is.na(val), 0, as.numeric(val))
       } else {
         0
       }
-      
+
       rec_tds <- if ("receiving_tds" %in% names(row)) {
         val <- row$receiving_tds
+        ifelse(is.na(val), 0, as.numeric(val))
+      } else if ("target_rec_tds" %in% names(row)) {
+        val <- row$target_rec_tds
         ifelse(is.na(val), 0, as.numeric(val))
       } else {
         0
       }
       total_tds <- rush_tds + rec_tds
-      
-      # Compute PPR fantasy points safely
+
       ppr_points <- 0
-      if (exists("compute_ppr_rb")) {
+      if (is_rb && exists("compute_ppr_rb")) {
         tryCatch({
           ppr_points <- compute_ppr_rb(
             rush_yards = rush_yds,
@@ -249,8 +274,21 @@ print_player_simulation <- function(result) {
         }, error = function(e) {
           ppr_points <<- 0
         })
+      } else if (!is_rb && exists("compute_ppr_wrte")) {
+        tryCatch({
+          ppr_points <- compute_ppr_wrte(
+            receptions = receptions,
+            rec_yards = rec_yds,
+            rec_tds = rec_tds
+          )
+          if (is.null(ppr_points) || is.na(ppr_points) || length(ppr_points) == 0) {
+            ppr_points <- 0
+          }
+        }, error = function(e) {
+          ppr_points <<- 0
+        })
       }
-      
+
       gameday_str <- if ("gameday" %in% names(row) && !is.na(row$gameday)) {
         as.character(row$gameday)
       } else if ("game_date" %in% names(row) && !is.na(row$game_date)) {
@@ -258,28 +296,45 @@ print_player_simulation <- function(result) {
       } else {
         "(missing)"
       }
-      
+
       opponent_str <- if ("opponent" %in% names(row) && !is.na(row$opponent)) {
         as.character(row$opponent)
       } else {
         "(missing)"
       }
-      
-      cat(sprintf("%-12s %-8s %8.0f %12.0f %8.0f %11.0f %10.0f %10.0f %12.1f\n",
-                  gameday_str,
-                  opponent_str,
-                  carries,
-                  rush_yds,
-                  targets,
-                  receptions,
-                  rec_yds,
-                  total_tds,
-                  ppr_points))
+
+      if (is_rb) {
+        cat(sprintf("%-12s %-8s %8.0f %12.0f %8.0f %11.0f %10.0f %10.0f %12.1f\n",
+                    gameday_str,
+                    opponent_str,
+                    carries,
+                    rush_yds,
+                    targets,
+                    receptions,
+                    rec_yds,
+                    total_tds,
+                    ppr_points))
+      } else {
+        cat(sprintf("%-12s %-8s %8.0f %11.0f %10.0f %10.0f %10.0f %10.0f %12.1f\n",
+                    gameday_str,
+                    opponent_str,
+                    targets,
+                    receptions,
+                    rec_yds,
+                    air_yds,
+                    rec_tds,
+                    total_tds,
+                    ppr_points))
+      }
     }
   } else {
-    # Print placeholder row
-    cat(sprintf("%-12s %-8s %8s %12s %8s %11s %10s %10s %12s\n",
-                "(missing)", "(missing)", "0", "0", "0", "0", "0", "0", "0.0"))
+    if (is_rb) {
+      cat(sprintf("%-12s %-8s %8s %12s %8s %11s %10s %10s %12s\n",
+                  "(missing)", "(missing)", "0", "0", "0", "0", "0", "0", "0.0"))
+    } else {
+      cat(sprintf("%-12s %-8s %8s %11s %10s %10s %10s %10s %12s\n",
+                  "(missing)", "(missing)", "0", "0", "0", "0", "0", "0", "0.0"))
+    }
   }
   
   cat("\n")
@@ -293,23 +348,41 @@ print_player_simulation <- function(result) {
   
   carries_p50 <- get_summary_value(summary_df, "carries", "p50")
   rush_yds_p50 <- get_summary_value(summary_df, "rushing_yards", "p50")
+  targets_p50 <- get_summary_value(summary_df, "targets", "p50")
   receptions_p50 <- get_summary_value(summary_df, "receptions", "p50")
   rec_yds_p50 <- get_summary_value(summary_df, "receiving_yards", "p50")
   total_tds_p50 <- get_summary_value(summary_df, "total_touchdowns", "p50")
   
-  cat("   Carries:", safe_num(carries_p50, digits = 0), "\n")
-  cat("   Rush yards:", safe_num(rush_yds_p50, digits = 0), "\n")
-  cat("   Receptions:", safe_num(receptions_p50, digits = 0), "\n")
-  cat("   Receiving yards:", safe_num(rec_yds_p50, digits = 0), "\n")
-  cat("   Total TDs:", safe_num(total_tds_p50, digits = 2), "\n")
+  if (is_rb) {
+    cat("   Carries:", safe_num(carries_p50, digits = 0), "\n")
+    cat("   Rush yards:", safe_num(rush_yds_p50, digits = 0), "\n")
+    cat("   Receptions:", safe_num(receptions_p50, digits = 0), "\n")
+    cat("   Receiving yards:", safe_num(rec_yds_p50, digits = 0), "\n")
+    cat("   Total TDs:", safe_num(total_tds_p50, digits = 2), "\n")
+  } else {
+    cat("   Targets:", safe_num(targets_p50, digits = 0), "\n")
+    cat("   Receptions:", safe_num(receptions_p50, digits = 0), "\n")
+    cat("   Receiving yards:", safe_num(rec_yds_p50, digits = 0), "\n")
+    cat("   Total TDs:", safe_num(total_tds_p50, digits = 2), "\n")
+  }
   
   # Try to get PPR from summary, otherwise compute from stats
   ppr_p50 <- get_summary_value(summary_df, "fantasy_ppr", "p50")
-  if (is.na(ppr_p50) && exists("compute_ppr_rb")) {
+  if (is.na(ppr_p50) && is_rb && exists("compute_ppr_rb")) {
     tryCatch({
       ppr_p50 <- compute_ppr_rb(
         rush_yards = rush_yds_p50,
-        rush_tds = 0,  # TDs are in total_touchdowns now
+        rush_tds = 0,
+        receptions = receptions_p50,
+        rec_yards = rec_yds_p50,
+        rec_tds = 0
+      )
+    }, error = function(e) {
+      ppr_p50 <<- NA_real_
+    })
+  } else if (is.na(ppr_p50) && !is_rb && exists("compute_ppr_wrte")) {
+    tryCatch({
+      ppr_p50 <- compute_ppr_wrte(
         receptions = receptions_p50,
         rec_yards = rec_yds_p50,
         rec_tds = 0
@@ -328,35 +401,45 @@ print_player_simulation <- function(result) {
   cat("Confidence Intervals (25th / 50th / 75th Percentiles):\n")
   cat(rep("-", 80), "\n", sep = "")
   
-  # Carries
+  # Carries / Targets
   carries_p25 <- get_summary_value(summary_df, "carries", "p25")
   carries_p50 <- get_summary_value(summary_df, "carries", "p50")
   carries_p75 <- get_summary_value(summary_df, "carries", "p75")
-  
-  # Validate interval ordering (only if all values are non-NA)
-  if (!is.na(carries_p25) && !is.na(carries_p50) && !is.na(carries_p75)) {
-    if (carries_p25 > carries_p50 || carries_p50 > carries_p75) {
-      stop("CONFIDENCE INTERVAL ERROR: Carries intervals out of order (p25=", carries_p25, 
-           ", p50=", carries_p50, ", p75=", carries_p75, "). This indicates corrupted simulation data.")
+  targets_p25 <- get_summary_value(summary_df, "targets", "p25")
+  targets_p50 <- get_summary_value(summary_df, "targets", "p50")
+  targets_p75 <- get_summary_value(summary_df, "targets", "p75")
+
+  if (is_rb) {
+    if (!is.na(carries_p25) && !is.na(carries_p50) && !is.na(carries_p75)) {
+      if (carries_p25 > carries_p50 || carries_p50 > carries_p75) {
+        stop("CONFIDENCE INTERVAL ERROR: Carries intervals out of order (p25=", carries_p25,
+             ", p50=", carries_p50, ", p75=", carries_p75, ").")
+      }
     }
+    cat("   Carries:", safe_interval(carries_p25, carries_p50, carries_p75, digits = 0), "\n")
+  } else {
+    if (!is.na(targets_p25) && !is.na(targets_p50) && !is.na(targets_p75)) {
+      if (targets_p25 > targets_p50 || targets_p50 > targets_p75) {
+        stop("CONFIDENCE INTERVAL ERROR: Targets intervals out of order (p25=", targets_p25,
+             ", p50=", targets_p50, ", p75=", targets_p75, ").")
+      }
+    }
+    cat("   Targets:", safe_interval(targets_p25, targets_p50, targets_p75, digits = 0), "\n")
   }
-  
-  cat("   Carries:", safe_interval(carries_p25, carries_p50, carries_p75, digits = 0), "\n")
-  
-  # Rush yards
+
+  # Rush yards / Receiving yards
   rush_yds_p25 <- get_summary_value(summary_df, "rushing_yards", "p25")
   rush_yds_p50 <- get_summary_value(summary_df, "rushing_yards", "p50")
   rush_yds_p75 <- get_summary_value(summary_df, "rushing_yards", "p75")
-  
-  # Validate interval ordering
-  if (!is.na(rush_yds_p25) && !is.na(rush_yds_p50) && !is.na(rush_yds_p75)) {
-    if (rush_yds_p25 > rush_yds_p50 || rush_yds_p50 > rush_yds_p75) {
-      stop("CONFIDENCE INTERVAL ERROR: Rushing yards intervals out of order (p25=", rush_yds_p25, 
-           ", p50=", rush_yds_p50, ", p75=", rush_yds_p75, "). This indicates corrupted simulation data.")
+  if (is_rb) {
+    if (!is.na(rush_yds_p25) && !is.na(rush_yds_p50) && !is.na(rush_yds_p75)) {
+      if (rush_yds_p25 > rush_yds_p50 || rush_yds_p50 > rush_yds_p75) {
+        stop("CONFIDENCE INTERVAL ERROR: Rushing yards intervals out of order (p25=", rush_yds_p25,
+             ", p50=", rush_yds_p50, ", p75=", rush_yds_p75, ").")
+      }
     }
+    cat("   Rush yards:", safe_interval(rush_yds_p25, rush_yds_p50, rush_yds_p75, digits = 0), "\n")
   }
-  
-  cat("   Rush yards:", safe_interval(rush_yds_p25, rush_yds_p50, rush_yds_p75, digits = 0), "\n")
   
   # Receptions
   rec_p25 <- get_summary_value(summary_df, "receptions", "p25")
@@ -382,11 +465,21 @@ print_player_simulation <- function(result) {
   ppr_p75 <- get_summary_value(summary_df, "fantasy_ppr", "p75")
   
   # If PPR not in summary, try to compute from stats
-  if (is.na(ppr_p50) && exists("compute_ppr_rb")) {
+  if (is.na(ppr_p50) && is_rb && exists("compute_ppr_rb")) {
     tryCatch({
       ppr_p50 <- compute_ppr_rb(
         rush_yards = rush_yds_p50,
         rush_tds = 0,
+        receptions = rec_p50,
+        rec_yards = rec_yds_p50,
+        rec_tds = 0
+      )
+    }, error = function(e) {
+      ppr_p50 <<- NA_real_
+    })
+  } else if (is.na(ppr_p50) && !is_rb && exists("compute_ppr_wrte")) {
+    tryCatch({
+      ppr_p50 <- compute_ppr_wrte(
         receptions = rec_p50,
         rec_yards = rec_yds_p50,
         rec_tds = 0

@@ -278,7 +278,7 @@ if (failed == 0) {
   cat("\nDefensive features pipeline is fully operational!\n\n")
   cat("Next steps:\n")
   cat("  1. If cache doesn't exist: source('scripts/refresh_weekly_cache.R')\n")
-  cat("  2. Run simulation: source('scripts/run_bijan_simulation.R')\n")
+  cat("  2. Run simulation: source('scripts/run_rb_simulation_cli.R')\n")
   cat("  3. Check output shows defensive context values\n")
 } else {
   cat("\n✗ SOME TESTS FAILED\n")

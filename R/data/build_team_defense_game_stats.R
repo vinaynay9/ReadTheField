@@ -15,6 +15,7 @@
 # Dependencies:
 #   - nflreadr
 #   - R/data/load_schedules.R
+#   - R/data/build_weekly_player_layers.R (for normalize_team_abbr)
 #
 # Usage:
 #   source("R/data/load_schedules.R")
@@ -64,6 +65,13 @@ build_team_defense_game_stats <- function(seasons) {
   if (!requireNamespace("nflreadr", quietly = TRUE)) {
     stop("nflreadr package required but not installed. Cannot build defensive stats.")
   }
+  if (!exists("normalize_team_abbr")) {
+    if (file.exists("R/data/build_weekly_player_layers.R")) {
+      source("R/data/build_weekly_player_layers.R", local = TRUE)
+    } else {
+      stop("normalize_team_abbr not available. Cannot normalize defense team abbreviations.")
+    }
+  }
   
   message("Loading schedules...")
   # Load schedules function (assumes it's in the path)
@@ -88,8 +96,8 @@ build_team_defense_game_stats <- function(seasons) {
     season = schedules$season,
     week = schedules$week,
     gameday = schedules$gameday,
-    defense_team = schedules$home_team,
-    opponent_team = schedules$away_team,
+    defense_team = normalize_team_abbr(schedules$home_team, schedules$season),
+    opponent_team = normalize_team_abbr(schedules$away_team, schedules$season),
     opponent_score = schedules$away_score,
     stringsAsFactors = FALSE
   )
@@ -99,8 +107,8 @@ build_team_defense_game_stats <- function(seasons) {
     season = schedules$season,
     week = schedules$week,
     gameday = schedules$gameday,
-    defense_team = schedules$away_team,
-    opponent_team = schedules$home_team,
+    defense_team = normalize_team_abbr(schedules$away_team, schedules$season),
+    opponent_team = normalize_team_abbr(schedules$home_team, schedules$season),
     opponent_score = schedules$home_score,
     stringsAsFactors = FALSE
   )
@@ -149,6 +157,7 @@ build_team_defense_game_stats <- function(seasons) {
     tfl_col <- NULL
     int_col <- NULL
     ff_col <- NULL
+    passes_defended_col <- NULL
     
     # Try to find sacks column - check more variations
     for (col in c("sacks", "sack", "defensive_sacks", "sacks_total", "sack_total")) {
@@ -202,6 +211,14 @@ build_team_defense_game_stats <- function(seasons) {
         break
       }
     }
+
+    # Try to find passes defended column
+    for (col in c("passes_defended", "pass_defended", "passes_defensed", "pass_deflections", "pass_deflections_total")) {
+      if (col %in% names(player_def_stats)) {
+        passes_defended_col <- col
+        break
+      }
+    }
     
     # Build aggregation key
     if (!is.null(game_id_col) && game_id_col %in% names(player_def_stats)) {
@@ -226,7 +243,8 @@ build_team_defense_game_stats <- function(seasons) {
       list(
         def_sacks = if (!is.null(sacks_col)) safe_get(player_def_stats, sacks_col, 0) else rep(0L, nrow(player_def_stats)),
         def_tfl = if (!is.null(tfl_col)) safe_get(player_def_stats, tfl_col, 0) else rep(0L, nrow(player_def_stats)),
-        def_interceptions = if (!is.null(int_col)) safe_get(player_def_stats, int_col, 0) else rep(0L, nrow(player_def_stats))
+        def_interceptions = if (!is.null(int_col)) safe_get(player_def_stats, int_col, 0) else rep(0L, nrow(player_def_stats)),
+        def_passes_defended = if (!is.null(passes_defended_col)) safe_get(player_def_stats, passes_defended_col, 0) else rep(NA_integer_, nrow(player_def_stats))
       ),
       by = list(agg_key = player_def_stats$agg_key),
       FUN = sum,
@@ -248,6 +266,15 @@ build_team_defense_game_stats <- function(seasons) {
     }
     
     def_agg$agg_key <- NULL
+
+    # Normalize defense_team abbreviations to schedule standard
+    if ("defense_team" %in% names(def_agg)) {
+      if ("season" %in% names(def_agg)) {
+        def_agg$defense_team <- normalize_team_abbr(def_agg$defense_team, def_agg$season)
+      } else {
+        def_agg$defense_team <- normalize_team_abbr(def_agg$defense_team, NA)
+      }
+    }
     
   } else {
     # No defensive stats available - create empty aggregation
@@ -263,6 +290,7 @@ build_team_defense_game_stats <- function(seasons) {
   
   # Load offensive stats to compute yards allowed
   message("Loading offensive stats to compute yards allowed...")
+  off_agg <- NULL
   tryCatch({
     off_stats <- nflreadr::load_player_stats(seasons = seasons, stat_type = "offense")
     
@@ -306,7 +334,8 @@ build_team_defense_game_stats <- function(seasons) {
         list(
           rush_yards = safe_get_off(off_stats, "rushing_yards", 0),
           pass_yards = safe_get_off(off_stats, "passing_yards", 0),
-          rush_attempts = safe_get_off(off_stats, "carries", 0)
+          rush_attempts = safe_get_off(off_stats, "carries", 0),
+          pass_attempts = safe_get_off(off_stats, "pass_attempts", safe_get_off(off_stats, "attempts", 0))
         ),
         by = list(agg_key = off_stats$agg_key),
         FUN = sum,
@@ -326,10 +355,17 @@ build_team_defense_game_stats <- function(seasons) {
       }
       
       off_agg$agg_key <- NULL
+      if ("offense_team" %in% names(off_agg)) {
+        if ("season" %in% names(off_agg)) {
+          off_agg$offense_team <- normalize_team_abbr(off_agg$offense_team, off_agg$season)
+        } else {
+          off_agg$offense_team <- normalize_team_abbr(off_agg$offense_team, NA)
+        }
+      }
     }
   }, error = function(e) {
     warning(paste("Failed to load offensive stats:", e$message, "Yards allowed will be missing."))
-    off_agg <- NULL
+    off_agg <<- NULL
   })
   
   # Join defensive stats with game-team lookup
@@ -342,20 +378,26 @@ build_team_defense_game_stats <- function(seasons) {
   if (def_stats_available && nrow(def_agg) > 0) {
     if ("game_id" %in% names(def_agg) && "game_id" %in% names(result)) {
       # Join on game_id and defense_team
+      merge_cols <- c("game_id", "defense_team", "def_sacks", "def_tfl", "def_interceptions")
+      if ("def_passes_defended" %in% names(def_agg)) {
+        merge_cols <- c(merge_cols, "def_passes_defended")
+      }
       result <- merge(
         result,
-        def_agg[, c("game_id", "defense_team", "def_sacks", "def_tfl", 
-                   "def_interceptions")],
+        def_agg[, merge_cols],
         by = c("game_id", "defense_team"),
         all.x = TRUE,
         sort = FALSE
       )
     } else if ("season" %in% names(def_agg) && "week" %in% names(def_agg)) {
       # Join on season, week, defense_team (fallback when game_id not available)
+      merge_cols <- c("season", "week", "defense_team", "def_sacks", "def_tfl", "def_interceptions")
+      if ("def_passes_defended" %in% names(def_agg)) {
+        merge_cols <- c(merge_cols, "def_passes_defended")
+      }
       result <- merge(
         result,
-        def_agg[, c("season", "week", "defense_team", "def_sacks", "def_tfl",
-                   "def_interceptions")],
+        def_agg[, merge_cols],
         by = c("season", "week", "defense_team"),
         all.x = TRUE,
         sort = FALSE
@@ -365,12 +407,18 @@ build_team_defense_game_stats <- function(seasons) {
       result$def_sacks <- 0L
       result$def_tfl <- 0L
       result$def_interceptions <- NA_integer_
+      if ("def_passes_defended" %in% names(def_agg)) {
+        result$def_passes_defended <- NA_integer_
+      }
     }
   } else {
     # Initialize defensive stat columns as 0
     result$def_sacks <- 0L
     result$def_tfl <- 0L
     result$def_interceptions <- NA_integer_
+    if (!"def_passes_defended" %in% names(result)) {
+      result$def_passes_defended <- NA_integer_
+    }
   }
   
   # Join offensive stats to compute yards allowed
@@ -380,7 +428,7 @@ build_team_defense_game_stats <- function(seasons) {
     if ("game_id" %in% names(off_agg) && "game_id" %in% names(result)) {
       yards_allowed <- merge(
         result[, c("game_id", "opponent_team"), drop = FALSE],
-        off_agg[, c("game_id", "offense_team", "rush_yards", "pass_yards", "rush_attempts"), drop = FALSE],
+        off_agg[, c("game_id", "offense_team", "rush_yards", "pass_yards", "rush_attempts", "pass_attempts"), drop = FALSE],
         by.x = c("game_id", "opponent_team"),
         by.y = c("game_id", "offense_team"),
         all.x = TRUE,
@@ -389,7 +437,7 @@ build_team_defense_game_stats <- function(seasons) {
     } else if ("season" %in% names(off_agg) && "week" %in% names(off_agg)) {
       yards_allowed <- merge(
         result[, c("season", "week", "opponent_team"), drop = FALSE],
-        off_agg[, c("season", "week", "offense_team", "rush_yards", "pass_yards", "rush_attempts"), drop = FALSE],
+        off_agg[, c("season", "week", "offense_team", "rush_yards", "pass_yards", "rush_attempts", "pass_attempts"), drop = FALSE],
         by.x = c("season", "week", "opponent_team"),
         by.y = c("season", "week", "offense_team"),
         all.x = TRUE,
@@ -400,6 +448,7 @@ build_team_defense_game_stats <- function(seasons) {
       yards_allowed <- data.frame(
         rush_yards = NA_real_,
         pass_yards = NA_real_,
+        pass_attempts = NA_real_,
         stringsAsFactors = FALSE
       )
       if (nrow(result) > 0) {
@@ -410,6 +459,7 @@ build_team_defense_game_stats <- function(seasons) {
     result$rush_yards_allowed <- yards_allowed$rush_yards
     result$pass_yards_allowed <- yards_allowed$pass_yards
     result$rush_attempts_allowed <- yards_allowed$rush_attempts
+    result$pass_attempts_allowed <- yards_allowed$pass_attempts
     result$yards_source_found <- !is.na(yards_allowed$rush_yards) | !is.na(yards_allowed$pass_yards)
     result$total_yards_allowed <- ifelse(
       is.na(result$rush_yards_allowed) | is.na(result$pass_yards_allowed),
@@ -422,12 +472,20 @@ build_team_defense_game_stats <- function(seasons) {
       result$rush_yards_allowed / result$rush_attempts_allowed,
       NA_real_
     )
+    # Compute yards per pass allowed
+    result$yards_per_pass_allowed <- ifelse(
+      !is.na(result$pass_attempts_allowed) & result$pass_attempts_allowed > 0,
+      result$pass_yards_allowed / result$pass_attempts_allowed,
+      NA_real_
+    )
   } else {
     result$rush_yards_allowed <- NA_real_
     result$pass_yards_allowed <- NA_real_
     result$rush_attempts_allowed <- NA_integer_
+    result$pass_attempts_allowed <- NA_integer_
     result$total_yards_allowed <- NA_real_
     result$yards_per_rush_allowed <- NA_real_
+    result$yards_per_pass_allowed <- NA_real_
     result$yards_source_found <- FALSE
   }
   
@@ -554,11 +612,14 @@ empty_defense_game_stats_df <- function() {
     def_sacks = integer(0),
     def_tfl = integer(0),
     def_interceptions = integer(0),
+    def_passes_defended = integer(0),
     rush_yards_allowed = double(0),
     pass_yards_allowed = double(0),
     rush_attempts_allowed = integer(0),
+    pass_attempts_allowed = integer(0),
     total_yards_allowed = double(0),
     yards_per_rush_allowed = double(0),
+    yards_per_pass_allowed = double(0),
     points_allowed = integer(0),
     stringsAsFactors = FALSE
   )
