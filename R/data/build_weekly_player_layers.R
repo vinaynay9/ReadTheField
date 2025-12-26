@@ -13,6 +13,10 @@ wr_weekly_stats_path <- file.path("data", "cache", "wr_weekly_stats.parquet")
 wr_weekly_features_path <- file.path("data", "processed", "wr_weekly_features.parquet")
 te_weekly_stats_path <- file.path("data", "cache", "te_weekly_stats.parquet")
 te_weekly_features_path <- file.path("data", "processed", "te_weekly_features.parquet")
+qb_weekly_stats_path <- file.path("data", "cache", "qb_weekly_stats.parquet")
+qb_weekly_features_path <- file.path("data", "processed", "qb_player_weekly_features.parquet")
+k_weekly_stats_path <- file.path("data", "cache", "k_weekly_stats.parquet")
+k_weekly_features_path <- file.path("data", "processed", "k_weekly_features.parquet")
 player_directory_path <- file.path("data", "cache", "player_directory.parquet")
 
 # Ensure cache helpers are available for build_game_key
@@ -983,6 +987,98 @@ build_te_weekly_stats <- function(seasons,
   te_dataset
 }
 
+build_qb_weekly_stats <- function(seasons,
+                                  season_type = "REG",
+                                  write_cache = TRUE) {
+  stats <- load_weekly_player_stats_from_nflreadr(seasons, season_type)
+  
+  positions <- normalize_position(select_first_available(stats, c("position", "position_group"), NA))
+  stats$position <- positions
+  
+  qb_mask <- stats$position == "QB"
+  if (sum(qb_mask, na.rm = TRUE) == 0) {
+    warning("No QB rows found in weekly player stats.", call. = FALSE)
+    return(data.frame())
+  }
+  
+  qb_dataset <- stats[qb_mask, , drop = FALSE]
+  qb_dataset <- qb_dataset[!is.na(qb_dataset$player_id) & !is.na(qb_dataset$season) & !is.na(qb_dataset$week), , drop = FALSE]
+
+  if (file.exists(player_week_identity_path)) {
+    identity <- read_parquet_cache(player_week_identity_path, "Player week identity cache", "scripts/refresh_weekly_cache.R")
+    identity_cols <- intersect(c("player_id", "season", "week", "game_id", "gameday", "opponent", "home_away", "is_home", "game_key"), names(identity))
+    qb_dataset <- merge(qb_dataset, identity[, identity_cols, drop = FALSE],
+                        by = c("player_id", "season", "week"), all.x = TRUE, suffixes = c("", "_ident"))
+    if ("home_away_ident" %in% names(qb_dataset)) {
+      qb_dataset$home_away <- ifelse(is.na(qb_dataset$home_away), qb_dataset$home_away_ident, qb_dataset$home_away)
+    }
+    if ("is_home" %in% names(qb_dataset)) {
+      qb_dataset$is_home <- as.integer(qb_dataset$is_home)
+    }
+    helper_cols <- grep("(_ident)$", names(qb_dataset), value = TRUE)
+    if (length(helper_cols) > 0) {
+      qb_dataset <- qb_dataset[, setdiff(names(qb_dataset), helper_cols), drop = FALSE]
+    }
+  }
+  if (!"opponent" %in% names(qb_dataset)) {
+    qb_dataset$opponent <- normalize_team_abbr(select_first_available(qb_dataset, c("opponent_team", "opp_team", "defteam"), NA), qb_dataset$season)
+  }
+  qb_dataset$defense_team <- qb_dataset$opponent
+  qb_dataset <- qb_dataset[!is.na(qb_dataset$opponent) & qb_dataset$opponent != "", , drop = FALSE]
+  
+  if (write_cache) {
+    write_parquet_cache(qb_dataset, qb_weekly_stats_path, "QB weekly stats")
+  }
+  
+  qb_dataset
+}
+
+build_k_weekly_stats <- function(seasons,
+                                 season_type = "REG",
+                                 write_cache = TRUE) {
+  stats <- load_weekly_player_stats_from_nflreadr(seasons, season_type)
+  
+  positions <- normalize_position(select_first_available(stats, c("position", "position_group"), NA))
+  stats$position <- positions
+  
+  k_mask <- stats$position == "K"
+  if (sum(k_mask, na.rm = TRUE) == 0) {
+    warning("No K rows found in weekly player stats.", call. = FALSE)
+    return(data.frame())
+  }
+  
+  k_dataset <- stats[k_mask, , drop = FALSE]
+  k_dataset <- k_dataset[!is.na(k_dataset$player_id) & !is.na(k_dataset$season) & !is.na(k_dataset$week), , drop = FALSE]
+
+  if (file.exists(player_week_identity_path)) {
+    identity <- read_parquet_cache(player_week_identity_path, "Player week identity cache", "scripts/refresh_weekly_cache.R")
+    identity_cols <- intersect(c("player_id", "season", "week", "game_id", "gameday", "opponent", "home_away", "is_home", "game_key"), names(identity))
+    k_dataset <- merge(k_dataset, identity[, identity_cols, drop = FALSE],
+                       by = c("player_id", "season", "week"), all.x = TRUE, suffixes = c("", "_ident"))
+    if ("home_away_ident" %in% names(k_dataset)) {
+      k_dataset$home_away <- ifelse(is.na(k_dataset$home_away), k_dataset$home_away_ident, k_dataset$home_away)
+    }
+    if ("is_home" %in% names(k_dataset)) {
+      k_dataset$is_home <- as.integer(k_dataset$is_home)
+    }
+    helper_cols <- grep("(_ident)$", names(k_dataset), value = TRUE)
+    if (length(helper_cols) > 0) {
+      k_dataset <- k_dataset[, setdiff(names(k_dataset), helper_cols), drop = FALSE]
+    }
+  }
+  if (!"opponent" %in% names(k_dataset)) {
+    k_dataset$opponent <- normalize_team_abbr(select_first_available(k_dataset, c("opponent_team", "opp_team", "defteam"), NA), k_dataset$season)
+  }
+  k_dataset$defense_team <- k_dataset$opponent
+  k_dataset <- k_dataset[!is.na(k_dataset$opponent) & k_dataset$opponent != "", , drop = FALSE]
+  
+  if (write_cache) {
+    write_parquet_cache(k_dataset, k_weekly_stats_path, "K weekly stats")
+  }
+  
+  k_dataset
+}
+
 read_player_week_identity_cache <- function() {
   read_parquet_cache(player_week_identity_path, "Player week identity cache", "scripts/refresh_weekly_cache.R")
 }
@@ -1009,6 +1105,22 @@ read_te_weekly_stats_cache <- function() {
 
 read_te_weekly_features_cache <- function() {
   read_parquet_cache(te_weekly_features_path, "TE weekly features cache", "scripts/refresh_weekly_cache.R")
+}
+
+read_qb_weekly_stats_cache <- function() {
+  read_parquet_cache(qb_weekly_stats_path, "QB weekly stats cache", "scripts/refresh_weekly_cache.R")
+}
+
+read_qb_weekly_features_cache <- function() {
+  read_parquet_cache(qb_weekly_features_path, "QB weekly features cache", "scripts/refresh_weekly_cache.R")
+}
+
+read_k_weekly_stats_cache <- function() {
+  read_parquet_cache(k_weekly_stats_path, "K weekly stats cache", "scripts/refresh_weekly_cache.R")
+}
+
+read_k_weekly_features_cache <- function() {
+  read_parquet_cache(k_weekly_features_path, "K weekly features cache", "scripts/refresh_weekly_cache.R")
 }
 
 #' Build player directory cache from nflreadr

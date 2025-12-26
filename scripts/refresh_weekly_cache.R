@@ -214,6 +214,26 @@ if (nrow(te_stats) == 0) {
 }
 cat("  Built TE weekly stats cache with", nrow(te_stats), "rows\n")
 
+qb_stats <- build_qb_weekly_stats(
+  seasons = seasons_to_refresh,
+  season_type = "REG",
+  write_cache = TRUE
+)
+if (nrow(qb_stats) == 0) {
+  stop("QB weekly stats cache built with zero rows; ensure nflreadr returned QB rows.")
+}
+cat("  Built QB weekly stats cache with", nrow(qb_stats), "rows\n")
+
+k_stats <- build_k_weekly_stats(
+  seasons = seasons_to_refresh,
+  season_type = "REG",
+  write_cache = TRUE
+)
+if (nrow(k_stats) == 0) {
+  stop("K weekly stats cache built with zero rows; ensure nflreadr returned K rows.")
+}
+cat("  Built K weekly stats cache with", nrow(k_stats), "rows\n")
+
 # ------------------------------------------------------------------
 # Build defensive weekly features FIRST (dependency for RB features)
 # ------------------------------------------------------------------
@@ -453,6 +473,67 @@ if (nrow(te_features) == 0) {
 
 cat("  Built TE weekly features cache with", nrow(te_features), "rows\n")
 
+# ------------------------------------------------------------------
+# Build QB rolling features (player-level QB modeling cache)
+# ------------------------------------------------------------------
+
+cat("  Computing QB rolling features (player-level)...\n")
+if (!exists("assemble_qb_weekly_features")) {
+  if (file.exists("R/positions/QB/assemble_qb_training_data.R")) {
+    source("R/positions/QB/assemble_qb_training_data.R")
+  } else {
+    stop("Missing R/positions/QB/assemble_qb_training_data.R")
+  }
+}
+qb_features_player <- assemble_qb_weekly_features(qb_stats)
+
+log_roll_window_summary(qb_features_player, "qb_player_weekly_features", expected_windows = c(1, 3, 5))
+validate_roll_na_weeks(qb_features_player, "qb_player_weekly_features", 1, 1)
+validate_roll_na_weeks(qb_features_player, "qb_player_weekly_features", 3, 1:2)
+validate_roll_na_weeks(qb_features_player, "qb_player_weekly_features", 5, 1:4)
+
+if (!requireNamespace("arrow", quietly = TRUE)) {
+  stop("Package 'arrow' is required to write QB weekly features. Install with install.packages('arrow').")
+}
+qb_weekly_features_player_path <- file.path("data", "processed", "qb_player_weekly_features.parquet")
+dir.create(dirname(qb_weekly_features_player_path), recursive = TRUE, showWarnings = FALSE)
+arrow::write_parquet(qb_features_player, qb_weekly_features_player_path)
+
+if (nrow(qb_features_player) == 0) {
+  stop("QB weekly features cache empty after feature computation.")
+}
+cat("  Built QB weekly features cache with", nrow(qb_features_player), "rows\n")
+
+# ------------------------------------------------------------------
+# Build K rolling features
+# ------------------------------------------------------------------
+
+cat("  Computing K rolling features...\n")
+if (!exists("assemble_k_weekly_features")) {
+  if (file.exists("R/positions/K/assemble_k_training_data.R")) {
+    source("R/positions/K/assemble_k_training_data.R")
+  } else {
+    stop("Missing R/positions/K/assemble_k_training_data.R")
+  }
+}
+k_features <- assemble_k_weekly_features(k_stats)
+
+log_roll_window_summary(k_features, "k_weekly_features", expected_windows = c(1, 3, 5))
+validate_roll_na_weeks(k_features, "k_weekly_features", 1, 1)
+validate_roll_na_weeks(k_features, "k_weekly_features", 3, 1:2)
+validate_roll_na_weeks(k_features, "k_weekly_features", 5, 1:4)
+
+if (!requireNamespace("arrow", quietly = TRUE)) {
+  stop("Package 'arrow' is required to write K weekly features. Install with install.packages('arrow').")
+}
+dir.create(dirname(k_weekly_features_path), recursive = TRUE, showWarnings = FALSE)
+arrow::write_parquet(k_features, k_weekly_features_path)
+
+if (nrow(k_features) == 0) {
+  stop("K weekly features cache empty after feature computation.")
+}
+cat("  Built K weekly features cache with", nrow(k_features), "rows\n")
+
 # Get cache paths for output
 player_directory_path <- file.path("data", "cache", "player_directory.parquet")
 player_week_identity_path <- file.path("data", "cache", "player_week_identity.parquet")
@@ -462,6 +543,10 @@ wr_weekly_stats_path <- file.path("data", "cache", "wr_weekly_stats.parquet")
 wr_weekly_features_path <- file.path("data", "processed", "wr_weekly_features.parquet")
 te_weekly_stats_path <- file.path("data", "cache", "te_weekly_stats.parquet")
 te_weekly_features_path <- file.path("data", "processed", "te_weekly_features.parquet")
+qb_weekly_stats_path <- file.path("data", "cache", "qb_weekly_stats.parquet")
+qb_player_weekly_features_path <- file.path("data", "processed", "qb_player_weekly_features.parquet")
+k_weekly_stats_path <- file.path("data", "cache", "k_weekly_stats.parquet")
+k_weekly_features_path <- file.path("data", "processed", "k_weekly_features.parquet")
 defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
 player_dim_path <- file.path("data", "processed", "player_dim.parquet")
 team_offense_context_path <- file.path("data", "processed", "team_offense_context.parquet")
@@ -477,6 +562,9 @@ cat("\n  -", wr_weekly_stats_path)
 cat("\n  -", wr_weekly_features_path)
 cat("\n  -", te_weekly_stats_path)
 cat("\n  -", te_weekly_features_path)
+if (file.exists(qb_weekly_stats_path)) {
+  cat("\n  -", qb_weekly_stats_path)
+}
 if (file.exists(defense_weekly_features_path)) {
   cat("\n  -", defense_weekly_features_path)
 }
@@ -488,6 +576,15 @@ if (file.exists(team_offense_context_path)) {
 }
 if (file.exists(qb_weekly_features_path)) {
   cat("\n  -", qb_weekly_features_path)
+}
+if (file.exists(qb_player_weekly_features_path)) {
+  cat("\n  -", qb_player_weekly_features_path)
+}
+if (file.exists(k_weekly_stats_path)) {
+  cat("\n  -", k_weekly_stats_path)
+}
+if (file.exists(k_weekly_features_path)) {
+  cat("\n  -", k_weekly_features_path)
 }
 if (file.exists(prior_season_player_stats_path)) {
   cat("\n  -", prior_season_player_stats_path)

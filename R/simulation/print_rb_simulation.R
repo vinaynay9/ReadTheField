@@ -1,5 +1,5 @@
 # Print RB Simulation - Technical/Process Diagnostics
-# TODO: Filename remains RB for legacy reasons; this printer is position-aware (RB/WR/TE).
+# TODO: Filename remains RB for legacy reasons; this printer is position-aware (RB/WR/TE/QB/K).
 #
 # This function prints technical details about the simulation process:
 # - Number of simulations run
@@ -393,6 +393,11 @@ print_rb_simulation <- function(result) {
       "def_sacks_defense_forced_roll1", "def_sacks_defense_forced_roll5",
       "def_tackles_for_loss_defense_forced_roll1", "def_tackles_for_loss_defense_forced_roll5",
       "def_points_defense_allowed_roll1", "def_points_defense_allowed_roll5"
+    )
+  } else if (position == "K") {
+    c(
+      "def_sacks_defense_forced_roll1", "def_sacks_defense_forced_roll3", "def_sacks_defense_forced_roll5",
+      "def_points_defense_allowed_roll1", "def_points_defense_allowed_roll3", "def_points_defense_allowed_roll5"
     )
   } else {
     c(

@@ -67,11 +67,15 @@ simulate_player_game <- function(gsis_id,
     "run_rb_simulation",
     "run_wr_simulation",
     "run_te_simulation",
+    "run_qb_simulation",
+    "run_k_simulation",
     "build_game_key",
     "load_schedules",
     "build_future_rb_feature_row",
     "build_future_wr_feature_row",
-    "build_future_te_feature_row"
+    "build_future_te_feature_row",
+    "build_future_qb_feature_row",
+    "build_future_k_feature_row"
   )
   missing_funcs <- required_funcs[!sapply(required_funcs, exists)]
   if (length(missing_funcs) > 0) {
@@ -250,6 +254,24 @@ simulate_player_game <- function(gsis_id,
         home_away = resolved_home_away,
         game_date = NULL
       ),
+      QB = build_future_qb_feature_row(
+        player_id = gsis_id,
+        season = season,
+        week = week,
+        team = resolved_team,
+        opponent = resolved_opponent,
+        home_away = resolved_home_away,
+        game_date = NULL
+      ),
+      K = build_future_k_feature_row(
+        player_id = gsis_id,
+        season = season,
+        week = week,
+        team = resolved_team,
+        opponent = resolved_opponent,
+        home_away = resolved_home_away,
+        game_date = NULL
+      ),
       return(make_error(
         "INSUFFICIENT_HISTORY",
         paste0("simulate_player_game does not support position ", player_position, " for counterfactual simulation."),
@@ -323,6 +345,24 @@ simulate_player_game <- function(gsis_id,
         home_away = resolved_home_away,
         game_date = NULL
       ),
+      QB = build_future_qb_feature_row(
+        player_id = gsis_id,
+        season = season,
+        week = week,
+        team = resolved_team,
+        opponent = resolved_opponent,
+        home_away = resolved_home_away,
+        game_date = NULL
+      ),
+      K = build_future_k_feature_row(
+        player_id = gsis_id,
+        season = season,
+        week = week,
+        team = resolved_team,
+        opponent = resolved_opponent,
+        home_away = resolved_home_away,
+        game_date = NULL
+      ),
       stop("simulate_player_game does not support position ", player_position, " for future simulation.")
     )
     synthetic_feature_row$player_name <- dim_row$full_name[1]
@@ -374,6 +414,30 @@ simulate_player_game <- function(gsis_id,
         availability_policy = availability_policy
       ),
       TE = run_te_simulation(
+        gsis_id = gsis_id,
+        season = season,
+        week = week,
+        n_sims = n_sims,
+        game_date = resolved_game_date,
+        seasons_train = seasons_train,
+        mode_policy = policy,
+        synthetic_feature_row = synthetic_feature_row,
+        is_future = is_future,
+        availability_policy = availability_policy
+      ),
+      QB = run_qb_simulation(
+        gsis_id = gsis_id,
+        season = season,
+        week = week,
+        n_sims = n_sims,
+        game_date = resolved_game_date,
+        seasons_train = seasons_train,
+        mode_policy = policy,
+        synthetic_feature_row = synthetic_feature_row,
+        is_future = is_future,
+        availability_policy = availability_policy
+      ),
+      K = run_k_simulation(
         gsis_id = gsis_id,
         season = season,
         week = week,

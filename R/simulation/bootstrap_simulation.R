@@ -89,6 +89,50 @@ if (!exists("get_te_regimes")) {
 if (!exists("get_te_model_key")) {
   stop("TE v1 regime system not loaded: get_te_model_key() missing")
 }
+
+# ============================================================================
+# QB/K V1 SCHEMAS + REGIMES
+# ============================================================================
+
+if (file.exists("R/positions/QB/qb_schema_v1.R")) {
+  source("R/positions/QB/qb_schema_v1.R", local = TRUE)
+} else {
+  stop("Missing R/positions/QB/qb_schema_v1.R - QB v1 schema is required for simulation")
+}
+if (!exists("get_qb_v1_targets")) {
+  stop("QB v1 schema not loaded: get_qb_v1_targets() missing")
+}
+if (file.exists("R/positions/QB/qb_regime_v1.R")) {
+  source("R/positions/QB/qb_regime_v1.R", local = TRUE)
+} else {
+  stop("Missing R/positions/QB/qb_regime_v1.R - QB v1 regime system is required for simulation")
+}
+if (!exists("get_qb_regimes")) {
+  stop("QB v1 regime system not loaded: get_qb_regimes() missing")
+}
+if (!exists("get_qb_model_key")) {
+  stop("QB v1 regime system not loaded: get_qb_model_key() missing")
+}
+
+if (file.exists("R/positions/K/k_schema_v1.R")) {
+  source("R/positions/K/k_schema_v1.R", local = TRUE)
+} else {
+  stop("Missing R/positions/K/k_schema_v1.R - K v1 schema is required for simulation")
+}
+if (!exists("get_k_v1_targets")) {
+  stop("K v1 schema not loaded: get_k_v1_targets() missing")
+}
+if (file.exists("R/positions/K/k_regime_v1.R")) {
+  source("R/positions/K/k_regime_v1.R", local = TRUE)
+} else {
+  stop("Missing R/positions/K/k_regime_v1.R - K v1 regime system is required for simulation")
+}
+if (!exists("get_k_regimes")) {
+  stop("K v1 regime system not loaded: get_k_regimes() missing")
+}
+if (!exists("get_k_model_key")) {
+  stop("K v1 regime system not loaded: get_k_model_key() missing")
+}
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
@@ -180,6 +224,22 @@ if (!exists("read_te_weekly_features_cache")) {
   }
 }
 
+if (!exists("read_qb_weekly_features_cache")) {
+  if (file.exists("R/data/build_weekly_player_layers.R")) {
+    source("R/data/build_weekly_player_layers.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: read_qb_weekly_features_cache not loaded")
+  }
+}
+
+if (!exists("read_k_weekly_features_cache")) {
+  if (file.exists("R/data/build_weekly_player_layers.R")) {
+    source("R/data/build_weekly_player_layers.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: read_k_weekly_features_cache not loaded")
+  }
+}
+
 # ============================================================================
 # ASSEMBLY FUNCTIONS
 # ============================================================================
@@ -206,6 +266,22 @@ if (!exists("assemble_te_weekly_features")) {
     source("R/positions/TE/assemble_te_training_data.R", local = TRUE)
   } else {
     stop("Simulation bootstrap incomplete: R/positions/TE/assemble_te_training_data.R not found")
+  }
+}
+
+if (!exists("assemble_qb_weekly_features")) {
+  if (file.exists("R/positions/QB/assemble_qb_training_data.R")) {
+    source("R/positions/QB/assemble_qb_training_data.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/positions/QB/assemble_qb_training_data.R not found")
+  }
+}
+
+if (!exists("assemble_k_weekly_features")) {
+  if (file.exists("R/positions/K/assemble_k_training_data.R")) {
+    source("R/positions/K/assemble_k_training_data.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/positions/K/assemble_k_training_data.R not found")
   }
 }
 
@@ -238,6 +314,22 @@ if (!exists("fit_te_models")) {
   }
 }
 
+if (!exists("fit_qb_models")) {
+  if (file.exists("R/positions/QB/fit_qb_models.R")) {
+    source("R/positions/QB/fit_qb_models.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/positions/QB/fit_qb_models.R not found")
+  }
+}
+
+if (!exists("fit_k_models")) {
+  if (file.exists("R/positions/K/fit_k_models.R")) {
+    source("R/positions/K/fit_k_models.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/positions/K/fit_k_models.R not found")
+  }
+}
+
 # ============================================================================
 # SIMULATION CORE FUNCTIONS
 # ============================================================================
@@ -264,6 +356,22 @@ if (!exists("simulate_te_game")) {
     source("R/positions/TE/simulate_te_game.R", local = TRUE)
   } else {
     stop("Simulation bootstrap incomplete: R/positions/TE/simulate_te_game.R not found")
+  }
+}
+
+if (!exists("simulate_qb_game")) {
+  if (file.exists("R/positions/QB/simulate_qb_game.R")) {
+    source("R/positions/QB/simulate_qb_game.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/positions/QB/simulate_qb_game.R not found")
+  }
+}
+
+if (!exists("simulate_k_game")) {
+  if (file.exists("R/positions/K/simulate_k_game.R")) {
+    source("R/positions/K/simulate_k_game.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/positions/K/simulate_k_game.R not found")
   }
 }
 
@@ -334,6 +442,22 @@ if (!exists("build_te_feature_row_for_simulation")) {
   }
 }
 
+if (!exists("build_qb_feature_row_for_simulation")) {
+  if (file.exists("R/positions/QB/build_qb_feature_row_for_simulation.R")) {
+    source("R/positions/QB/build_qb_feature_row_for_simulation.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/positions/QB/build_qb_feature_row_for_simulation.R not found")
+  }
+}
+
+if (!exists("build_k_feature_row_for_simulation")) {
+  if (file.exists("R/positions/K/build_k_feature_row_for_simulation.R")) {
+    source("R/positions/K/build_k_feature_row_for_simulation.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/positions/K/build_k_feature_row_for_simulation.R not found")
+  }
+}
+
 # Future feature row builder
 if (!exists("build_future_rb_feature_row")) {
   if (file.exists("R/simulation/build_future_rb_feature_row.R")) {
@@ -354,6 +478,22 @@ if (!exists("build_future_te_feature_row")) {
     source("R/simulation/build_future_te_feature_row.R", local = TRUE)
   } else {
     stop("Simulation bootstrap incomplete: R/simulation/build_future_te_feature_row.R not found")
+  }
+}
+
+if (!exists("build_future_qb_feature_row")) {
+  if (file.exists("R/simulation/build_future_qb_feature_row.R")) {
+    source("R/simulation/build_future_qb_feature_row.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/simulation/build_future_qb_feature_row.R not found")
+  }
+}
+
+if (!exists("build_future_k_feature_row")) {
+  if (file.exists("R/simulation/build_future_k_feature_row.R")) {
+    source("R/simulation/build_future_k_feature_row.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/simulation/build_future_k_feature_row.R not found")
   }
 }
 
@@ -382,6 +522,22 @@ if (!exists("run_te_simulation")) {
   }
 }
 
+if (!exists("run_qb_simulation")) {
+  if (file.exists("R/positions/QB/run_qb_simulation.R")) {
+    source("R/positions/QB/run_qb_simulation.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/positions/QB/run_qb_simulation.R not found")
+  }
+}
+
+if (!exists("run_k_simulation")) {
+  if (file.exists("R/positions/K/run_k_simulation.R")) {
+    source("R/positions/K/run_k_simulation.R", local = TRUE)
+  } else {
+    stop("Simulation bootstrap incomplete: R/positions/K/run_k_simulation.R not found")
+  }
+}
+
 # High-level player simulation
 if (!exists("simulate_player_game")) {
   if (file.exists("R/simulation/simulate_player_game.R")) {
@@ -405,6 +561,12 @@ required_functions <- c(
   "get_te_v1_targets",
   "get_te_regimes",
   "get_te_model_key",
+  "get_qb_v1_targets",
+  "get_qb_regimes",
+  "get_qb_model_key",
+  "get_k_v1_targets",
+  "get_k_regimes",
+  "get_k_model_key",
   "get_passing_defense_roll1_features",
   "get_passing_defense_roll3_features",
   "get_passing_defense_roll5_features",
@@ -421,15 +583,25 @@ required_functions <- c(
   "read_wr_weekly_features_cache",
   "read_te_weekly_stats_cache",
   "read_te_weekly_features_cache",
+  "read_qb_weekly_stats_cache",
+  "read_qb_weekly_features_cache",
+  "read_k_weekly_stats_cache",
+  "read_k_weekly_features_cache",
   "assemble_rb_weekly_features",
   "assemble_wr_weekly_features",
   "assemble_te_weekly_features",
+  "assemble_qb_weekly_features",
+  "assemble_k_weekly_features",
   "fit_rb_models",
   "fit_wr_models",
   "fit_te_models",
+  "fit_qb_models",
+  "fit_k_models",
   "simulate_rb_game",
   "simulate_wr_game",
   "simulate_te_game",
+  "simulate_qb_game",
+  "simulate_k_game",
   "validate_rb_models",
   "resolve_player_game",
   "resolve_player_search",
@@ -442,12 +614,18 @@ required_functions <- c(
   "build_rb_feature_row_for_simulation",
   "build_wr_feature_row_for_simulation",
   "build_te_feature_row_for_simulation",
+  "build_qb_feature_row_for_simulation",
+  "build_k_feature_row_for_simulation",
   "build_future_rb_feature_row",
   "build_future_wr_feature_row",
   "build_future_te_feature_row",
+  "build_future_qb_feature_row",
+  "build_future_k_feature_row",
   "run_rb_simulation",
   "run_wr_simulation",
   "run_te_simulation",
+  "run_qb_simulation",
+  "run_k_simulation",
   "simulate_player_game",
   "compute_ppr_rb"
 )
