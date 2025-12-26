@@ -29,16 +29,16 @@ get_rb_feature_groups <- function() {
       "position"
     ),
     team_context_features = c(
-      "team_qb_pass_attempts_roll1", "team_qb_pass_yards_roll1", "team_qb_pass_tds_roll1",
+      "target_pass_attempts_qb_roll1", "target_pass_yards_qb_roll1", "target_pass_tds_qb_roll1",
       "team_rb_carries_total_roll1", "team_rb_targets_total_roll1",
       "team_rb_carry_share_top1_roll1", "team_rb_carry_share_top2_roll1",
       "team_wr_targets_total_roll1", "team_wr_receiving_yards_roll1", "team_wr_air_yards_roll1"
     ),
     defense_context_features = c(
-      "opp_rush_yards_allowed_roll1", "opp_yards_per_rush_allowed_roll1",
-      "opp_points_allowed_roll1", "opp_sacks_roll1", "opp_tfl_roll1", "opp_int_roll1",
-      "opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
-      "opp_points_allowed_roll5", "opp_sacks_roll5", "opp_tfl_roll5", "opp_int_roll5",
+      "def_rush_yards_defense_allowed_roll1", "def_yards_per_rush_defense_allowed_roll1",
+      "def_points_defense_allowed_roll1", "def_sacks_defense_forced_roll1", "def_tackles_for_loss_defense_forced_roll1", "def_interceptions_defense_caught_roll1",
+      "def_rush_yards_defense_allowed_roll5", "def_yards_per_rush_defense_allowed_roll5",
+      "def_points_defense_allowed_roll5", "def_sacks_defense_forced_roll5", "def_tackles_for_loss_defense_forced_roll5", "def_interceptions_defense_caught_roll5",
       "defense_data_available", "rolling_window_complete"
     ),
     home_away_features = c(

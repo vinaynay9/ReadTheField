@@ -1,4 +1,5 @@
 # Run RB Simulation CLI - Generalized
+# TODO: Script name remains RB for legacy reasons; entrypoint is position-aware.
 #
 # Usage (Rscript):
 #   Rscript scripts/run_rb_simulation_cli.R --player="Christian McCaffrey" --season=2024 --week=8 --n_sims=5000
@@ -105,6 +106,8 @@ main <- function() {
   target_week <- NA_integer_
   n_sims <- 5000L
   availability_policy <- "played_only"
+  counterfactual_mode <- FALSE
+  counterfactual_team <- NA_character_
   
   args <- commandArgs(trailingOnly = TRUE)
   if (length(args) > 0) {
@@ -119,6 +122,10 @@ main <- function() {
         n_sims <- as.integer(sub("^--n_sims=", "", arg))
       } else if (grepl("^--availability_policy=", arg)) {
         availability_policy <- sub("^--availability_policy=", "", arg)
+      } else if (grepl("^--counterfactual_mode=", arg)) {
+        counterfactual_mode <- tolower(sub("^--counterfactual_mode=", "", arg)) %in% c("true", "1", "yes")
+      } else if (grepl("^--counterfactual_team=", arg)) {
+        counterfactual_team <- toupper(sub("^--counterfactual_team=", "", arg))
       }
     }
   }
@@ -136,12 +143,18 @@ main <- function() {
     stop("Invalid --n_sims value. Must be a positive integer.")
   }
   availability_policy <- validate_availability_policy(availability_policy)
+  if (isTRUE(counterfactual_mode) && (is.na(counterfactual_team) || !nzchar(counterfactual_team))) {
+    stop("--counterfactual_team is required when --counterfactual_mode=TRUE.")
+  }
   
   cat("========================================\n")
   cat("Running search for:", target_player_query, "| season", target_season, "week", target_week, "| sims", n_sims, "\n")
   cat("Availability policy:", availability_policy, "\n")
   if (is_counterfactual_policy(availability_policy)) {
     cat("NOTE: Counterfactual simulation enabled.\n")
+  }
+  if (isTRUE(counterfactual_mode)) {
+    cat("Counterfactual roster team:", counterfactual_team, "\n")
   }
   cat("========================================\n\n")
   
@@ -232,8 +245,24 @@ main <- function() {
     season = target_season,
     week = target_week,
     n_sims = n_sims,
-    availability_policy = availability_policy
+    availability_policy = availability_policy,
+    counterfactual_mode = counterfactual_mode,
+    counterfactual_team = counterfactual_team
   )
+
+  if (!is.null(result$status) && identical(result$status, "error")) {
+    cat("ERROR: Simulation failed\n")
+    cat("  Type:", result$error_type, "\n")
+    cat("  Player:", if (!is.null(result$player_name)) result$player_name else "(unknown)", "\n")
+    cat("  Season/Week:", result$season, "Week", result$week, "\n")
+    cat("  Reason:", result$reason, "\n")
+    if (isTRUE(result$counterfactual_allowed) && !isTRUE(counterfactual_mode)) {
+      cat("\nCounterfactual option available:\n")
+      cat("  Re-run with --counterfactual_mode=TRUE --counterfactual_team=<TEAM>\n")
+      cat("  This simulates the player as healthy on the selected roster.\n")
+    }
+    stop("Simulation failed; see details above.")
+  }
   
   # ========================================================================
   # LAYER 2: Presentation

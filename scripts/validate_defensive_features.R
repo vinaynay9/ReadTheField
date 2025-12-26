@@ -83,8 +83,8 @@ if (file.exists(rb_features_path)) {
   if (requireNamespace("arrow", quietly = TRUE)) {
     rb_features <- arrow::read_parquet(rb_features_path)
     
-    expected_def_cols <- c("opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
-                          "opp_points_allowed_roll5", "opp_sacks_roll5", "opp_tfl_roll5")
+    expected_def_cols <- c("def_rush_yards_defense_allowed_roll5", "def_yards_per_rush_defense_allowed_roll5",
+                          "def_points_defense_allowed_roll5", "def_sacks_defense_forced_roll5", "def_tackles_for_loss_defense_forced_roll5")
     found_def_cols <- intersect(expected_def_cols, names(rb_features))
     
     if (length(found_def_cols) == length(expected_def_cols)) {
@@ -127,22 +127,22 @@ if (file.exists("R/utils/rb_regime_v1.R")) {
   feature_contracts <- get_rb_features_by_regime()
   
   # Late and standard regimes should have defensive features
-  late_has_def <- any(grepl("^opp_", feature_contracts$late))
-  standard_has_def <- any(grepl("^opp_", feature_contracts$standard))
+  late_has_def <- any(grepl("^def_", feature_contracts$late))
+  standard_has_def <- any(grepl("^def_", feature_contracts$standard))
   
   if (late_has_def && standard_has_def) {
     cat("  PASS: Late and standard regimes include defensive features\n")
     cat("  Late regime defensive features:\n")
-    cat("    ", paste(grep("^opp_", feature_contracts$late, value = TRUE), collapse = ", "), "\n")
+    cat("    ", paste(grep("^def_", feature_contracts$late, value = TRUE), collapse = ", "), "\n")
     cat("  Standard regime defensive features:\n")
-    cat("    ", paste(grep("^opp_", feature_contracts$standard, value = TRUE), collapse = ", "), "\n")
+    cat("    ", paste(grep("^def_", feature_contracts$standard, value = TRUE), collapse = ", "), "\n")
   } else {
     cat("  FAIL: Late or standard regimes missing defensive features\n")
   }
   
   # Early and mid regimes should NOT have defensive features
-  early_has_def <- any(grepl("^opp_", feature_contracts$early))
-  mid_has_def <- any(grepl("^opp_", feature_contracts$mid))
+  early_has_def <- any(grepl("^def_", feature_contracts$early))
+  mid_has_def <- any(grepl("^def_", feature_contracts$mid))
   
   if (!early_has_def && !mid_has_def) {
     cat("  PASS: Early and mid regimes correctly exclude defensive features (not enough history)\n")

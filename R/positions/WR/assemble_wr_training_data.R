@@ -116,7 +116,7 @@ assemble_wr_weekly_features <- function(wr_weekly_stats) {
   }
   toc_cols <- c(
     "team", "season", "week",
-    "team_qb_pass_attempts_roll1", "team_qb_pass_yards_roll1", "team_qb_pass_tds_roll1",
+    "target_pass_yards_qb_roll1", "target_pass_tds_qb_roll1",
     "team_wr_targets_total_roll1", "team_wr_air_yards_roll1",
     "team_wr_target_share_top1_roll1", "team_wr_target_share_top2_roll1",
     "team_te_targets_total_roll1", "team_rb_targets_total_roll1"
@@ -125,6 +125,32 @@ assemble_wr_weekly_features <- function(wr_weekly_stats) {
   features <- features %>%
     left_join(team_offense_context[, toc_cols, drop = FALSE],
               by = c("team", "season", "week"))
+
+  # Join QB rolling context features (roll1/roll3/roll5)
+  qb_features_path <- file.path("data", "processed", "qb_weekly_features.parquet")
+  if (!file.exists(qb_features_path)) {
+    stop("Missing QB weekly features file: ", qb_features_path)
+  }
+  qb_features <- arrow::read_parquet(qb_features_path)
+  if (nrow(qb_features) == 0) {
+    stop("QB weekly features are empty. Cannot proceed with WR features.")
+  }
+  qb_cols <- c(
+    "team", "season", "week",
+    "target_pass_attempts_qb_roll1", "target_pass_attempts_qb_roll3", "target_pass_attempts_qb_roll5",
+    "target_pass_completions_qb_roll1", "target_pass_completions_qb_roll3", "target_pass_completions_qb_roll5",
+    "target_completion_pct_qb_roll1", "target_completion_pct_qb_roll3", "target_completion_pct_qb_roll5",
+    "target_interceptions_qb_thrown_roll1", "target_interceptions_qb_thrown_roll3", "target_interceptions_qb_thrown_roll5",
+    "target_yards_per_pass_qb_roll1", "target_yards_per_pass_qb_roll3", "target_yards_per_pass_qb_roll5",
+    "target_sacks_qb_taken_roll1", "target_sacks_qb_taken_roll3", "target_sacks_qb_taken_roll5"
+  )
+  qb_cols <- unique(qb_cols)
+  missing_qb <- setdiff(qb_cols, names(qb_features))
+  if (length(missing_qb) > 0) {
+    stop("QB weekly features missing required columns: ", paste(missing_qb, collapse = ", "))
+  }
+  features <- features %>%
+    left_join(qb_features[, qb_cols, drop = FALSE], by = c("team", "season", "week"))
 
   # Join prior-season cumulative stats (season - 1 aggregates)
   prior_season_stats_path <- file.path("data", "processed", "prior_season_player_stats.parquet")
@@ -228,7 +254,13 @@ assemble_wr_weekly_features <- function(wr_weekly_stats) {
     "prev_season_targets_total", "prev_season_receptions_total",
     "prev_season_rec_yards_total", "prev_season_rec_tds_total",
     "prev_season_games_played",
-    "team_qb_pass_attempts_roll1", "team_qb_pass_yards_roll1", "team_qb_pass_tds_roll1",
+    "target_pass_yards_qb_roll1", "target_pass_tds_qb_roll1",
+    "target_pass_attempts_qb_roll1", "target_pass_attempts_qb_roll3", "target_pass_attempts_qb_roll5",
+    "target_pass_completions_qb_roll1", "target_pass_completions_qb_roll3", "target_pass_completions_qb_roll5",
+    "target_completion_pct_qb_roll1", "target_completion_pct_qb_roll3", "target_completion_pct_qb_roll5",
+    "target_interceptions_qb_thrown_roll1", "target_interceptions_qb_thrown_roll3", "target_interceptions_qb_thrown_roll5",
+    "target_yards_per_pass_qb_roll1", "target_yards_per_pass_qb_roll3", "target_yards_per_pass_qb_roll5",
+    "target_sacks_qb_taken_roll1", "target_sacks_qb_taken_roll3", "target_sacks_qb_taken_roll5",
     "team_wr_targets_total_roll1", "team_wr_air_yards_roll1",
     "team_wr_target_share_top1_roll1", "team_wr_target_share_top2_roll1",
     "team_te_targets_total_roll1", "team_rb_targets_total_roll1",
@@ -243,6 +275,7 @@ assemble_wr_weekly_features <- function(wr_weekly_stats) {
     "target_targets", "target_receptions", "target_rec_yards", "target_rec_tds",
     "wr_regime"
   )
+  final_cols <- unique(final_cols)
 
   available_cols <- intersect(final_cols, names(features))
   features <- features[, available_cols, drop = FALSE]
@@ -262,6 +295,35 @@ assemble_wr_weekly_features <- function(wr_weekly_stats) {
   if (nrow(features) == 0) {
     stop("CRITICAL: Final WR training dataset has 0 rows.")
   }
+
+  # Validation: required defensive and QB features should be present and populated historically
+  required_def <- c("def_interceptions_defense_caught_roll3", "def_interceptions_defense_caught_roll5",
+                    "def_passes_defended_defense_forced_roll3", "def_passes_defended_defense_forced_roll5")
+  required_qb <- c("target_completion_pct_qb_roll3", "target_interceptions_qb_thrown_roll3")
+  missing_def <- setdiff(required_def, names(features))
+  missing_qb <- setdiff(required_qb, names(features))
+  if (length(missing_def) > 0) {
+    stop("WR weekly features missing defensive columns: ", paste(missing_def, collapse = ", "))
+  }
+  if (length(missing_qb) > 0) {
+    stop("WR weekly features missing QB columns: ", paste(missing_qb, collapse = ", "))
+  }
+
+  validate_nonzero <- function(x, label) {
+    vals <- x[!is.na(x)]
+    if (length(vals) == 0) {
+      stop("WR weekly features column '", label, "' has no non-NA values.")
+    }
+    if (stats::median(vals) <= 0) {
+      stop("WR weekly features column '", label, "' median is non-positive.")
+    }
+  }
+  validate_nonzero(features$def_interceptions_defense_caught_roll3, "def_interceptions_defense_caught_roll3")
+  validate_nonzero(features$def_interceptions_defense_caught_roll5, "def_interceptions_defense_caught_roll5")
+  validate_nonzero(features$def_passes_defended_defense_forced_roll3, "def_passes_defended_defense_forced_roll3")
+  validate_nonzero(features$def_passes_defended_defense_forced_roll5, "def_passes_defended_defense_forced_roll5")
+  validate_nonzero(features$target_completion_pct_qb_roll3, "target_completion_pct_qb_roll3")
+  validate_nonzero(features$target_interceptions_qb_thrown_roll3, "target_interceptions_qb_thrown_roll3")
 
   return(features)
 }
@@ -287,9 +349,27 @@ empty_wr_training_df <- function() {
     prev_season_rec_yards_total = double(0),
     prev_season_rec_tds_total = double(0),
     prev_season_games_played = double(0),
-    team_qb_pass_attempts_roll1 = double(0),
-    team_qb_pass_yards_roll1 = double(0),
-    team_qb_pass_tds_roll1 = double(0),
+    target_pass_attempts_qb_roll1 = double(0),
+    target_pass_yards_qb_roll1 = double(0),
+    target_pass_tds_qb_roll1 = double(0),
+    target_pass_attempts_qb_roll1 = double(0),
+    target_pass_attempts_qb_roll3 = double(0),
+    target_pass_attempts_qb_roll5 = double(0),
+    target_pass_completions_qb_roll1 = double(0),
+    target_pass_completions_qb_roll3 = double(0),
+    target_pass_completions_qb_roll5 = double(0),
+    target_completion_pct_qb_roll1 = double(0),
+    target_completion_pct_qb_roll3 = double(0),
+    target_completion_pct_qb_roll5 = double(0),
+    target_interceptions_qb_thrown_roll1 = double(0),
+    target_interceptions_qb_thrown_roll3 = double(0),
+    target_interceptions_qb_thrown_roll5 = double(0),
+    target_yards_per_pass_qb_roll1 = double(0),
+    target_yards_per_pass_qb_roll3 = double(0),
+    target_yards_per_pass_qb_roll5 = double(0),
+    target_sacks_qb_taken_roll1 = double(0),
+    target_sacks_qb_taken_roll3 = double(0),
+    target_sacks_qb_taken_roll5 = double(0),
     team_wr_targets_total_roll1 = double(0),
     team_wr_air_yards_roll1 = double(0),
     team_wr_target_share_top1_roll1 = double(0),
@@ -310,22 +390,30 @@ empty_wr_training_df <- function() {
     air_yards_roll5 = double(0),
     target_share_roll1 = double(0),
     air_yards_share_roll1 = double(0),
-    opp_pass_yards_allowed_roll1 = double(0),
-    opp_yards_per_pass_allowed_roll1 = double(0),
-    opp_points_allowed_roll1 = double(0),
-    opp_sacks_roll1 = double(0),
-    opp_tfl_roll1 = double(0),
-    opp_interceptions_roll1 = double(0),
-    opp_passes_defended_roll1 = double(0),
-    def_interceptions_roll3 = double(0),
-    def_passes_defended_roll3 = double(0),
-    opp_pass_yards_allowed_roll5 = double(0),
-    opp_yards_per_pass_allowed_roll5 = double(0),
-    opp_points_allowed_roll5 = double(0),
-    opp_sacks_roll5 = double(0),
-    opp_tfl_roll5 = double(0),
-    def_interceptions_roll5 = double(0),
-    def_passes_defended_roll5 = double(0),
+    def_pass_yards_defense_allowed_roll1 = double(0),
+    def_pass_attempts_defense_allowed_roll1 = double(0),
+    def_yards_per_pass_defense_allowed_roll1 = double(0),
+    def_points_defense_allowed_roll1 = double(0),
+    def_sacks_defense_forced_roll1 = double(0),
+    def_tackles_for_loss_defense_forced_roll1 = double(0),
+    def_interceptions_defense_caught_roll1 = double(0),
+    def_passes_defended_defense_forced_roll1 = double(0),
+    def_pass_yards_defense_allowed_roll3 = double(0),
+    def_pass_attempts_defense_allowed_roll3 = double(0),
+    def_yards_per_pass_defense_allowed_roll3 = double(0),
+    def_points_defense_allowed_roll3 = double(0),
+    def_sacks_defense_forced_roll3 = double(0),
+    def_tackles_for_loss_defense_forced_roll3 = double(0),
+    def_interceptions_defense_caught_roll3 = double(0),
+    def_passes_defended_defense_forced_roll3 = double(0),
+    def_pass_yards_defense_allowed_roll5 = double(0),
+    def_pass_attempts_defense_allowed_roll5 = double(0),
+    def_yards_per_pass_defense_allowed_roll5 = double(0),
+    def_points_defense_allowed_roll5 = double(0),
+    def_sacks_defense_forced_roll5 = double(0),
+    def_tackles_for_loss_defense_forced_roll5 = double(0),
+    def_interceptions_defense_caught_roll5 = double(0),
+    def_passes_defended_defense_forced_roll5 = double(0),
     defense_data_available = logical(0),
     rolling_window_complete = logical(0),
     is_rookie = logical(0),

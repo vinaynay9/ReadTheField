@@ -90,6 +90,7 @@ run_rb_simulation <- function(gsis_id,
     ),
     recent_games = data.frame(),
     defensive_context = list(),
+    offensive_context = list(),
     summary = data.frame(),
     diagnostics = list(),
     draws = data.frame()
@@ -728,6 +729,12 @@ run_rb_simulation <- function(gsis_id,
       if (nrow(player_history) > 0) {
         player_history <- player_history[order(player_history$season, player_history$week, decreasing = TRUE), ]
         recent_games <- player_history[1:min(3, nrow(player_history)), ]
+        # Assertion: recent games must be strictly before target week
+        max_key <- max(recent_games$season * 100 + recent_games$week, na.rm = TRUE)
+        target_key <- game_season * 100 + game_week
+        if (is.finite(max_key) && max_key >= target_key) {
+          stop("Recent performance includes games from the target week or later. Check season/week filtering.")
+        }
       }
     }
   }
@@ -818,26 +825,42 @@ run_rb_simulation <- function(gsis_id,
   }
   
   # Store defensive context
-  def_features <- c("opp_rush_yards_allowed_roll1", "opp_yards_per_rush_allowed_roll1",
-                    "opp_points_allowed_roll1", "opp_sacks_roll1", "opp_tfl_roll1",
-                    "opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
-                    "opp_sacks_roll5", "opp_tfl_roll5", "opp_points_allowed_roll5", "opp_int_roll1", "opp_int_roll5")
+  def_features <- c("def_rush_yards_defense_allowed_roll1", "def_yards_per_rush_defense_allowed_roll1",
+                    "def_points_defense_allowed_roll1", "def_sacks_defense_forced_roll1", "def_tackles_for_loss_defense_forced_roll1",
+                    "def_rush_yards_defense_allowed_roll5", "def_yards_per_rush_defense_allowed_roll5",
+                    "def_sacks_defense_forced_roll5", "def_tackles_for_loss_defense_forced_roll5", "def_points_defense_allowed_roll5",
+                    "def_interceptions_defense_caught_roll1", "def_interceptions_defense_caught_roll5")
   for (feat in def_features) {
-    if (feat %in% names(player_feature_row)) {
-      result$defensive_context[[feat]] <- player_feature_row[[feat]]
+    if (feat %in% names(identified_game_row)) {
+      result$defensive_context[[feat]] <- identified_game_row[[feat]]
     } else {
       result$defensive_context[[feat]] <- NA_real_
     }
   }
   # Defensive feature availability diagnostics
-  def_cols_present <- intersect(def_features, names(player_feature_row))
+  def_cols_present <- intersect(def_features, names(identified_game_row))
   def_cols_non_na <- def_cols_present[
-    vapply(def_cols_present, function(f) any(!is.na(player_feature_row[[f]])), logical(1))
+    vapply(def_cols_present, function(f) any(!is.na(identified_game_row[[f]])), logical(1))
   ]
   result$diagnostics$defensive_features <- list(
     available = def_cols_present,
     non_na = def_cols_non_na
   )
+
+  # Offensive QB context (QB-side, prior games only)
+  qb_context_features <- c(
+    "target_pass_attempts_qb_roll1", "target_pass_attempts_qb_roll3", "target_pass_attempts_qb_roll5",
+    "target_completion_pct_qb_roll1", "target_completion_pct_qb_roll3", "target_completion_pct_qb_roll5",
+    "target_interceptions_qb_thrown_roll1", "target_interceptions_qb_thrown_roll3", "target_interceptions_qb_thrown_roll5",
+    "target_sacks_qb_taken_roll1", "target_sacks_qb_taken_roll3", "target_sacks_qb_taken_roll5"
+  )
+  for (feat in qb_context_features) {
+    if (feat %in% names(identified_game_row)) {
+      result$offensive_context[[feat]] <- identified_game_row[[feat]]
+    } else {
+      result$offensive_context[[feat]] <- NA_real_
+    }
+  }
 
   # Build feature trace (what is available for this simulation)
   model_trace <- list(
@@ -967,8 +990,8 @@ run_rb_simulation <- function(gsis_id,
   )
   
   # Check which models include defensive features (RB v1 contract)
-  def_cols <- c("opp_rush_yards_allowed_roll5", "opp_sacks_roll5", 
-                "opp_tfl_roll5", "opp_points_allowed_roll5")
+  def_cols <- c("def_rush_yards_defense_allowed_roll5", "def_sacks_defense_forced_roll5", 
+                "def_tackles_for_loss_defense_forced_roll5", "def_points_defense_allowed_roll5")
   
   # Check for NULL models (RB v1: regime-based structure)
   # Note: Models may be baseline, but should never be NULL
@@ -1106,6 +1129,34 @@ run_rb_simulation <- function(gsis_id,
   } else {
     stop("resolve_rb_simulation_schema not found. Cannot standardize simulation output schema.")
   }
+
+  if (!exists("compute_ppr_rb")) {
+    if (file.exists("R/utils/ppr_scoring.R")) {
+      source("R/utils/ppr_scoring.R", local = TRUE)
+    } else {
+      stop("Simulation bootstrap incomplete: R/utils/ppr_scoring.R not found")
+    }
+  }
+
+  # Fantasy PPR must be computed from draw-level stats (no legacy totals)
+  if (!"fantasy_ppr" %in% names(result$draws)) {
+    result$draws$fantasy_ppr <- compute_ppr_rb(
+      rush_yards = result$draws$rushing_yards,
+      rush_tds = result$draws$rush_tds,
+      receptions = result$draws$receptions,
+      rec_yards = result$draws$receiving_yards,
+      rec_tds = result$draws$rec_tds
+    )
+  }
+  component_non_na <- !is.na(result$draws$rushing_yards) |
+    !is.na(result$draws$receiving_yards) |
+    !is.na(result$draws$receptions) |
+    !is.na(result$draws$rush_tds) |
+    !is.na(result$draws$rec_tds)
+  if (any(component_non_na & is.na(result$draws$fantasy_ppr))) {
+    stop("Fantasy PPR contains NA while component stats are non-NA. ",
+         "This indicates a draw-level scoring error.")
+  }
   
   # CRITICAL FIX: Recompute summary AFTER schema resolution
   # This ensures summary stat names match the resolved column names
@@ -1120,6 +1171,19 @@ run_rb_simulation <- function(gsis_id,
     result$summary <- compute_final_rb_percentiles(result$draws)
   } else {
     stop("compute_final_rb_percentiles not found. Cannot compute summary from resolved draws.")
+  }
+
+  if (nrow(result$summary) > 0 && !"fantasy_ppr" %in% result$summary$stat) {
+    result$summary <- rbind(
+      result$summary,
+      data.frame(
+        stat = "fantasy_ppr",
+        p25 = stats::quantile(result$draws$fantasy_ppr, 0.25, na.rm = TRUE),
+        p50 = stats::quantile(result$draws$fantasy_ppr, 0.50, na.rm = TRUE),
+        p75 = stats::quantile(result$draws$fantasy_ppr, 0.75, na.rm = TRUE),
+        stringsAsFactors = FALSE
+      )
+    )
   }
 
   # Compute additional diagnostics from draws

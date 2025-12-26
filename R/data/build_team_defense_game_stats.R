@@ -10,6 +10,7 @@
 #   passes_defended
 # - QB hits/pressures: May not be reliably available in nflverse player_stats
 # - Yards allowed: Computed from opponent offensive totals (from schedules + player_stats)
+# - Passing yards allowed: Uses opponent offensive passing yards aggregated per game
 # - Points allowed: Computed from opponent scores (from schedules)
 #
 # Dependencies:
@@ -33,13 +34,15 @@
 #'   - week: integer, week number
 #'   - gameday: Date, game date
 #'   - defense_team: character, team abbreviation
-#'   - def_sacks: integer, total sacks by defense
-#'   - def_tfl: integer, total tackles for loss
-#'   - def_interceptions: integer, total interceptions (if available)
-#'   - rush_yards_allowed: double, rushing yards allowed (from opponent offense)
-#'   - pass_yards_allowed: double, passing yards allowed (from opponent offense)
-#'   - total_yards_allowed: double, total yards allowed
-#'   - points_allowed: integer, points allowed (from opponent score)
+#'   - def_sacks_defense_forced: integer, total sacks by defense
+#'   - def_tackles_for_loss_defense_forced: integer, total tackles for loss
+#'   - def_interceptions_defense_caught: integer, total interceptions (if available)
+#'   - def_passes_defended_defense_forced: integer, total passes defended (if available)
+#'   - def_pass_yards_defense_allowed: double, passing yards allowed (from opponent offense)
+#'   - def_pass_attempts_defense_allowed: double, opponent pass attempts faced
+#'   - def_rush_yards_defense_allowed: double, rushing yards allowed (from opponent offense)
+#'   - def_total_yards_defense_allowed: double, total yards allowed
+#'   - def_points_defense_allowed: integer, points allowed (from opponent score)
 #' @examples
 #' def_stats <- build_team_defense_game_stats(2023)
 #' def_stats <- build_team_defense_game_stats(2021:2024)
@@ -141,10 +144,9 @@ build_team_defense_game_stats <- function(seasons) {
     game_id_col <- if ("game_id" %in% names(player_def_stats)) "game_id" else NULL
     
     # Safe column access helper
-    safe_get <- function(df, col, default = 0) {
+    safe_get <- function(df, col, default = NA_integer_) {
       if (col %in% names(df)) {
         vals <- df[[col]]
-        vals[is.na(vals)] <- default
         as.integer(vals)
       } else {
         rep(default, nrow(df))
@@ -204,19 +206,34 @@ build_team_defense_game_stats <- function(seasons) {
       }
     }
     
-    # Try to find interceptions column
-    for (col in c("interceptions", "int", "defensive_interceptions")) {
+    # Try to find interceptions column (case-insensitive fallback)
+    for (col in c("interceptions", "defensive_interceptions", "def_int", "int")) {
       if (col %in% names(player_def_stats)) {
         int_col <- col
         break
       }
     }
+    if (is.null(int_col)) {
+      int_matches <- grep("interception|\\bint\\b", names(player_def_stats), ignore.case = TRUE, value = TRUE)
+      if (length(int_matches) > 0) {
+        int_col <- int_matches[1]
+        message("Found interceptions column (case-insensitive): ", int_col)
+      }
+    }
 
-    # Try to find passes defended column
-    for (col in c("passes_defended", "pass_defended", "passes_defensed", "pass_deflections", "pass_deflections_total")) {
+    # Try to find passes defended column (case-insensitive fallback)
+    for (col in c("passes_defended", "pass_defended", "passes_defensed", "pass_deflections", "pass_deflections_total",
+                  "defended_passes", "pass_deflections_def")) {
       if (col %in% names(player_def_stats)) {
         passes_defended_col <- col
         break
+      }
+    }
+    if (is.null(passes_defended_col)) {
+      pd_matches <- grep("pass.*defend|defend.*pass|pass.*deflect", names(player_def_stats), ignore.case = TRUE, value = TRUE)
+      if (length(pd_matches) > 0) {
+        passes_defended_col <- pd_matches[1]
+        message("Found passes defended column (case-insensitive): ", passes_defended_col)
       }
     }
     
@@ -239,16 +256,20 @@ build_team_defense_game_stats <- function(seasons) {
     }
     
     # Aggregate defensive stats by team-game
+    sum_or_na <- function(x) {
+      if (all(is.na(x))) return(NA_real_)
+      sum(x, na.rm = TRUE)
+    }
+
     def_agg <- aggregate(
       list(
-        def_sacks = if (!is.null(sacks_col)) safe_get(player_def_stats, sacks_col, 0) else rep(0L, nrow(player_def_stats)),
-        def_tfl = if (!is.null(tfl_col)) safe_get(player_def_stats, tfl_col, 0) else rep(0L, nrow(player_def_stats)),
-        def_interceptions = if (!is.null(int_col)) safe_get(player_def_stats, int_col, 0) else rep(0L, nrow(player_def_stats)),
-        def_passes_defended = if (!is.null(passes_defended_col)) safe_get(player_def_stats, passes_defended_col, 0) else rep(NA_integer_, nrow(player_def_stats))
+        def_sacks_defense_forced = if (!is.null(sacks_col)) safe_get(player_def_stats, sacks_col) else rep(NA_integer_, nrow(player_def_stats)),
+        def_tackles_for_loss_defense_forced = if (!is.null(tfl_col)) safe_get(player_def_stats, tfl_col) else rep(NA_integer_, nrow(player_def_stats)),
+        def_interceptions_defense_caught = if (!is.null(int_col)) safe_get(player_def_stats, int_col) else rep(NA_integer_, nrow(player_def_stats)),
+        def_passes_defended_defense_forced = if (!is.null(passes_defended_col)) safe_get(player_def_stats, passes_defended_col) else rep(NA_integer_, nrow(player_def_stats))
       ),
       by = list(agg_key = player_def_stats$agg_key),
-      FUN = sum,
-      na.rm = TRUE
+      FUN = sum_or_na
     )
     
     # Extract game_id and team from agg_key
@@ -275,15 +296,29 @@ build_team_defense_game_stats <- function(seasons) {
         def_agg$defense_team <- normalize_team_abbr(def_agg$defense_team, NA)
       }
     }
+
+    # Diagnostic: Confirm interceptions and passes defended are not uniformly zero when available
+    if (!is.null(int_col)) {
+      total_int <- sum(def_agg$def_interceptions_defense_caught, na.rm = TRUE)
+      if (!is.na(total_int) && total_int == 0) {
+        warning("Defensive interceptions aggregated but all values are zero. Check nflreadr column mapping.", call. = FALSE)
+      }
+    }
+    if (!is.null(passes_defended_col)) {
+      total_pd <- sum(def_agg$def_passes_defended_defense_forced, na.rm = TRUE)
+      if (!is.na(total_pd) && total_pd == 0) {
+        warning("Defensive passes defended aggregated but all values are zero. Check nflreadr column mapping.", call. = FALSE)
+      }
+    }
     
   } else {
     # No defensive stats available - create empty aggregation
     def_agg <- data.frame(
       game_id = character(0),
       defense_team = character(0),
-      def_sacks = integer(0),
-      def_tfl = integer(0),
-      def_interceptions = integer(0),
+      def_sacks_defense_forced = integer(0),
+      def_tackles_for_loss_defense_forced = integer(0),
+      def_interceptions_defense_caught = integer(0),
       stringsAsFactors = FALSE
     )
   }
@@ -303,7 +338,7 @@ build_team_defense_game_stats <- function(seasons) {
       game_id_col_off <- if ("game_id" %in% names(off_stats)) "game_id" else NULL
       
       # Safe column access
-      safe_get_off <- function(df, col, default = 0) {
+      safe_get_off <- function(df, col, default = NA_real_) {
         if (col %in% names(df)) {
           vals <- df[[col]]
           vals[is.na(vals)] <- default
@@ -312,6 +347,23 @@ build_team_defense_game_stats <- function(seasons) {
           rep(default, nrow(df))
         }
       }
+
+      sum_or_na <- function(x) {
+        if (all(is.na(x))) return(NA_real_)
+        sum(x, na.rm = TRUE)
+      }
+
+      find_off_col <- function(candidates) {
+        for (col in candidates) {
+          if (col %in% names(off_stats)) return(col)
+        }
+        NULL
+      }
+
+      # Passing yards allowed approach:
+      # Use opponent offensive passing yards (QB passing yards) aggregated per game.
+      pass_yards_col <- find_off_col(c("passing_yards", "pass_yards", "pass_yds", "net_passing_yards", "net_pass_yards"))
+      pass_attempts_col <- find_off_col(c("pass_attempts", "passing_attempts", "pass_att", "attempts"))
       
       # Build aggregation key
       if (!is.null(game_id_col_off) && game_id_col_off %in% names(off_stats)) {
@@ -333,13 +385,12 @@ build_team_defense_game_stats <- function(seasons) {
       off_agg <- aggregate(
         list(
           rush_yards = safe_get_off(off_stats, "rushing_yards", 0),
-          pass_yards = safe_get_off(off_stats, "passing_yards", 0),
+          pass_yards = if (!is.null(pass_yards_col)) safe_get_off(off_stats, pass_yards_col, 0) else rep(NA_real_, nrow(off_stats)),
           rush_attempts = safe_get_off(off_stats, "carries", 0),
-          pass_attempts = safe_get_off(off_stats, "pass_attempts", safe_get_off(off_stats, "attempts", 0))
+          pass_attempts = if (!is.null(pass_attempts_col)) safe_get_off(off_stats, pass_attempts_col, 0) else rep(NA_real_, nrow(off_stats))
         ),
         by = list(agg_key = off_stats$agg_key),
-        FUN = sum,
-        na.rm = TRUE
+        FUN = sum_or_na
       )
       
       # Extract identifiers
@@ -362,6 +413,13 @@ build_team_defense_game_stats <- function(seasons) {
           off_agg$offense_team <- normalize_team_abbr(off_agg$offense_team, NA)
         }
       }
+
+      if (is.null(pass_yards_col)) {
+        off_agg$pass_yards <- NA_real_
+      }
+      if (is.null(pass_attempts_col)) {
+        off_agg$pass_attempts <- NA_real_
+      }
     }
   }, error = function(e) {
     warning(paste("Failed to load offensive stats:", e$message, "Yards allowed will be missing."))
@@ -378,9 +436,12 @@ build_team_defense_game_stats <- function(seasons) {
   if (def_stats_available && nrow(def_agg) > 0) {
     if ("game_id" %in% names(def_agg) && "game_id" %in% names(result)) {
       # Join on game_id and defense_team
-      merge_cols <- c("game_id", "defense_team", "def_sacks", "def_tfl", "def_interceptions")
-      if ("def_passes_defended" %in% names(def_agg)) {
-        merge_cols <- c(merge_cols, "def_passes_defended")
+      merge_cols <- c("game_id", "defense_team",
+                      "def_sacks_defense_forced",
+                      "def_tackles_for_loss_defense_forced",
+                      "def_interceptions_defense_caught")
+      if ("def_passes_defended_defense_forced" %in% names(def_agg)) {
+        merge_cols <- c(merge_cols, "def_passes_defended_defense_forced")
       }
       result <- merge(
         result,
@@ -391,9 +452,12 @@ build_team_defense_game_stats <- function(seasons) {
       )
     } else if ("season" %in% names(def_agg) && "week" %in% names(def_agg)) {
       # Join on season, week, defense_team (fallback when game_id not available)
-      merge_cols <- c("season", "week", "defense_team", "def_sacks", "def_tfl", "def_interceptions")
-      if ("def_passes_defended" %in% names(def_agg)) {
-        merge_cols <- c(merge_cols, "def_passes_defended")
+      merge_cols <- c("season", "week", "defense_team",
+                      "def_sacks_defense_forced",
+                      "def_tackles_for_loss_defense_forced",
+                      "def_interceptions_defense_caught")
+      if ("def_passes_defended_defense_forced" %in% names(def_agg)) {
+        merge_cols <- c(merge_cols, "def_passes_defended_defense_forced")
       }
       result <- merge(
         result,
@@ -404,20 +468,20 @@ build_team_defense_game_stats <- function(seasons) {
       )
     } else {
       warning("Cannot join defensive stats: missing join keys")
-      result$def_sacks <- 0L
-      result$def_tfl <- 0L
-      result$def_interceptions <- NA_integer_
-      if ("def_passes_defended" %in% names(def_agg)) {
-        result$def_passes_defended <- NA_integer_
+      result$def_sacks_defense_forced <- 0L
+      result$def_tackles_for_loss_defense_forced <- 0L
+      result$def_interceptions_defense_caught <- NA_integer_
+      if ("def_passes_defended_defense_forced" %in% names(def_agg)) {
+        result$def_passes_defended_defense_forced <- NA_integer_
       }
     }
   } else {
     # Initialize defensive stat columns as 0
-    result$def_sacks <- 0L
-    result$def_tfl <- 0L
-    result$def_interceptions <- NA_integer_
-    if (!"def_passes_defended" %in% names(result)) {
-      result$def_passes_defended <- NA_integer_
+    result$def_sacks_defense_forced <- 0L
+    result$def_tackles_for_loss_defense_forced <- 0L
+    result$def_interceptions_defense_caught <- NA_integer_
+    if (!"def_passes_defended_defense_forced" %in% names(result)) {
+      result$def_passes_defended_defense_forced <- NA_integer_
     }
   }
   
@@ -456,47 +520,47 @@ build_team_defense_game_stats <- function(seasons) {
       }
     }
     
-    result$rush_yards_allowed <- yards_allowed$rush_yards
-    result$pass_yards_allowed <- yards_allowed$pass_yards
-    result$rush_attempts_allowed <- yards_allowed$rush_attempts
-    result$pass_attempts_allowed <- yards_allowed$pass_attempts
+    result$def_rush_yards_defense_allowed <- yards_allowed$rush_yards
+    result$def_pass_yards_defense_allowed <- yards_allowed$pass_yards
+    result$def_rush_attempts_defense_allowed <- yards_allowed$rush_attempts
+    result$def_pass_attempts_defense_allowed <- yards_allowed$pass_attempts
     result$yards_source_found <- !is.na(yards_allowed$rush_yards) | !is.na(yards_allowed$pass_yards)
-    result$total_yards_allowed <- ifelse(
-      is.na(result$rush_yards_allowed) | is.na(result$pass_yards_allowed),
+    result$def_total_yards_defense_allowed <- ifelse(
+      is.na(result$def_rush_yards_defense_allowed) | is.na(result$def_pass_yards_defense_allowed),
       NA_real_,
-      result$rush_yards_allowed + result$pass_yards_allowed
+      result$def_rush_yards_defense_allowed + result$def_pass_yards_defense_allowed
     )
     # Compute yards per rush allowed
-    result$yards_per_rush_allowed <- ifelse(
-      !is.na(result$rush_attempts_allowed) & result$rush_attempts_allowed > 0,
-      result$rush_yards_allowed / result$rush_attempts_allowed,
+    result$def_yards_per_rush_defense_allowed <- ifelse(
+      !is.na(result$def_rush_attempts_defense_allowed) & result$def_rush_attempts_defense_allowed > 0,
+      result$def_rush_yards_defense_allowed / result$def_rush_attempts_defense_allowed,
       NA_real_
     )
     # Compute yards per pass allowed
-    result$yards_per_pass_allowed <- ifelse(
-      !is.na(result$pass_attempts_allowed) & result$pass_attempts_allowed > 0,
-      result$pass_yards_allowed / result$pass_attempts_allowed,
+    result$def_yards_per_pass_defense_allowed <- ifelse(
+      !is.na(result$def_pass_attempts_defense_allowed) & result$def_pass_attempts_defense_allowed > 0,
+      result$def_pass_yards_defense_allowed / result$def_pass_attempts_defense_allowed,
       NA_real_
     )
   } else {
-    result$rush_yards_allowed <- NA_real_
-    result$pass_yards_allowed <- NA_real_
-    result$rush_attempts_allowed <- NA_integer_
-    result$pass_attempts_allowed <- NA_integer_
-    result$total_yards_allowed <- NA_real_
-    result$yards_per_rush_allowed <- NA_real_
-    result$yards_per_pass_allowed <- NA_real_
+    result$def_rush_yards_defense_allowed <- NA_real_
+    result$def_pass_yards_defense_allowed <- NA_real_
+    result$def_rush_attempts_defense_allowed <- NA_integer_
+    result$def_pass_attempts_defense_allowed <- NA_integer_
+    result$def_total_yards_defense_allowed <- NA_real_
+    result$def_yards_per_rush_defense_allowed <- NA_real_
+    result$def_yards_per_pass_defense_allowed <- NA_real_
     result$yards_source_found <- FALSE
   }
   
   # Points allowed = opponent score
-  result$points_allowed <- as.integer(result$opponent_score)
+  result$def_points_defense_allowed <- as.integer(result$opponent_score)
   result$points_source_found <- !is.na(result$opponent_score)
   
   # Replace NA defensive stats with 0 (if stat was available but missing for this game)
   if (def_stats_available) {
-    result$def_sacks[is.na(result$def_sacks)] <- 0L
-    result$def_tfl[is.na(result$def_tfl)] <- 0L
+    result$def_sacks_defense_forced[is.na(result$def_sacks_defense_forced)] <- 0L
+    result$def_tackles_for_loss_defense_forced[is.na(result$def_tackles_for_loss_defense_forced)] <- 0L
     # INT and FF may be NA if not available in source
   }
   
@@ -505,10 +569,10 @@ build_team_defense_game_stats <- function(seasons) {
   rownames(result) <- NULL
   
   # Validation: Check for missing critical stats
-  missing_sacks <- sum(is.na(result$def_sacks))
-  missing_tfl <- sum(is.na(result$def_tfl))
-  missing_yards <- sum(is.na(result$total_yards_allowed))
-  missing_points <- sum(is.na(result$points_allowed))
+  missing_sacks <- sum(is.na(result$def_sacks_defense_forced))
+  missing_tfl <- sum(is.na(result$def_tackles_for_loss_defense_forced))
+  missing_yards <- sum(is.na(result$def_total_yards_defense_allowed))
+  missing_points <- sum(is.na(result$def_points_defense_allowed))
   
   if (missing_sacks > 0 || missing_tfl > 0) {
     warning(paste("Some defensive stats are missing:", 
@@ -528,8 +592,8 @@ build_team_defense_game_stats <- function(seasons) {
   if (missing_yards > 0 || missing_points > 0) {
     missing_detail <- result[, c("game_id", "season", "week", "defense_team", "opponent_team",
                                  "yards_source_found", "points_source_found"), drop = FALSE]
-    missing_detail$yards_missing <- is.na(result$total_yards_allowed)
-    missing_detail$points_missing <- is.na(result$points_allowed)
+    missing_detail$yards_missing <- is.na(result$def_total_yards_defense_allowed)
+    missing_detail$points_missing <- is.na(result$def_points_defense_allowed)
     
     if (missing_yards > 0) {
       cat("  Yards allowed missing by category:\n")
@@ -545,7 +609,27 @@ build_team_defense_game_stats <- function(seasons) {
   
   # Availability flags for downstream diagnostics
   result$defense_data_available <- result$yards_source_found | result$points_source_found |
-    (!is.na(result$def_sacks)) | (!is.na(result$def_tfl))
+    (!is.na(result$def_sacks_defense_forced)) | (!is.na(result$def_tackles_for_loss_defense_forced))
+
+  # Sanity checks: ensure defensive stats are non-zero for the majority of games (historical)
+  check_nonzero_majority <- function(x, label) {
+    vals <- x[!is.na(x)]
+    if (length(vals) == 0) {
+      stop("Defensive stat '", label, "' has no non-NA values. Cannot proceed.")
+    }
+    prop_nonzero <- mean(vals > 0)
+    if (!is.finite(prop_nonzero) || prop_nonzero <= 0.5) {
+      stop("Defensive stat '", label, "' is non-zero in only ",
+           round(prop_nonzero * 100, 1), "% of games; expected majority. Check ingestion.")
+    }
+  }
+
+  check_nonzero_majority(result$def_sacks_defense_forced, "def_sacks_defense_forced")
+  check_nonzero_majority(result$def_tackles_for_loss_defense_forced, "def_tackles_for_loss_defense_forced")
+  check_nonzero_majority(result$def_interceptions_defense_caught, "def_interceptions_defense_caught")
+  check_nonzero_majority(result$def_passes_defended_defense_forced, "def_passes_defended_defense_forced")
+  check_nonzero_majority(result$def_pass_yards_defense_allowed, "def_pass_yards_defense_allowed")
+  check_nonzero_majority(result$def_pass_attempts_defense_allowed, "def_pass_attempts_defense_allowed")
   
   message(paste("Built defensive stats for", nrow(result), "team-game records"))
   
@@ -609,18 +693,18 @@ empty_defense_game_stats_df <- function() {
     week = integer(0),
     gameday = as.Date(character(0)),
     defense_team = character(0),
-    def_sacks = integer(0),
-    def_tfl = integer(0),
-    def_interceptions = integer(0),
-    def_passes_defended = integer(0),
-    rush_yards_allowed = double(0),
-    pass_yards_allowed = double(0),
-    rush_attempts_allowed = integer(0),
-    pass_attempts_allowed = integer(0),
-    total_yards_allowed = double(0),
-    yards_per_rush_allowed = double(0),
-    yards_per_pass_allowed = double(0),
-    points_allowed = integer(0),
+    def_sacks_defense_forced = integer(0),
+    def_tackles_for_loss_defense_forced = integer(0),
+    def_interceptions_defense_caught = integer(0),
+    def_passes_defended_defense_forced = integer(0),
+    def_rush_yards_defense_allowed = double(0),
+    def_pass_yards_defense_allowed = double(0),
+    def_rush_attempts_defense_allowed = integer(0),
+    def_pass_attempts_defense_allowed = integer(0),
+    def_total_yards_defense_allowed = double(0),
+    def_yards_per_rush_defense_allowed = double(0),
+    def_yards_per_pass_defense_allowed = double(0),
+    def_points_defense_allowed = integer(0),
     stringsAsFactors = FALSE
   )
 }

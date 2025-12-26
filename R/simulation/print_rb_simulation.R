@@ -1,4 +1,5 @@
 # Print RB Simulation - Technical/Process Diagnostics
+# TODO: Filename remains RB for legacy reasons; this printer is position-aware (RB/WR/TE).
 #
 # This function prints technical details about the simulation process:
 # - Number of simulations run
@@ -102,6 +103,9 @@ print_rb_simulation <- function(result) {
     cat("   Availability policy:", safe_str(avail$policy, default = "(missing)"), "\n")
     cat("   Availability state:", safe_str(avail$state, default = "(missing)"), "\n")
     cat("   Counterfactual:", if (isTRUE(avail$counterfactual)) "YES" else "NO", "\n")
+    if (isTRUE(metadata$counterfactual_mode)) {
+      cat("   Counterfactual roster team:", safe_str(metadata$counterfactual_team, default = "(missing)"), "\n")
+    }
     dropped_groups <- if (!is.null(avail$dropped_feature_groups) && length(avail$dropped_feature_groups) > 0) {
       paste(avail$dropped_feature_groups, collapse = ", ")
     } else {
@@ -340,8 +344,42 @@ print_rb_simulation <- function(result) {
   # Print defensive context values
   # ============================================================================
   
-  cat("Defensive Context Values (Opponent's Last 5 Games):\n")
+  # Offensive (QB-side) rolling context values
+  cat("Offensive Context Values (QB Rolling, prior games only):\n")
   cat(rep("-", 80), "\n", sep = "")
+  cat("   Note: roll1 = most recent completed game before target; roll3/roll5 are prior-game averages.\n")
+
+  off_context <- if (!is.null(result$offensive_context)) result$offensive_context else list()
+  qb_rows <- list(
+    "Pass Attempts (QB)" = c("target_pass_attempts_qb_roll1", "target_pass_attempts_qb_roll3", "target_pass_attempts_qb_roll5"),
+    "Completion % (QB)" = c("target_completion_pct_qb_roll1", "target_completion_pct_qb_roll3", "target_completion_pct_qb_roll5"),
+    "INTs Thrown (QB)" = c("target_interceptions_qb_thrown_roll1", "target_interceptions_qb_thrown_roll3", "target_interceptions_qb_thrown_roll5"),
+    "Sacks Taken (QB)" = c("target_sacks_qb_taken_roll1", "target_sacks_qb_taken_roll3", "target_sacks_qb_taken_roll5")
+  )
+  raw_vals <- unlist(lapply(qb_rows, function(cols) lapply(cols, function(nm) off_context[[nm]])))
+  raw_vals <- raw_vals[!vapply(raw_vals, is.null, logical(1))]
+  if (length(raw_vals) > 0 && any(!vapply(raw_vals, function(v) is.numeric(v) || is.na(v), logical(1)))) {
+    stop("PRINT ERROR: Offensive context values must be numeric before formatting.")
+  }
+  cat(sprintf("%-24s %10s %10s %10s\n", "Stat", "roll1", "roll3", "roll5"))
+  cat(rep("-", 80), "\n", sep = "")
+  format_ctx <- function(val) {
+    if (is.null(val) || length(val) == 0 || is.na(val)) return("NA")
+    as.character(format(round(as.numeric(val), 2), nsmall = 2, trim = TRUE))
+  }
+  for (lbl in names(qb_rows)) {
+    cols <- qb_rows[[lbl]]
+    vals <- vapply(cols, function(nm) {
+      if (!is.null(off_context[[nm]])) format_ctx(off_context[[nm]]) else "NA"
+    }, character(1))
+    cat(sprintf("%-24s %10s %10s %10s\n", lbl, vals[1], vals[2], vals[3]))
+  }
+  cat("\n")
+
+  # Defensive (defense-caused) rolling context values
+  cat("Defensive Context Values (Rolling, prior games only):\n")
+  cat(rep("-", 80), "\n", sep = "")
+  cat("   Note: roll1 = most recent completed game before target; roll3/roll5 are prior-game averages.\n")
   
   # Determine if defensive features should be available based on week
   week <- metadata$week
@@ -350,11 +388,11 @@ print_rb_simulation <- function(result) {
   
   def_to_print <- if (is_rb) {
     c(
-      "opp_rush_yards_allowed_roll1", "opp_rush_yards_allowed_roll5",
-      "opp_yards_per_rush_allowed_roll1", "opp_yards_per_rush_allowed_roll5",
-      "opp_sacks_roll1", "opp_sacks_roll5",
-      "opp_tfl_roll1", "opp_tfl_roll5",
-      "opp_points_allowed_roll1", "opp_points_allowed_roll5"
+      "def_rush_yards_defense_allowed_roll1", "def_rush_yards_defense_allowed_roll5",
+      "def_yards_per_rush_defense_allowed_roll1", "def_yards_per_rush_defense_allowed_roll5",
+      "def_sacks_defense_forced_roll1", "def_sacks_defense_forced_roll5",
+      "def_tackles_for_loss_defense_forced_roll1", "def_tackles_for_loss_defense_forced_roll5",
+      "def_points_defense_allowed_roll1", "def_points_defense_allowed_roll5"
     )
   } else {
     c(

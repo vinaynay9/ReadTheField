@@ -340,9 +340,9 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
     stop("Defensive weekly features are empty. Cannot proceed with opponent-aware RB features.")
   }
   
-  required_def_cols <- c("opp_yards_per_rush_allowed_roll5",
-                         "opp_rush_yards_allowed_roll5",
-                         "opp_points_allowed_roll5")
+  required_def_cols <- c("def_yards_per_rush_defense_allowed_roll5",
+                         "def_rush_yards_defense_allowed_roll5",
+                         "def_points_defense_allowed_roll5")
   join_keys <- c("season", "week", "defense_team")
   missing_def_cols <- setdiff(c(join_keys, required_def_cols), names(def_features))
   if (length(missing_def_cols) > 0) {
@@ -353,15 +353,15 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
   
   def_cols <- c(join_keys,
                 required_def_cols,
-                "opp_sacks_roll5",
-                "opp_tfl_roll5",
-                "opp_int_roll5",
-                "opp_rush_yards_allowed_roll1",
-                "opp_yards_per_rush_allowed_roll1",
-                "opp_points_allowed_roll1",
-                "opp_sacks_roll1",
-                "opp_tfl_roll1",
-                "opp_int_roll1",
+                "def_sacks_defense_forced_roll5",
+                "def_tackles_for_loss_defense_forced_roll5",
+                "def_interceptions_defense_caught_roll5",
+                "def_rush_yards_defense_allowed_roll1",
+                "def_yards_per_rush_defense_allowed_roll1",
+                "def_points_defense_allowed_roll1",
+                "def_sacks_defense_forced_roll1",
+                "def_tackles_for_loss_defense_forced_roll1",
+                "def_interceptions_defense_caught_roll1",
                 "defense_data_available",
                 "rolling_window_complete")
   def_cols <- intersect(def_cols, names(def_features))
@@ -401,11 +401,39 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
     stop("Team offense context is empty. Cannot proceed with teammate-aware RB features.")
   }
   toc_cols <- c("team", "season", "week", grep("_roll1$", names(team_offense_context), value = TRUE))
-  toc_cols <- intersect(toc_cols, names(team_offense_context))
-  toc_cols <- setdiff(toc_cols, "team_rb_snaps_total_roll1")
-  features <- features %>%
-    left_join(team_offense_context[, toc_cols, drop = FALSE],
-              by = c("team", "season", "week"))
+    toc_cols <- intersect(toc_cols, names(team_offense_context))
+    toc_cols <- setdiff(toc_cols, c("team_rb_snaps_total_roll1", "target_pass_attempts_qb_roll1"))
+    features <- features %>%
+      left_join(team_offense_context[, toc_cols, drop = FALSE],
+                by = c("team", "season", "week"))
+
+    # Join QB rolling context features (roll1/roll3/roll5) for all positions.
+    # QB weekly features are built from nflreadr player stats and use the
+    # highest-attempts QB per team-week (starter proxy).
+    qb_features_path <- file.path("data", "processed", "qb_weekly_features.parquet")
+    if (!file.exists(qb_features_path)) {
+      stop("Missing QB weekly features file: ", qb_features_path)
+    }
+    qb_features <- arrow::read_parquet(qb_features_path)
+    if (nrow(qb_features) == 0) {
+      stop("QB weekly features are empty. Cannot proceed with RB features.")
+    }
+    qb_cols <- c(
+      "team", "season", "week",
+      "target_pass_attempts_qb_roll1", "target_pass_attempts_qb_roll3", "target_pass_attempts_qb_roll5",
+      "target_pass_completions_qb_roll1", "target_pass_completions_qb_roll3", "target_pass_completions_qb_roll5",
+      "target_completion_pct_qb_roll1", "target_completion_pct_qb_roll3", "target_completion_pct_qb_roll5",
+      "target_interceptions_qb_thrown_roll1", "target_interceptions_qb_thrown_roll3", "target_interceptions_qb_thrown_roll5",
+      "target_yards_per_pass_qb_roll1", "target_yards_per_pass_qb_roll3", "target_yards_per_pass_qb_roll5",
+      "target_sacks_qb_taken_roll1", "target_sacks_qb_taken_roll3", "target_sacks_qb_taken_roll5"
+    )
+    qb_cols <- unique(qb_cols)
+    missing_qb <- setdiff(qb_cols, names(qb_features))
+    if (length(missing_qb) > 0) {
+      stop("QB weekly features missing required columns: ", paste(missing_qb, collapse = ", "))
+    }
+    features <- features %>%
+      left_join(qb_features[, qb_cols, drop = FALSE], by = c("team", "season", "week"))
   
   # Join prior-season cumulative stats (season - 1 aggregates)
   prior_season_stats_path <- file.path("data", "processed", "prior_season_player_stats.parquet")
@@ -623,8 +651,48 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
     }
   }
   
-  message(sprintf("✓ Feature assembly complete: %d rows, %d columns, priors validated", 
-                  nrow(features), ncol(features)))
+    # QB rolling features should be available once sufficient history exists.
+    # roll1 is expected from week 2+, roll3 from week 4+, roll5 from week 6+.
+    validate_qb_roll <- function(df, col, min_week) {
+      if (!col %in% names(df)) {
+        stop("RB weekly features missing QB column: ", col)
+      }
+      eligible <- !is.na(df$week) & df$week >= min_week
+      if (any(eligible) && all(is.na(df[[col]][eligible]))) {
+        stop("RB weekly features column '", col, "' is all NA for week >= ", min_week,
+             ". QB rolling features are not joining correctly.")
+      }
+    }
+    qb_roll_checks <- c(
+      "target_pass_attempts_qb_roll1",
+      "target_completion_pct_qb_roll1",
+      "target_interceptions_qb_thrown_roll1",
+      "target_sacks_qb_taken_roll1"
+    )
+    for (col in qb_roll_checks) {
+      validate_qb_roll(features, col, min_week = 4)
+    }
+    qb_roll_checks3 <- c(
+      "target_pass_attempts_qb_roll3",
+      "target_completion_pct_qb_roll3",
+      "target_interceptions_qb_thrown_roll3",
+      "target_sacks_qb_taken_roll3"
+    )
+    for (col in qb_roll_checks3) {
+      validate_qb_roll(features, col, min_week = 4)
+    }
+    qb_roll_checks5 <- c(
+      "target_pass_attempts_qb_roll5",
+      "target_completion_pct_qb_roll5",
+      "target_interceptions_qb_thrown_roll5",
+      "target_sacks_qb_taken_roll5"
+    )
+    for (col in qb_roll_checks5) {
+      validate_qb_roll(features, col, min_week = 6)
+    }
+
+    message(sprintf("✓ Feature assembly complete: %d rows, %d columns, priors validated", 
+                    nrow(features), ncol(features)))
   
   features
 }
@@ -894,46 +962,46 @@ assemble_rb_training_data <- function(seasons) {
       
       # Select defensive feature columns to join
   def_cols <- c("season", "week", "defense_team", 
-                 "opp_pass_yards_allowed_roll5",
-                 "opp_rush_yards_allowed_roll5",
-                 "opp_rush_yards_allowed_roll1",
-                 "opp_yards_per_rush_allowed_roll5",
-                 "opp_yards_per_rush_allowed_roll1",
-                 "opp_total_yards_allowed_roll5",
-                 "opp_points_allowed_roll5",
-                 "opp_points_allowed_roll1",
-                 "opp_sacks_roll5",
-                 "opp_sacks_roll1",
-                 "opp_tfl_roll5",
-                 "opp_tfl_roll1",
-                 "def_rush_yards_allowed_roll5",
-                 "def_yards_per_rush_allowed_roll5",
-                 "def_points_allowed_roll5",
-                 "def_sacks_roll5",
-                 "def_tfl_roll5",
-                 "def_rush_yards_allowed_roll1",
-                 "def_yards_per_rush_allowed_roll1",
-                 "def_points_allowed_roll1",
-                 "def_sacks_roll1",
-                 "def_tfl_roll1",
+                 "def_pass_yards_defense_allowed_roll5",
+                 "def_rush_yards_defense_allowed_roll5",
+                 "def_rush_yards_defense_allowed_roll1",
+                 "def_yards_per_rush_defense_allowed_roll5",
+                 "def_yards_per_rush_defense_allowed_roll1",
+                 "def_total_yards_defense_allowed_roll5",
+                 "def_points_defense_allowed_roll5",
+                 "def_points_defense_allowed_roll1",
+                 "def_sacks_defense_forced_roll5",
+                 "def_sacks_defense_forced_roll1",
+                 "def_tackles_for_loss_defense_forced_roll5",
+                 "def_tackles_for_loss_defense_forced_roll1",
+                 "def_rush_yards_defense_allowed_roll5",
+                 "def_yards_per_rush_defense_allowed_roll5",
+                 "def_points_defense_allowed_roll5",
+                 "def_sacks_defense_forced_roll5",
+                 "def_tackles_for_loss_defense_forced_roll5",
+                 "def_rush_yards_defense_allowed_roll1",
+                 "def_yards_per_rush_defense_allowed_roll1",
+                 "def_points_defense_allowed_roll1",
+                 "def_sacks_defense_forced_roll1",
+                 "def_tackles_for_loss_defense_forced_roll1",
                  "rolling_window_complete",
                  "rolling_window_complete_roll1",
                  "defense_data_available")
       
       # Add optional columns if they exist
-      if ("opp_int_roll5" %in% names(def_features)) {
-        def_cols <- c(def_cols, "opp_int_roll5")
+      if ("def_interceptions_defense_caught_roll5" %in% names(def_features)) {
+        def_cols <- c(def_cols, "def_interceptions_defense_caught_roll5")
       }
-      if ("opp_int_roll1" %in% names(def_features)) {
-        def_cols <- c(def_cols, "opp_int_roll1")
+      if ("def_interceptions_defense_caught_roll1" %in% names(def_features)) {
+        def_cols <- c(def_cols, "def_interceptions_defense_caught_roll1")
       }
       
       # Only join columns that exist
       def_cols <- intersect(def_cols, names(def_features))
       
-      required_def_cols <- c("opp_yards_per_rush_allowed_roll5",
-                             "opp_rush_yards_allowed_roll5",
-                             "opp_points_allowed_roll5")
+      required_def_cols <- c("def_yards_per_rush_defense_allowed_roll5",
+                             "def_rush_yards_defense_allowed_roll5",
+                             "def_points_defense_allowed_roll5")
       missing_def_cols <- setdiff(required_def_cols, def_cols)
       if (length(missing_def_cols) > 0) {
         stop("Defensive features missing required columns: ",
@@ -953,11 +1021,11 @@ assemble_rb_training_data <- function(seasons) {
       
       # Validation: Check that defensive features are opponent-specific
       # Verify that joined defensive features match opponent_team
-      if (nrow(rb_data) > 0 && "opp_rush_yards_allowed_roll5" %in% names(rb_data)) {
+      if (nrow(rb_data) > 0 && "def_rush_yards_defense_allowed_roll5" %in% names(rb_data)) {
         # Sample check: defensive features should be joined correctly
         # (defense_team in def_features should match opponent in rb_data)
-        sample_check <- head(rb_data[!is.na(rb_data$opp_rush_yards_allowed_roll5), 
-                                     c("opponent", "opp_rush_yards_allowed_roll5")], 10)
+        sample_check <- head(rb_data[!is.na(rb_data$def_rush_yards_defense_allowed_roll5), 
+                                     c("opponent", "def_rush_yards_defense_allowed_roll5")], 10)
         if (nrow(sample_check) > 0) {
           message("Validation: Defensive features joined on opponent_team (leakage-safe)")
         }
@@ -1029,7 +1097,13 @@ assemble_rb_training_data <- function(seasons) {
     "prev_season_rush_yards_total", "prev_season_rec_yards_total",
     "prev_season_games_played",
     # Features (team offense context, previous week)
-    "team_qb_pass_attempts_roll1", "team_qb_pass_yards_roll1", "team_qb_pass_tds_roll1",
+    "target_pass_attempts_qb_roll1", "target_pass_attempts_qb_roll3", "target_pass_attempts_qb_roll5",
+    "target_pass_completions_qb_roll1", "target_pass_completions_qb_roll3", "target_pass_completions_qb_roll5",
+    "target_completion_pct_qb_roll1", "target_completion_pct_qb_roll3", "target_completion_pct_qb_roll5",
+    "target_interceptions_qb_thrown_roll1", "target_interceptions_qb_thrown_roll3", "target_interceptions_qb_thrown_roll5",
+    "target_yards_per_pass_qb_roll1", "target_yards_per_pass_qb_roll3", "target_yards_per_pass_qb_roll5",
+    "target_sacks_qb_taken_roll1", "target_sacks_qb_taken_roll3", "target_sacks_qb_taken_roll5",
+    "target_pass_yards_qb_roll1", "target_pass_tds_qb_roll1",
     "team_rb_carries_total_roll1", "team_rb_targets_total_roll1",
     "team_rb_carry_share_top1_roll1", "team_rb_carry_share_top2_roll1",
     "team_wr_targets_total_roll1", "team_wr_receiving_yards_roll1", "team_wr_air_yards_roll1",
@@ -1044,12 +1118,12 @@ assemble_rb_training_data <- function(seasons) {
     "yards_per_carry_roll5", "yards_per_target_roll5", "catch_rate_roll5",
     "rush_tds_roll5", "rec_tds_roll5",
     # Defensive features (opponent context)
-    "opp_rush_yards_allowed_roll1", "opp_yards_per_rush_allowed_roll1",
-    "opp_points_allowed_roll1", "opp_sacks_roll1", "opp_tfl_roll1",
-    "opp_pass_yards_allowed_roll5", "opp_rush_yards_allowed_roll5",
-    "opp_yards_per_rush_allowed_roll5", "opp_total_yards_allowed_roll5",
-    "opp_points_allowed_roll5",
-    "opp_sacks_roll5", "opp_tfl_roll5", "opp_int_roll5", "opp_int_roll1",
+    "def_rush_yards_defense_allowed_roll1", "def_yards_per_rush_defense_allowed_roll1",
+    "def_points_defense_allowed_roll1", "def_sacks_defense_forced_roll1", "def_tackles_for_loss_defense_forced_roll1",
+    "def_pass_yards_defense_allowed_roll5", "def_rush_yards_defense_allowed_roll5",
+    "def_yards_per_rush_defense_allowed_roll5", "def_total_yards_defense_allowed_roll5",
+    "def_points_defense_allowed_roll5",
+    "def_sacks_defense_forced_roll5", "def_tackles_for_loss_defense_forced_roll5", "def_interceptions_defense_caught_roll5", "def_interceptions_defense_caught_roll1",
     "defense_data_available", "rolling_window_complete",
     # Rookie signals
     "is_rookie", "draft_round", "draft_pick_overall",
@@ -1163,22 +1237,39 @@ empty_rb_training_df <- function() {
     rec_tds_roll1 = double(0),
     rec_tds_roll5 = double(0),
     # Defensive features (opponent context)
-    opp_rush_yards_allowed_roll1 = double(0),
-    opp_yards_per_rush_allowed_roll1 = double(0),
-    opp_points_allowed_roll1 = double(0),
-    opp_sacks_roll1 = double(0),
-    opp_tfl_roll1 = double(0),
-    opp_int_roll1 = double(0),
-    opp_rush_yards_allowed_roll5 = double(0),
-    opp_yards_per_rush_allowed_roll5 = double(0),
-    opp_points_allowed_roll5 = double(0),
-    opp_sacks_roll5 = double(0),
-    opp_tfl_roll5 = double(0),
-    opp_int_roll5 = double(0),
+    def_rush_yards_defense_allowed_roll1 = double(0),
+    def_yards_per_rush_defense_allowed_roll1 = double(0),
+    def_points_defense_allowed_roll1 = double(0),
+    def_sacks_defense_forced_roll1 = double(0),
+    def_tackles_for_loss_defense_forced_roll1 = double(0),
+    def_interceptions_defense_caught_roll1 = double(0),
+    def_rush_yards_defense_allowed_roll5 = double(0),
+    def_yards_per_rush_defense_allowed_roll5 = double(0),
+    def_points_defense_allowed_roll5 = double(0),
+    def_sacks_defense_forced_roll5 = double(0),
+    def_tackles_for_loss_defense_forced_roll5 = double(0),
+    def_interceptions_defense_caught_roll5 = double(0),
     # Team offense context (previous week)
-    team_qb_pass_attempts_roll1 = double(0),
-    team_qb_pass_yards_roll1 = double(0),
-    team_qb_pass_tds_roll1 = double(0),
+    target_pass_attempts_qb_roll1 = double(0),
+    target_pass_attempts_qb_roll3 = double(0),
+    target_pass_attempts_qb_roll5 = double(0),
+    target_pass_completions_qb_roll1 = double(0),
+    target_pass_completions_qb_roll3 = double(0),
+    target_pass_completions_qb_roll5 = double(0),
+    target_completion_pct_qb_roll1 = double(0),
+    target_completion_pct_qb_roll3 = double(0),
+    target_completion_pct_qb_roll5 = double(0),
+    target_interceptions_qb_thrown_roll1 = double(0),
+    target_interceptions_qb_thrown_roll3 = double(0),
+    target_interceptions_qb_thrown_roll5 = double(0),
+    target_yards_per_pass_qb_roll1 = double(0),
+    target_yards_per_pass_qb_roll3 = double(0),
+    target_yards_per_pass_qb_roll5 = double(0),
+    target_sacks_qb_taken_roll1 = double(0),
+    target_sacks_qb_taken_roll3 = double(0),
+    target_sacks_qb_taken_roll5 = double(0),
+    target_pass_yards_qb_roll1 = double(0),
+    target_pass_tds_qb_roll1 = double(0),
     team_rb_carries_total_roll1 = double(0),
     team_rb_targets_total_roll1 = double(0),
     team_rb_carry_share_top1_roll1 = double(0),

@@ -42,10 +42,10 @@ tryCatch({
     stop("WR feature matrix contains rushing columns: ", paste(rushing_cols, collapse = ", "))
   }
   required_def_cols <- c(
-    "def_interceptions_roll3",
-    "def_passes_defended_roll3",
-    "def_interceptions_roll5",
-    "def_passes_defended_roll5"
+    "def_interceptions_defense_caught_roll3",
+    "def_passes_defended_defense_forced_roll3",
+    "def_interceptions_defense_caught_roll5",
+    "def_passes_defended_defense_forced_roll5"
   )
   missing_def_cols <- setdiff(required_def_cols, names(wr_features))
   if (length(missing_def_cols) > 0) {
@@ -79,7 +79,7 @@ tryCatch({
       by = c("player_id", "season", "week")
     )
 
-  if (!any(grepl("team_qb_pass", names(train_df)))) {
+  if (!any(grepl("target_pass_attempts_qb", names(train_df)))) {
     stop("Team offense context features missing from training data.")
   }
   if (!any(grepl("prev_season_", names(train_df)))) {
@@ -218,8 +218,8 @@ tryCatch({
   }
 
   def_checks <- intersect(
-    c("def_interceptions_roll3", "def_passes_defended_roll3",
-      "def_interceptions_roll5", "def_passes_defended_roll5"),
+    c("def_interceptions_defense_caught_roll3", "def_passes_defended_defense_forced_roll3",
+      "def_interceptions_defense_caught_roll5", "def_passes_defended_defense_forced_roll5"),
     feature_cols
   )
   missing_def_used <- setdiff(def_checks, used_features)
@@ -333,17 +333,14 @@ tryCatch({
 
   cat("  Candidate:", candidate$player_id, "team", candidate$team, "week", candidate$week, "\n")
 
-  err <- tryCatch({
-    simulate_player_game(
-      gsis_id = candidate$player_id,
-      season = test_season,
-      week = candidate$week,
-      n_sims = 200,
-      availability_policy = "played_only"
-    )
-    NULL
-  }, error = function(e) e)
-  if (is.null(err)) {
+  err <- simulate_player_game(
+    gsis_id = candidate$player_id,
+    season = test_season,
+    week = candidate$week,
+    n_sims = 200,
+    availability_policy = "played_only"
+  )
+  if (is.null(err$status) || err$status != "error") {
     stop("Expected played_only to fail for missing/inactive player-week.")
   }
 
@@ -461,7 +458,7 @@ tryCatch({
           mode = "upcoming_game"
         )
       }, error = function(e) NULL)
-      if (!is.null(result_future)) {
+      if (!is.null(result_future) && (is.null(result_future$status) || result_future$status != "error")) {
         candidate <- cand
         break
       }

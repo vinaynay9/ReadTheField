@@ -48,7 +48,7 @@ get_rb_features_by_week <- function(week) {
     "draft_pick_overall"
   )
   team_context_features <- c(
-    "team_qb_pass_attempts_roll1", "team_qb_pass_yards_roll1", "team_qb_pass_tds_roll1",
+    "target_pass_attempts_qb_roll1", "target_pass_yards_qb_roll1", "target_pass_tds_qb_roll1",
     "team_rb_carries_total_roll1", "team_rb_targets_total_roll1",
     "team_rb_carry_share_top1_roll1", "team_rb_carry_share_top2_roll1",
     "team_wr_targets_total_roll1", "team_wr_receiving_yards_roll1", "team_wr_air_yards_roll1"
@@ -57,8 +57,8 @@ get_rb_features_by_week <- function(week) {
     "carries_roll1", "targets_roll1",
     "rush_yards_roll1", "rec_yards_roll1",
     "rush_tds_roll1", "rec_tds_roll1",
-    "opp_rush_yards_allowed_roll1", "opp_yards_per_rush_allowed_roll1",
-    "opp_points_allowed_roll1", "opp_sacks_roll1", "opp_tfl_roll1"
+    "def_rush_yards_defense_allowed_roll1", "def_yards_per_rush_defense_allowed_roll1",
+    "def_points_defense_allowed_roll1", "def_sacks_defense_forced_roll1", "def_tackles_for_loss_defense_forced_roll1"
   )
   if (week <= 3) {
     return(c("is_home", "carries_cum_mean", "targets_cum_mean", 
@@ -93,8 +93,8 @@ get_rb_features_by_week <- function(week) {
              team_context_features,
              roll1_features,
              "carries_roll3", "targets_roll3", "carries_roll5", "targets_roll5",
-             "opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
-             "opp_points_allowed_roll5", "opp_sacks_roll5", "opp_tfl_roll5"))
+             "def_rush_yards_defense_allowed_roll5", "def_yards_per_rush_defense_allowed_roll5",
+             "def_points_defense_allowed_roll5", "def_sacks_defense_forced_roll5", "def_tackles_for_loss_defense_forced_roll5"))
   }
   
   # Weeks 8+: Player priors + decayed priors + full rolling feature set (roll3, roll5, roll7)
@@ -108,8 +108,8 @@ get_rb_features_by_week <- function(week) {
             roll1_features,
             "carries_roll3", "targets_roll3", "carries_roll5", "targets_roll5", 
             "carries_roll7", "targets_roll7",
-            "opp_rush_yards_allowed_roll5", "opp_yards_per_rush_allowed_roll5",
-            "opp_points_allowed_roll5", "opp_sacks_roll5", "opp_tfl_roll5"))
+            "def_rush_yards_defense_allowed_roll5", "def_yards_per_rush_defense_allowed_roll5",
+            "def_points_defense_allowed_roll5", "def_sacks_defense_forced_roll5", "def_tackles_for_loss_defense_forced_roll5"))
 }
 
 #' Get canonical RB v1 feature contract by regime (for coefficient selection)
@@ -124,15 +124,15 @@ get_rb_features_by_regime <- function() {
     "carries_roll1", "targets_roll1",
     "rush_yards_roll1", "rec_yards_roll1",
     "rush_tds_roll1", "rec_tds_roll1",
-    "opp_rush_yards_allowed_roll1", "opp_yards_per_rush_allowed_roll1",
-    "opp_points_allowed_roll1", "opp_sacks_roll1", "opp_tfl_roll1"
+    "def_rush_yards_defense_allowed_roll1", "def_yards_per_rush_defense_allowed_roll1",
+    "def_points_defense_allowed_roll1", "def_sacks_defense_forced_roll1", "def_tackles_for_loss_defense_forced_roll1"
   )
   defense_roll1_features <- c(
-    "opp_rush_yards_allowed_roll1",
-    "opp_yards_per_rush_allowed_roll1",
-    "opp_points_allowed_roll1",
-    "opp_sacks_roll1",
-    "opp_tfl_roll1"
+    "def_rush_yards_defense_allowed_roll1",
+    "def_yards_per_rush_defense_allowed_roll1",
+    "def_points_defense_allowed_roll1",
+    "def_sacks_defense_forced_roll1",
+    "def_tackles_for_loss_defense_forced_roll1"
   )
   prior_season_features <- c(
     "prev_season_carries_total",
@@ -147,7 +147,7 @@ get_rb_features_by_regime <- function() {
     "draft_pick_overall"
   )
   team_context_features <- c(
-    "team_qb_pass_attempts_roll1", "team_qb_pass_yards_roll1", "team_qb_pass_tds_roll1",
+    "target_pass_attempts_qb_roll1", "target_pass_yards_qb_roll1", "target_pass_tds_qb_roll1",
     "team_rb_carries_total_roll1", "team_rb_targets_total_roll1",
     "team_rb_carry_share_top1_roll1", "team_rb_carry_share_top2_roll1",
     "team_wr_targets_total_roll1", "team_wr_receiving_yards_roll1", "team_wr_air_yards_roll1"
@@ -214,11 +214,11 @@ get_rb_features_by_regime <- function() {
       "targets_roll3",
       "carries_roll5",
       "targets_roll5",
-      "opp_rush_yards_allowed_roll5",
-      "opp_yards_per_rush_allowed_roll5",
-      "opp_points_allowed_roll5",
-      "opp_sacks_roll5",
-      "opp_tfl_roll5"
+      "def_rush_yards_defense_allowed_roll5",
+      "def_yards_per_rush_defense_allowed_roll5",
+      "def_points_defense_allowed_roll5",
+      "def_sacks_defense_forced_roll5",
+      "def_tackles_for_loss_defense_forced_roll5"
     ),
     standard = c(
       "is_home",
@@ -241,11 +241,11 @@ get_rb_features_by_regime <- function() {
       "targets_roll5",
       "carries_roll7",
       "targets_roll7",
-      "opp_rush_yards_allowed_roll5",
-      "opp_yards_per_rush_allowed_roll5",
-      "opp_points_allowed_roll5",
-      "opp_sacks_roll5",
-      "opp_tfl_roll5"
+      "def_rush_yards_defense_allowed_roll5",
+      "def_yards_per_rush_defense_allowed_roll5",
+      "def_points_defense_allowed_roll5",
+      "def_sacks_defense_forced_roll5",
+      "def_tackles_for_loss_defense_forced_roll5"
     ),
     # Availability-only regime: used when exposure-dependent features are unavailable
     counterfactual_prior = counterfactual_features

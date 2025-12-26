@@ -88,19 +88,34 @@ print_player_simulation <- function(result) {
     for (nm in names(rename_map)) {
       summary_df$stat[summary_df$stat == nm] <- rename_map[[nm]]
     }
-    if (!"total_touchdowns" %in% summary_df$stat &&
-        all(c("rushing_tds", "receiving_tds") %in% summary_df$stat) &&
-        !is.null(result$draws)) {
-      td_vec <- result$draws$rush_tds + result$draws$rec_tds
-      summary_df <- rbind(
-        summary_df,
-        data.frame(
-          stat = "total_touchdowns",
-          p25 = stats::quantile(td_vec, 0.25, na.rm = TRUE),
-          p50 = stats::quantile(td_vec, 0.50, na.rm = TRUE),
-          p75 = stats::quantile(td_vec, 0.75, na.rm = TRUE)
+    if (!"total_touchdowns" %in% summary_df$stat) {
+      if (all(c("rushing_tds", "receiving_tds") %in% summary_df$stat) &&
+          !is.null(result$draws)) {
+        td_vec <- result$draws$rush_tds + result$draws$rec_tds
+        summary_df <- rbind(
+          summary_df,
+          data.frame(
+            stat = "total_touchdowns",
+            p25 = stats::quantile(td_vec, 0.25, na.rm = TRUE),
+            p50 = stats::quantile(td_vec, 0.50, na.rm = TRUE),
+            p75 = stats::quantile(td_vec, 0.75, na.rm = TRUE)
+          )
         )
-      )
+      } else if ("receiving_tds" %in% summary_df$stat) {
+        # WR/TE summary uses receiving_tds; total_tds equals receiving_tds.
+        td_rows <- summary_df[summary_df$stat == "receiving_tds", , drop = FALSE]
+        if (nrow(td_rows) > 0) {
+          summary_df <- rbind(
+            summary_df,
+            data.frame(
+              stat = "total_touchdowns",
+              p25 = td_rows$p25[1],
+              p50 = td_rows$p50[1],
+              p75 = td_rows$p75[1]
+            )
+          )
+        }
+      }
     }
   }
   
@@ -149,6 +164,17 @@ print_player_simulation <- function(result) {
   cat("Player Simulation — ", safe_str(metadata$player_name, default = "(unknown)"), 
       " vs ", safe_str(metadata$opponent, default = "(unknown)"), 
       " (", safe_str(metadata$game_date, default = "(unknown)"), ")\n", sep = "")
+  if (isTRUE(metadata$counterfactual_mode) ||
+      (!is.null(result$diagnostics) &&
+         !is.null(result$diagnostics$availability) &&
+         isTRUE(result$diagnostics$availability$counterfactual))) {
+    cf_team <- if (!is.null(metadata$counterfactual_team) && !is.na(metadata$counterfactual_team)) {
+      paste0(" (team ", metadata$counterfactual_team, ")")
+    } else {
+      ""
+    }
+    cat("COUNTERFACTUAL SIMULATION (NOT OBSERVED)", cf_team, "\n")
+  }
   cat(paste0(rep("=", 80), collapse = ""), "\n\n")
   
   # ============================================================================
@@ -366,31 +392,8 @@ print_player_simulation <- function(result) {
     cat("   Total TDs:", safe_num(total_tds_p50, digits = 2), "\n")
   }
   
-  # Try to get PPR from summary, otherwise compute from stats
+  # PPR fantasy points are derived from draw-level scoring summary
   ppr_p50 <- get_summary_value(summary_df, "fantasy_ppr", "p50")
-  if (is.na(ppr_p50) && is_rb && exists("compute_ppr_rb")) {
-    tryCatch({
-      ppr_p50 <- compute_ppr_rb(
-        rush_yards = rush_yds_p50,
-        rush_tds = 0,
-        receptions = receptions_p50,
-        rec_yards = rec_yds_p50,
-        rec_tds = 0
-      )
-    }, error = function(e) {
-      ppr_p50 <<- NA_real_
-    })
-  } else if (is.na(ppr_p50) && !is_rb && exists("compute_ppr_wrte")) {
-    tryCatch({
-      ppr_p50 <- compute_ppr_wrte(
-        receptions = receptions_p50,
-        rec_yards = rec_yds_p50,
-        rec_tds = 0
-      )
-    }, error = function(e) {
-      ppr_p50 <<- NA_real_
-    })
-  }
   cat("   PPR Fantasy Points:", safe_num(ppr_p50, digits = 1), "\n")
   cat("\n")
   
@@ -463,32 +466,6 @@ print_player_simulation <- function(result) {
   ppr_p25 <- get_summary_value(summary_df, "fantasy_ppr", "p25")
   ppr_p50 <- get_summary_value(summary_df, "fantasy_ppr", "p50")
   ppr_p75 <- get_summary_value(summary_df, "fantasy_ppr", "p75")
-  
-  # If PPR not in summary, try to compute from stats
-  if (is.na(ppr_p50) && is_rb && exists("compute_ppr_rb")) {
-    tryCatch({
-      ppr_p50 <- compute_ppr_rb(
-        rush_yards = rush_yds_p50,
-        rush_tds = 0,
-        receptions = rec_p50,
-        rec_yards = rec_yds_p50,
-        rec_tds = 0
-      )
-    }, error = function(e) {
-      ppr_p50 <<- NA_real_
-    })
-  } else if (is.na(ppr_p50) && !is_rb && exists("compute_ppr_wrte")) {
-    tryCatch({
-      ppr_p50 <- compute_ppr_wrte(
-        receptions = rec_p50,
-        rec_yards = rec_yds_p50,
-        rec_tds = 0
-      )
-    }, error = function(e) {
-      ppr_p50 <<- NA_real_
-    })
-  }
-  
   cat("   PPR Fantasy Points:", safe_interval(ppr_p25, ppr_p50, ppr_p75, digits = 1), "\n")
   
   cat("\n")

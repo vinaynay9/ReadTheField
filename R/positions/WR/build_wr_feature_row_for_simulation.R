@@ -31,7 +31,7 @@ get_wr_feature_groups <- function() {
       "position", "height", "weight", "age"
     ),
     team_context_features = c(
-      "team_qb_pass_attempts_roll1", "team_qb_pass_yards_roll1", "team_qb_pass_tds_roll1",
+      "target_pass_attempts_qb_roll1", "target_pass_yards_qb_roll1", "target_pass_tds_qb_roll1",
       "team_wr_targets_total_roll1", "team_wr_air_yards_roll1",
       "team_wr_target_share_top1_roll1", "team_wr_target_share_top2_roll1",
       "team_te_targets_total_roll1", "team_rb_targets_total_roll1"

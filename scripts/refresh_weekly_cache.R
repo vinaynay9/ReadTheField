@@ -320,6 +320,46 @@ if (nrow(team_offense_context) == 0) {
 cat("  Built team offense context cache with", nrow(team_offense_context), "rows\n")
 
 # ------------------------------------------------------------------
+# Build QB rolling features (team-level QB context)
+# ------------------------------------------------------------------
+cat("  Building QB rolling features...\n")
+if (!exists("build_qb_game_stats")) {
+  if (file.exists("R/data/build_qb_game_stats.R")) {
+    source("R/data/build_qb_game_stats.R")
+  } else {
+    stop("Missing R/data/build_qb_game_stats.R")
+  }
+}
+if (!exists("build_qb_features")) {
+  if (file.exists("R/features/build_qb_features.R")) {
+    source("R/features/build_qb_features.R")
+  } else {
+    stop("Missing R/features/build_qb_features.R")
+  }
+}
+
+qb_game_stats <- build_qb_game_stats(seasons = seasons_to_refresh, season_type = "REG")
+qb_features <- build_qb_features(qb_game_stats)
+
+required_qb_cols <- c(
+  "team", "season", "week",
+  "target_completion_pct_qb_roll3",
+  "target_interceptions_qb_thrown_roll3"
+)
+missing_qb_cols <- setdiff(required_qb_cols, names(qb_features))
+if (length(missing_qb_cols) > 0) {
+  stop("QB rolling features missing required columns: ", paste(missing_qb_cols, collapse = ", "))
+}
+
+if (!requireNamespace("arrow", quietly = TRUE)) {
+  stop("Package 'arrow' is required to write QB weekly features. Install with install.packages('arrow').")
+}
+qb_weekly_features_path <- file.path("data", "processed", "qb_weekly_features.parquet")
+dir.create(dirname(qb_weekly_features_path), recursive = TRUE, showWarnings = FALSE)
+arrow::write_parquet(qb_features, qb_weekly_features_path)
+cat("  Built QB rolling features cache with", nrow(qb_features), "rows\n")
+
+# ------------------------------------------------------------------
 # Build prior-season player aggregates (season - 1)
 # ------------------------------------------------------------------
 cat("  Building prior-season player stats cache...\n")
@@ -425,6 +465,7 @@ te_weekly_features_path <- file.path("data", "processed", "te_weekly_features.pa
 defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
 player_dim_path <- file.path("data", "processed", "player_dim.parquet")
 team_offense_context_path <- file.path("data", "processed", "team_offense_context.parquet")
+qb_weekly_features_path <- file.path("data", "processed", "qb_weekly_features.parquet")
 prior_season_player_stats_path <- file.path("data", "processed", "prior_season_player_stats.parquet")
 
 cat("\nWeekly caches refreshed. Files:")
@@ -444,6 +485,9 @@ if (file.exists(player_dim_path)) {
 }
 if (file.exists(team_offense_context_path)) {
   cat("\n  -", team_offense_context_path)
+}
+if (file.exists(qb_weekly_features_path)) {
+  cat("\n  -", qb_weekly_features_path)
 }
 if (file.exists(prior_season_player_stats_path)) {
   cat("\n  -", prior_season_player_stats_path)

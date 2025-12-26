@@ -437,9 +437,9 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000, availability
   }
   
   # Opponent-adjusted YPC (defensive context)
-  opp_ypc_allowed <- if ("opp_yards_per_rush_allowed_roll5" %in% names(feature_row) &&
-                         !is.na(feature_row$opp_yards_per_rush_allowed_roll5[1])) {
-    feature_row$opp_yards_per_rush_allowed_roll5[1]
+  opp_ypc_allowed <- if ("def_yards_per_rush_defense_allowed_roll5" %in% names(feature_row) &&
+                         !is.na(feature_row$def_yards_per_rush_defense_allowed_roll5[1])) {
+    feature_row$def_yards_per_rush_defense_allowed_roll5[1]
   } else {
     NA_real_
   }

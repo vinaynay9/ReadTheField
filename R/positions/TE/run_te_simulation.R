@@ -43,6 +43,7 @@ run_te_simulation <- function(gsis_id,
     ),
     recent_games = data.frame(),
     defensive_context = list(),
+    offensive_context = list(),
     summary = data.frame(),
     diagnostics = list(),
     draws = data.frame()
@@ -344,13 +345,34 @@ run_te_simulation <- function(gsis_id,
     stop("Training data collapsed: only ", nrow(te_data_pre), " rows remain before model fitting.")
   }
 
-  player_data <- te_data_pre[te_data_pre$player_id == player_id, ]
-  if (nrow(player_data) > 0) {
-    player_data <- player_data[order(player_data$gameday), ]
-    result$recent_games <- tail(player_data, 3)
-  } else {
-    result$recent_games <- data.frame()
+  # Recent performance: strictly prior games ordered by (season DESC, week DESC)
+  recent_games <- data.frame()
+  stats_path <- file.path("data", "cache", "te_weekly_stats.parquet")
+  if (file.exists(stats_path) && requireNamespace("arrow", quietly = TRUE)) {
+    te_stats <- tryCatch(
+      arrow::read_parquet(stats_path),
+      error = function(e) NULL
+    )
+    if (!is.null(te_stats) && nrow(te_stats) > 0) {
+      player_history <- te_stats[
+        te_stats$player_id == player_id &
+          (te_stats$season < game_season |
+             (te_stats$season == game_season & te_stats$week < game_week)),
+        , drop = FALSE
+      ]
+      if (nrow(player_history) > 0) {
+        player_history <- player_history[order(player_history$season, player_history$week, decreasing = TRUE), ]
+        recent_games <- player_history[1:min(3, nrow(player_history)), ]
+        # Assertion: recent games must be strictly before target week
+        max_key <- max(recent_games$season * 100 + recent_games$week, na.rm = TRUE)
+        target_key <- game_season * 100 + game_week
+        if (is.finite(max_key) && max_key >= target_key) {
+          stop("Recent performance includes games from the target week or later. Check season/week filtering.")
+        }
+      }
+    }
   }
+  result$recent_games <- recent_games
 
   if (!exists("get_te_features_by_week")) {
     stop("get_te_features_by_week not available for time-aware feature selection.")
@@ -377,20 +399,35 @@ run_te_simulation <- function(gsis_id,
   }
   def_features <- get_passing_defense_all_features()
   for (feat in def_features) {
-    if (feat %in% names(player_feature_row)) {
-      result$defensive_context[[feat]] <- player_feature_row[[feat]]
+    if (feat %in% names(identified_game_row)) {
+      result$defensive_context[[feat]] <- identified_game_row[[feat]]
     } else {
       result$defensive_context[[feat]] <- NA_real_
     }
   }
-  def_cols_present <- intersect(def_features, names(player_feature_row))
+  def_cols_present <- intersect(def_features, names(identified_game_row))
   def_cols_non_na <- def_cols_present[
-    vapply(def_cols_present, function(f) any(!is.na(player_feature_row[[f]])), logical(1))
+    vapply(def_cols_present, function(f) any(!is.na(identified_game_row[[f]])), logical(1))
   ]
   result$diagnostics$defensive_features <- list(
     available = def_cols_present,
     non_na = def_cols_non_na
   )
+
+  # Offensive QB context (QB-side, prior games only)
+  qb_context_features <- c(
+    "target_pass_attempts_qb_roll1", "target_pass_attempts_qb_roll3", "target_pass_attempts_qb_roll5",
+    "target_completion_pct_qb_roll1", "target_completion_pct_qb_roll3", "target_completion_pct_qb_roll5",
+    "target_interceptions_qb_thrown_roll1", "target_interceptions_qb_thrown_roll3", "target_interceptions_qb_thrown_roll5",
+    "target_sacks_qb_taken_roll1", "target_sacks_qb_taken_roll3", "target_sacks_qb_taken_roll5"
+  )
+  for (feat in qb_context_features) {
+    if (feat %in% names(identified_game_row)) {
+      result$offensive_context[[feat]] <- identified_game_row[[feat]]
+    } else {
+      result$offensive_context[[feat]] <- NA_real_
+    }
+  }
 
   result$diagnostics$availability <- list(
     policy = availability_policy_used,
@@ -473,8 +510,45 @@ run_te_simulation <- function(gsis_id,
     stop("resolve_te_simulation_schema not found.")
   }
 
+  if (!exists("compute_ppr_wrte")) {
+    if (file.exists("R/utils/ppr_scoring.R")) {
+      source("R/utils/ppr_scoring.R", local = TRUE)
+    } else {
+      stop("Simulation bootstrap incomplete: R/utils/ppr_scoring.R not found")
+    }
+  }
+
+  # Fantasy PPR must be computed from draw-level stats (no legacy totals)
+  if (!"fantasy_ppr" %in% names(result$draws)) {
+    result$draws$fantasy_ppr <- compute_ppr_wrte(
+      receptions = result$draws$receptions,
+      rec_yards = result$draws$receiving_yards,
+      rec_tds = result$draws$receiving_tds
+    )
+  }
+  component_non_na <- !is.na(result$draws$receptions) |
+    !is.na(result$draws$receiving_yards) |
+    !is.na(result$draws$receiving_tds)
+  if (any(component_non_na & is.na(result$draws$fantasy_ppr))) {
+    stop("Fantasy PPR contains NA while component stats are non-NA. ",
+         "This indicates a draw-level scoring error.")
+  }
+
   if (exists("compute_te_percentiles")) {
     result$summary <- compute_te_percentiles(result$draws)
+  }
+
+  if (nrow(result$summary) > 0 && !"fantasy_ppr" %in% result$summary$stat) {
+    result$summary <- rbind(
+      result$summary,
+      data.frame(
+        stat = "fantasy_ppr",
+        p25 = stats::quantile(result$draws$fantasy_ppr, 0.25, na.rm = TRUE),
+        p50 = stats::quantile(result$draws$fantasy_ppr, 0.50, na.rm = TRUE),
+        p75 = stats::quantile(result$draws$fantasy_ppr, 0.75, na.rm = TRUE),
+        stringsAsFactors = FALSE
+      )
+    )
   }
 
   draws_df <- result$draws

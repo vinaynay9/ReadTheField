@@ -5,32 +5,40 @@
 
 get_passing_defense_roll1_features <- function() {
   c(
-    "opp_pass_yards_allowed_roll1",
-    "opp_yards_per_pass_allowed_roll1",
-    "opp_points_allowed_roll1",
-    "opp_sacks_roll1",
-    "opp_tfl_roll1",
-    "opp_interceptions_roll1",
-    "opp_passes_defended_roll1"
+    "def_pass_yards_defense_allowed_roll1",
+    "def_pass_attempts_defense_allowed_roll1",
+    "def_yards_per_pass_defense_allowed_roll1",
+    "def_points_defense_allowed_roll1",
+    "def_sacks_defense_forced_roll1",
+    "def_tackles_for_loss_defense_forced_roll1",
+    "def_interceptions_defense_caught_roll1",
+    "def_passes_defended_defense_forced_roll1"
   )
 }
 
 get_passing_defense_roll3_features <- function() {
   c(
-    "def_interceptions_roll3",
-    "def_passes_defended_roll3"
+    "def_pass_yards_defense_allowed_roll3",
+    "def_pass_attempts_defense_allowed_roll3",
+    "def_yards_per_pass_defense_allowed_roll3",
+    "def_points_defense_allowed_roll3",
+    "def_sacks_defense_forced_roll3",
+    "def_tackles_for_loss_defense_forced_roll3",
+    "def_interceptions_defense_caught_roll3",
+    "def_passes_defended_defense_forced_roll3"
   )
 }
 
 get_passing_defense_roll5_features <- function() {
   c(
-    "opp_pass_yards_allowed_roll5",
-    "opp_yards_per_pass_allowed_roll5",
-    "opp_points_allowed_roll5",
-    "opp_sacks_roll5",
-    "opp_tfl_roll5",
-    "def_interceptions_roll5",
-    "def_passes_defended_roll5"
+    "def_pass_yards_defense_allowed_roll5",
+    "def_pass_attempts_defense_allowed_roll5",
+    "def_yards_per_pass_defense_allowed_roll5",
+    "def_points_defense_allowed_roll5",
+    "def_sacks_defense_forced_roll5",
+    "def_tackles_for_loss_defense_forced_roll5",
+    "def_interceptions_defense_caught_roll5",
+    "def_passes_defended_defense_forced_roll5"
   )
 }
 

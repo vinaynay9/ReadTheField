@@ -437,9 +437,9 @@ fit_rb_models <- function(training_data, min_rows = 200) {
                "Expected carries_prior and/or carries_cum_mean for regime: ", regime)
         }
         if (regime %in% c("late", "standard")) {
-          required_def <- c("opp_yards_per_rush_allowed_roll5",
-                            "opp_rush_yards_allowed_roll5",
-                            "opp_points_allowed_roll5")
+          required_def <- c("def_yards_per_rush_defense_allowed_roll5",
+                            "def_rush_yards_defense_allowed_roll5",
+                            "def_points_defense_allowed_roll5")
           missing_def <- setdiff(required_def, required_features)
           if (length(missing_def) > 0) {
             stop("Carries model feature contract missing opponent defense features for regime ",

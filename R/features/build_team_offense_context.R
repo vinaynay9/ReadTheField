@@ -98,9 +98,9 @@ build_team_offense_context <- function(seasons,
   qb_agg <- qb_df %>%
     group_by(team, season, week) %>%
     summarise(
-      team_qb_pass_attempts = sum(pass_attempts, na.rm = TRUE),
-      team_qb_pass_yards = sum(pass_yards, na.rm = TRUE),
-      team_qb_pass_tds = sum(pass_tds, na.rm = TRUE),
+      target_pass_attempts_qb = sum(pass_attempts, na.rm = TRUE),
+      target_pass_yards_qb = sum(pass_yards, na.rm = TRUE),
+      target_pass_tds_qb = sum(pass_tds, na.rm = TRUE),
       .groups = "drop"
     )
 
