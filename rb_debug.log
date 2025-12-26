@@ -173,8 +173,8 @@ carries, receptions, rush_tds, rec_tds, rush_yards, rec_yards, rushing_yards, re
 Simulation draws columns (after resolution):
 carries, receptions, rush_tds, rec_tds, rush_yards, rec_yards, rushing_yards, receiving_yards, total_yards, total_touchdowns 
 === Post-Resolution Diagnostics === 
-carries: 0% NA, mean=7.12, sd=2.81 
-rushing_yards: 0% NA, mean=30.23, sd=11.94 
-receiving_yards: 0% NA, mean=8.3, sd=7.5 
-total_yards: 0% NA, mean=38.53, sd=14.15 
-total_touchdowns: 0% NA, mean=0.35, sd=0.56 
+carries: 0% NA, mean=7.11, sd=2.48 
+rushing_yards: 0% NA, mean=30.19, sd=10.55 
+receiving_yards: 0% NA, mean=7.98, sd=7.88 
+total_yards: 0% NA, mean=38.17, sd=13.38 
+total_touchdowns: 0% NA, mean=0.22, sd=0.47 

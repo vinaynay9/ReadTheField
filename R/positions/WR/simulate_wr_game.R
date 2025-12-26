@@ -372,8 +372,18 @@ predict_safe_wr <- function(model, newdata, type = "response", n_samples = 1,
     return(result)
   }
 
+  # Unwrap nested model objects (some fit_* helpers return lists with $fit/$model)
+  model_obj <- model
+  if (is.list(model) && !inherits(model, c("glm", "lm", "negbin"))) {
+    if (!is.null(model$fit)) {
+      model_obj <- model$fit
+    } else if (!is.null(model$model)) {
+      model_obj <- model$model
+    }
+  }
+
   tryCatch({
-    pred <- predict(model, newdata = newdata, type = type)
+    pred <- predict(model_obj, newdata = newdata, type = type)
     as.numeric(pred)
   }, error = function(e) {
     stop("Prediction failed for model. Error: ", e$message)
@@ -400,8 +410,18 @@ sample_from_model_wr <- function(model, newdata, n_samples = 1, availability_pol
     }
   }
 
+  # Unwrap nested model objects (some fit_* helpers return lists with $fit/$model)
+  model_obj <- model
+  if (is.list(model) && !inherits(model, c("glm", "lm", "negbin"))) {
+    if (!is.null(model$fit)) {
+      model_obj <- model$fit
+    } else if (!is.null(model$model)) {
+      model_obj <- model$model
+    }
+  }
+
   mu <- predict_safe_wr(
-    model,
+    model_obj,
     newdata,
     type = "response",
     n_samples = 1,
@@ -409,29 +429,29 @@ sample_from_model_wr <- function(model, newdata, n_samples = 1, availability_pol
     fallback_mu = fallback_mu
   )
 
-  if (inherits(model, "glm")) {
-    family_name <- model$family$family
+  if (inherits(model_obj, "glm")) {
+    family_name <- model_obj$family$family
     if (family_name == "poisson" || family_name == "quasipoisson") {
       if (availability_policy %in% c("expected_active", "force_counterfactual")) {
         mu[!is.finite(mu)] <- fallback_mu
       }
       mu <- pmax(mu, 0.01)
       return(pmax(0L, as.integer(round(rpois(n_samples, lambda = mu)))))
-    } else if (family_name == "negbin" || inherits(model, "negbin")) {
-      theta <- if (!is.null(model$theta)) model$theta else 1.0
+    } else if (family_name == "negbin" || inherits(model_obj, "negbin")) {
+      theta <- if (!is.null(model_obj$theta)) model_obj$theta else 1.0
       if (availability_policy %in% c("expected_active", "force_counterfactual")) {
         mu[!is.finite(mu)] <- fallback_mu
       }
       mu <- pmax(mu, 0.01)
       return(pmax(0L, as.integer(round(rnbinom(n_samples, size = theta, mu = mu)))))
     }
-  } else if (inherits(model, "lm")) {
-    if (!is.null(model$transform) && model$transform == "log1p") {
-      sigma_val <- get_residual_sd_wr(model)
+  } else if (inherits(model_obj, "lm")) {
+    if (!is.null(model_obj$transform) && model_obj$transform == "log1p") {
+      sigma_val <- get_residual_sd_wr(model_obj)
       samples <- rnorm(n_samples, mean = mu, sd = sigma_val)
       return(pmax(0, expm1(samples)))
     } else {
-      sigma_val <- get_residual_sd_wr(model)
+      sigma_val <- get_residual_sd_wr(model_obj)
       return(pmax(0, rnorm(n_samples, mean = mu, sd = sigma_val)))
     }
   }

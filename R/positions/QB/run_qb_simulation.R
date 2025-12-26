@@ -187,6 +187,8 @@ run_qb_simulation <- function(gsis_id,
   }
 
   feature_cols <- get_qb_features_by_week(as.integer(identified_game_row$week))
+  # Preserve week for regime selection in simulate_qb_game.
+  feature_cols <- unique(c(feature_cols, "week"))
   feature_cols <- unique(c(feature_cols, intersect(c("defense_data_available", "rolling_window_complete"), names(identified_game_row))))
   dropped_features <- intersect(dropped_features, feature_cols)
   available_feature_cols <- feature_cols[

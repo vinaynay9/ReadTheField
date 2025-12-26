@@ -651,9 +651,19 @@ predict_safe <- function(model, newdata, type = "response", n_samples = 1,
     return(result)
   }
   
+  # Unwrap nested model objects (some fit_* helpers return lists with $fit/$model)
+  model_obj <- model
+  if (is.list(model) && !inherits(model, c("glm", "lm", "negbin"))) {
+    if (!is.null(model$fit)) {
+      model_obj <- model$fit
+    } else if (!is.null(model$model)) {
+      model_obj <- model$model
+    }
+  }
+
   # Handle regular models
   tryCatch({
-    pred <- predict(model, newdata = newdata, type = type)
+    pred <- predict(model_obj, newdata = newdata, type = type)
     as.numeric(pred)
   }, error = function(e) {
     stop("Prediction failed for model. Error: ", e$message, 
@@ -691,10 +701,20 @@ sample_from_model <- function(model, newdata, n_samples = 1, availability_policy
     }
   }
   
+  # Unwrap nested model objects (some fit_* helpers return lists with $fit/$model)
+  model_obj <- model
+  if (is.list(model) && !inherits(model, c("glm", "lm", "negbin"))) {
+    if (!is.null(model$fit)) {
+      model_obj <- model$fit
+    } else if (!is.null(model$model)) {
+      model_obj <- model$model
+    }
+  }
+
   # Handle regular models
   # Get mean prediction
   mu <- predict_safe(
-    model,
+    model_obj,
     newdata,
     type = "response",
     n_samples = 1,
@@ -703,8 +723,8 @@ sample_from_model <- function(model, newdata, n_samples = 1, availability_policy
   )
   
   # Determine model type and sample accordingly
-  if (inherits(model, "glm")) {
-    family_name <- model$family$family
+  if (inherits(model_obj, "glm")) {
+    family_name <- model_obj$family$family
     if (family_name == "poisson" || family_name == "quasipoisson") {
       # Poisson: sample directly
       if (availability_policy %in% c("expected_active", "force_counterfactual")) {
@@ -712,25 +732,25 @@ sample_from_model <- function(model, newdata, n_samples = 1, availability_policy
       }
       mu <- pmax(mu, 0.01)
       return(pmax(0L, as.integer(round(rpois(n_samples, lambda = mu)))))
-    } else if (family_name == "negbin" || inherits(model, "negbin")) {
+    } else if (family_name == "negbin" || inherits(model_obj, "negbin")) {
       # Negative Binomial: need theta
-      theta <- if (!is.null(model$theta)) model$theta else 1.0
+      theta <- if (!is.null(model_obj$theta)) model_obj$theta else 1.0
       if (availability_policy %in% c("expected_active", "force_counterfactual")) {
         mu[!is.finite(mu)] <- fallback_mu
       }
       mu <- pmax(mu, 0.01)
       return(pmax(0L, as.integer(round(rnbinom(n_samples, size = theta, mu = mu))))) 
     }
-  } else if (inherits(model, "lm")) {
+  } else if (inherits(model_obj, "lm")) {
     # Linear model: check for transform
-    if (!is.null(model$transform) && model$transform == "log1p") {
+    if (!is.null(model_obj$transform) && model_obj$transform == "log1p") {
       # Back-transform log1p
-      sigma_val <- get_residual_sd(model)
+      sigma_val <- get_residual_sd(model_obj)
       samples <- rnorm(n_samples, mean = mu, sd = sigma_val)
       return(pmax(0, expm1(samples)))
     } else {
       # Regular Gaussian
-      sigma_val <- get_residual_sd(model)
+      sigma_val <- get_residual_sd(model_obj)
       return(pmax(0, rnorm(n_samples, mean = mu, sd = sigma_val)))
     }
   }

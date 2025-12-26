@@ -8,7 +8,7 @@ suppressPackageStartupMessages({
   library(dplyr)
 })
 
-build_qb_features <- function(qb_weekly_stats) {
+build_qb_player_features <- function(qb_weekly_stats) {
   if (is.null(qb_weekly_stats) || nrow(qb_weekly_stats) == 0) {
     stop("qb_weekly_stats must be provided with at least one row")
   }

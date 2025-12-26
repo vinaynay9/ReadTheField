@@ -69,8 +69,16 @@ assemble_k_weekly_features <- function(k_weekly_stats) {
 
   # Optional draft metadata (non-imputing; NA when unavailable)
   draft_path <- file.path("data", "external", "player_metadata.parquet")
-  if (file.exists(draft_path)) {
-    draft_meta <- arrow::read_parquet(draft_path)
+  draft_meta <- NULL
+  if (file.exists(draft_path) && file.info(draft_path)$size > 0) {
+    draft_meta <- tryCatch(arrow::read_parquet(draft_path), error = function(e) NULL)
+  }
+  if (is.null(draft_meta) || nrow(draft_meta) == 0) {
+    if (exists("read_player_directory_cache")) {
+      draft_meta <- tryCatch(read_player_directory_cache(), error = function(e) NULL)
+    }
+  }
+  if (!is.null(draft_meta) && nrow(draft_meta) > 0) {
     draft_meta <- draft_meta[, c("player_id", "draft_round", "draft_pick_overall")]
     draft_meta$draft_round <- as.integer(draft_meta$draft_round)
     draft_meta$draft_pick_overall <- as.integer(draft_meta$draft_pick_overall)

@@ -105,11 +105,19 @@ assert_required_cols <- function(df, required, context = "data frame") {
    
    players <- nflreadr::load_players()
    if (is.null(players) || nrow(players) == 0) {
+     if (file.exists(player_dim_path)) {
+       warning("nflreadr::load_players() returned empty result. Using cached player_dim.", call. = FALSE)
+       return(arrow::read_parquet(player_dim_path))
+     }
      stop("nflreadr::load_players() returned empty result. Cannot build player_dim.")
    }
    
    rosters <- nflreadr::load_rosters(seasons = seasons)
    if (is.null(rosters) || nrow(rosters) == 0) {
+     if (file.exists(player_dim_path)) {
+       warning("nflreadr::load_rosters() returned empty result. Using cached player_dim.", call. = FALSE)
+       return(arrow::read_parquet(player_dim_path))
+     }
      stop("nflreadr::load_rosters() returned empty result. Cannot build player_dim.")
    }
    

@@ -48,10 +48,18 @@ simulate_k_game <- function(feature_row,
       "is_rookie",
       "draft_round",
       "draft_pick_overall",
+      "position",
+      "height",
+      "weight",
+      "age",
       grep("_roll1$", cand_features, value = TRUE)
     )
     strict_features <- setdiff(cand_features, optional_features)
-    na_strict <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
+    if (length(strict_features) == 0) {
+      na_strict <- character(0)
+    } else {
+      na_strict <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
+    }
     if (length(na_strict) > 0) {
       next
     }
@@ -74,10 +82,18 @@ simulate_k_game <- function(feature_row,
           "is_rookie",
           "draft_round",
           "draft_pick_overall",
+          "position",
+          "height",
+          "weight",
+          "age",
           grep("_roll1$", cand_features, value = TRUE)
         )
         strict_features <- setdiff(cand_features, optional_features)
-        na_strict <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
+        if (length(strict_features) == 0) {
+          na_strict <- character(0)
+        } else {
+          na_strict <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
+        }
         if (length(na_strict) == 0) {
           prediction_regime <- cf_regime
           required_features <- cand_features
@@ -120,8 +136,17 @@ simulate_k_game <- function(feature_row,
       mu <- pmax(mu, 0.01)
       return(rpois(n_samples, lambda = mu))
     }
+    # Unwrap nested model objects (fit_k_models returns lists with $model)
+    model_obj <- model
+    if (is.list(model) && !inherits(model, c("glm", "lm", "negbin"))) {
+      if (!is.null(model$fit)) {
+        model_obj <- model$fit
+      } else if (!is.null(model$model)) {
+        model_obj <- model$model
+      }
+    }
     tryCatch({
-      pred <- predict(model, newdata = newdata, type = type)
+      pred <- predict(model_obj, newdata = newdata, type = type)
       as.numeric(pred)
     }, error = function(e) {
       stop("Prediction failed for model. Error: ", e$message)
@@ -142,10 +167,19 @@ simulate_k_game <- function(feature_row,
       mu <- pmax(mu, 0.01)
       return(pmax(0L, as.integer(round(rpois(n_samples, lambda = mu)))))
     }
-    mu <- predict_safe_k(model, newdata, type = "response", n_samples = 1,
+    # Unwrap nested model objects (fit_k_models returns lists with $model)
+    model_obj <- model
+    if (is.list(model) && !inherits(model, c("glm", "lm", "negbin"))) {
+      if (!is.null(model$fit)) {
+        model_obj <- model$fit
+      } else if (!is.null(model$model)) {
+        model_obj <- model$model
+      }
+    }
+    mu <- predict_safe_k(model_obj, newdata, type = "response", n_samples = 1,
                          availability_policy = availability_policy, fallback_mu = fallback_mu)
-    if (inherits(model, "glm")) {
-      family_name <- model$family$family
+    if (inherits(model_obj, "glm")) {
+      family_name <- model_obj$family$family
       if (family_name %in% c("poisson", "quasipoisson")) {
         if (availability_policy %in% c("expected_active", "force_counterfactual")) {
           mu[!is.finite(mu)] <- fallback_mu

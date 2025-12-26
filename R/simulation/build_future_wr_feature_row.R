@@ -150,7 +150,12 @@ build_future_wr_feature_row <- function(player_id,
   synthetic_row$game_id <- NA_character_
   synthetic_row$game_key <- NA_character_
 
-  target_cols <- grep("^target_", names(synthetic_row), value = TRUE)
+  # Clear target outcome columns only (preserve QB context features with target_* prefix).
+  if (exists("get_wr_v1_targets")) {
+    target_cols <- intersect(get_wr_v1_targets(), names(synthetic_row))
+  } else {
+    target_cols <- intersect(c("target_targets", "target_receptions", "target_rec_yards", "target_rec_tds"), names(synthetic_row))
+  }
   for (col in target_cols) {
     synthetic_row[[col]] <- NA
   }

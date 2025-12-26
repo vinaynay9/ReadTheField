@@ -1036,7 +1036,20 @@ build_qb_weekly_stats <- function(seasons,
 build_k_weekly_stats <- function(seasons,
                                  season_type = "REG",
                                  write_cache = TRUE) {
-  stats <- load_weekly_player_stats_from_nflreadr(seasons, season_type)
+  # Kicking stats are not guaranteed in default load_player_stats output.
+  # Pull explicit kicking stat_type to ensure FG/PAT data exist.
+  if (!requireNamespace("nflreadr", quietly = TRUE)) {
+    stop("Package 'nflreadr' is required. Install with install.packages('nflreadr').")
+  }
+  stats <- nflreadr::load_player_stats(
+    seasons = seasons,
+    summary_level = "week",
+    stat_type = "kicking"
+  )
+  stats <- as.data.frame(stats, stringsAsFactors = FALSE)
+  if ("season_type" %in% names(stats) && !is.null(season_type)) {
+    stats <- stats[stats$season_type == toupper(trimws(season_type)), , drop = FALSE]
+  }
   
   positions <- normalize_position(select_first_available(stats, c("position", "position_group"), NA))
   stats$position <- positions
@@ -1068,6 +1081,39 @@ build_k_weekly_stats <- function(seasons,
   }
   if (!"opponent" %in% names(k_dataset)) {
     k_dataset$opponent <- normalize_team_abbr(select_first_available(k_dataset, c("opponent_team", "opp_team", "defteam"), NA), k_dataset$season)
+  }
+  # Fill opponent/home-away via schedule lookup when missing (kicking stats lack player-week identity rows).
+  if (any(is.na(k_dataset$opponent) | k_dataset$opponent == "")) {
+    sched_lookup <- build_schedule_team_lookup(unique(k_dataset$season))
+    if (!is.null(sched_lookup) && nrow(sched_lookup) > 0) {
+      sched_cols <- intersect(c("team", "season", "week", "opponent", "home_away", "is_home", "game_id", "gameday"), names(sched_lookup))
+      k_dataset <- merge(
+        k_dataset,
+        sched_lookup[, sched_cols, drop = FALSE],
+        by = c("team", "season", "week"),
+        all.x = TRUE,
+        suffixes = c("", "_sched")
+      )
+      if ("opponent_sched" %in% names(k_dataset)) {
+        k_dataset$opponent <- ifelse(is.na(k_dataset$opponent) | k_dataset$opponent == "", k_dataset$opponent_sched, k_dataset$opponent)
+      }
+      if ("home_away_sched" %in% names(k_dataset)) {
+        k_dataset$home_away <- ifelse(is.na(k_dataset$home_away) | k_dataset$home_away == "", k_dataset$home_away_sched, k_dataset$home_away)
+      }
+      if ("is_home_sched" %in% names(k_dataset)) {
+        k_dataset$is_home <- ifelse(is.na(k_dataset$is_home), k_dataset$is_home_sched, k_dataset$is_home)
+      }
+      if ("game_id_sched" %in% names(k_dataset)) {
+        k_dataset$game_id <- ifelse(is.na(k_dataset$game_id), k_dataset$game_id_sched, k_dataset$game_id)
+      }
+      if ("gameday_sched" %in% names(k_dataset)) {
+        k_dataset$gameday <- ifelse(is.na(k_dataset$gameday), k_dataset$gameday_sched, k_dataset$gameday)
+      }
+      sched_helper <- grep("_sched$", names(k_dataset), value = TRUE)
+      if (length(sched_helper) > 0) {
+        k_dataset <- k_dataset[, setdiff(names(k_dataset), sched_helper), drop = FALSE]
+      }
+    }
   }
   k_dataset$defense_team <- k_dataset$opponent
   k_dataset <- k_dataset[!is.na(k_dataset$opponent) & k_dataset$opponent != "", , drop = FALSE]

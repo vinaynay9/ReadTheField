@@ -48,6 +48,10 @@ simulate_qb_game <- function(feature_row,
       "is_rookie",
       "draft_round",
       "draft_pick_overall",
+      "position",
+      "height",
+      "weight",
+      "age",
       grep("^prev_season", cand_features, value = TRUE),
       grep("_roll1$", cand_features, value = TRUE)
     )
@@ -75,6 +79,10 @@ simulate_qb_game <- function(feature_row,
           "is_rookie",
           "draft_round",
           "draft_pick_overall",
+          "position",
+          "height",
+          "weight",
+          "age",
           grep("^prev_season", cand_features, value = TRUE),
           grep("_roll1$", cand_features, value = TRUE)
         )
@@ -132,8 +140,17 @@ simulate_qb_game <- function(feature_row,
       }
       return(pmax(0, rnorm(n_samples, mean = model$value, sd = model$sd)))
     }
+    # Unwrap nested model objects (fit_qb_models returns lists with $model)
+    model_obj <- model
+    if (is.list(model) && !inherits(model, c("glm", "lm", "negbin"))) {
+      if (!is.null(model$fit)) {
+        model_obj <- model$fit
+      } else if (!is.null(model$model)) {
+        model_obj <- model$model
+      }
+    }
     tryCatch({
-      pred <- predict(model, newdata = newdata, type = type)
+      pred <- predict(model_obj, newdata = newdata, type = type)
       as.numeric(pred)
     }, error = function(e) {
       stop("Prediction failed for model. Error: ", e$message)
@@ -157,10 +174,19 @@ simulate_qb_game <- function(feature_row,
       }
       return(pmax(0, rnorm(n_samples, mean = model$value, sd = model$sd)))
     }
-    mu <- predict_safe_qb(model, newdata, type = "response", n_samples = 1,
+    # Unwrap nested model objects (fit_qb_models returns lists with $model)
+    model_obj <- model
+    if (is.list(model) && !inherits(model, c("glm", "lm", "negbin"))) {
+      if (!is.null(model$fit)) {
+        model_obj <- model$fit
+      } else if (!is.null(model$model)) {
+        model_obj <- model$model
+      }
+    }
+    mu <- predict_safe_qb(model_obj, newdata, type = "response", n_samples = 1,
                           availability_policy = availability_policy, fallback_mu = fallback_mu)
-    if (inherits(model, "glm")) {
-      family_name <- model$family$family
+    if (inherits(model_obj, "glm")) {
+      family_name <- model_obj$family$family
       if (family_name %in% c("poisson", "quasipoisson")) {
         if (availability_policy %in% c("expected_active", "force_counterfactual")) {
           mu[!is.finite(mu)] <- fallback_mu
@@ -168,8 +194,8 @@ simulate_qb_game <- function(feature_row,
         mu <- pmax(mu, 0.01)
         return(pmax(0L, as.integer(round(rpois(n_samples, lambda = mu)))))
       }
-      if (inherits(model, "negbin")) {
-        theta <- if (!is.null(model$theta)) model$theta else 1.0
+      if (inherits(model_obj, "negbin")) {
+        theta <- if (!is.null(model_obj$theta)) model_obj$theta else 1.0
         if (availability_policy %in% c("expected_active", "force_counterfactual")) {
           mu[!is.finite(mu)] <- fallback_mu
         }
@@ -177,8 +203,8 @@ simulate_qb_game <- function(feature_row,
         return(pmax(0L, as.integer(round(rnbinom(n_samples, size = theta, mu = mu)))))
       }
     }
-    if (inherits(model, "lm")) {
-      sigma_val <- get_residual_sd_qb(model)
+    if (inherits(model_obj, "lm")) {
+      sigma_val <- get_residual_sd_qb(model_obj)
       return(pmax(0, rnorm(n_samples, mean = mu, sd = sigma_val)))
     }
     stop("Unsupported model type for sampling.")

@@ -184,8 +184,12 @@ build_future_rb_feature_row <- function(player_id,
   # These represent the player's recent performance going into the future game
   # Do NOT recompute rolling features - use the last game's features as-is
   
-  # Clear target columns (these are outcomes, not features)
-  target_cols <- grep("^target_", names(synthetic_row), value = TRUE)
+  # Clear target outcome columns only (preserve QB context features with target_* prefix).
+  if (exists("get_rb_v1_targets")) {
+    target_cols <- intersect(get_rb_v1_targets(), names(synthetic_row))
+  } else {
+    target_cols <- intersect(c("target_carries", "target_receptions", "target_rush_tds", "target_rec_tds"), names(synthetic_row))
+  }
   for (col in target_cols) {
     synthetic_row[[col]] <- NA
   }
