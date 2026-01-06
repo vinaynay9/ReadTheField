@@ -13,7 +13,11 @@ build_qb_feature_row_for_simulation <- function(qb_weekly_features,
                                                 season,
                                                 week,
                                                 availability_policy = "played_only",
-                                                drop_feature_groups = character(0)) {
+                                                drop_feature_groups = character(0),
+                                                schedule_game_id = NULL,
+                                                schedule_game_date = NULL,
+                                                schedule_home_away = NULL,
+                                                schedule_opponent = NULL) {
   if (is.null(qb_weekly_features) || nrow(qb_weekly_features) == 0) {
     stop("qb_weekly_features cache is empty. Cannot build counterfactual row.", call. = FALSE)
   }
@@ -78,12 +82,19 @@ build_qb_feature_row_for_simulation <- function(qb_weekly_features,
         stop("Missing R/simulation/build_future_qb_feature_row.R")
       }
     }
+    has_season_history <- any(qb_weekly_features$player_id == player_id &
+                                qb_weekly_features$season == season &
+                                qb_weekly_features$week < week)
     sched_match <- schedule[
       schedule$season == season & schedule$week == week,
       , drop = FALSE
     ]
     if (nrow(sched_match) == 0) {
-      stop("No schedule row found for season ", season, " week ", week, ". Cannot build counterfactual row.", call. = FALSE)
+      if (policy == "force_counterfactual") {
+        construction_warnings <- c(construction_warnings, "Schedule row missing; using prior-only counterfactual row.")
+      } else {
+        stop("No schedule row found for season ", season, " week ", week, ". Cannot build counterfactual row.", call. = FALSE)
+      }
     }
     # Use player's team from history if available
     team_val <- if (!is.null(player_game_row) && "team" %in% names(player_game_row)) {
@@ -92,27 +103,103 @@ build_qb_feature_row_for_simulation <- function(qb_weekly_features,
       history <- qb_weekly_stats[qb_weekly_stats$player_id == player_id, , drop = FALSE]
       if (nrow(history) > 0) as.character(tail(history$team, 1)) else NA_character_
     }
+    if ((is.na(team_val) || team_val == "") && !is.null(player_dim) && nrow(player_dim) > 0) {
+      last_dim <- player_dim[player_dim$gsis_id == player_id, , drop = FALSE]
+      if (nrow(last_dim) > 0) {
+        last_dim <- last_dim[order(last_dim$season, decreasing = TRUE), , drop = FALSE]
+        team_val <- as.character(last_dim$team[1])
+        used_sources <- c(used_sources, "player_dim_last_active")
+      }
+    }
     if (is.na(team_val)) {
       stop("Unable to resolve team for QB counterfactual row.", call. = FALSE)
     }
-    sched_row <- sched_match[1, ]
-    if (sched_row$home_team == team_val) {
-      opponent <- sched_row$away_team
-      home_away <- "HOME"
+    if (policy == "force_counterfactual" && !has_season_history) {
+      history_any <- qb_weekly_features[qb_weekly_features$player_id == player_id, , drop = FALSE]
+      if (nrow(history_any) > 0) {
+        history_any <- history_any[order(history_any$season, history_any$week, decreasing = TRUE), , drop = FALSE]
+        feature_row <- history_any[1, , drop = FALSE]
+      } else {
+        template <- qb_weekly_features[0, , drop = FALSE]
+        feature_row <- template[1, , drop = FALSE]
+        feature_row[1, ] <- NA
+      }
+      feature_row$player_id <- player_id
+      feature_row$season <- season
+      feature_row$week <- week
+      feature_row$team <- team_val
+      if (nrow(sched_match) > 0) {
+        sched_row <- sched_match[1, ]
+        if (sched_row$home_team == team_val) {
+          opponent <- sched_row$away_team
+          home_away <- "HOME"
+        } else {
+          opponent <- sched_row$home_team
+          home_away <- "AWAY"
+        }
+        if ("opponent" %in% names(feature_row)) feature_row$opponent <- opponent
+        if ("home_away" %in% names(feature_row)) feature_row$home_away <- home_away
+        if ("is_home" %in% names(feature_row)) {
+          feature_row$is_home <- ifelse(home_away == "HOME", 1L, 0L)
+        }
+      }
+    } else if (nrow(sched_match) > 0) {
+      sched_row <- sched_match[1, ]
+      if (sched_row$home_team == team_val) {
+        opponent <- sched_row$away_team
+        home_away <- "HOME"
+      } else {
+        opponent <- sched_row$home_team
+        home_away <- "AWAY"
+      }
+      feature_row <- build_future_qb_feature_row(
+        player_id = player_id,
+        season = season,
+        week = week,
+        team = team_val,
+        opponent = opponent,
+        home_away = home_away
+      )
     } else {
-      opponent <- sched_row$home_team
-      home_away <- "AWAY"
+      # Prior-only counterfactual when schedule is unavailable.
+      template <- qb_weekly_features[0, , drop = FALSE]
+      feature_row <- template[1, , drop = FALSE]
+      feature_row[1, ] <- NA
+      feature_row$player_id <- player_id
+      feature_row$season <- season
+      feature_row$week <- week
+      feature_row$team <- team_val
     }
-    feature_row <- build_future_qb_feature_row(
-      player_id = player_id,
-      season = season,
-      week = week,
-      team = team_val,
-      opponent = opponent,
-      home_away = home_away
-    )
     availability_state <- if (policy == "force_counterfactual") "counterfactual_forced" else availability_state
     dropped_feature_groups <- c("player_rolling_features", "recent_performance_features")
+  }
+
+  # Forced counterfactual: drop QB recency roll features (player-level only).
+  if (policy == "force_counterfactual" && availability_state != "observed_played") {
+    roll_cols <- grep("_roll(1|3|5)$", names(feature_row), value = TRUE)
+    roll_cols <- roll_cols[grepl("^target_", roll_cols)]
+    if (length(roll_cols) > 0) {
+      feature_row[1, roll_cols] <- NA
+      dropped_features <- unique(c(dropped_features, roll_cols))
+    }
+  }
+
+  # Apply schedule-derived overrides (CLI-provided)
+  if (!is.null(schedule_game_id) && !is.na(schedule_game_id) && "game_id" %in% names(feature_row)) {
+    feature_row$game_id <- as.character(schedule_game_id)
+  }
+  if (!is.null(schedule_game_date) && !is.na(schedule_game_date)) {
+    if ("gameday" %in% names(feature_row)) feature_row$gameday <- as.Date(schedule_game_date)
+    if ("game_date" %in% names(feature_row)) feature_row$game_date <- as.Date(schedule_game_date)
+  }
+  if (!is.null(schedule_home_away) && !is.na(schedule_home_away) && "home_away" %in% names(feature_row)) {
+    feature_row$home_away <- toupper(as.character(schedule_home_away))
+    if ("is_home" %in% names(feature_row)) {
+      feature_row$is_home <- ifelse(toupper(as.character(schedule_home_away)) == "HOME", 1L, 0L)
+    }
+  }
+  if (!is.null(schedule_opponent) && !is.na(schedule_opponent) && "opponent" %in% names(feature_row)) {
+    feature_row$opponent <- as.character(schedule_opponent)
   }
 
   list(

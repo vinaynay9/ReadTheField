@@ -143,10 +143,13 @@ tryCatch({
     stop("K simulation draws invalid.")
   }
 
-  required_outcomes <- c("fg_made", "pat_made")
+  required_outcomes <- c("fg_attempts", "fg_made", "pat_made")
   missing_outcomes <- setdiff(required_outcomes, names(result$draws))
   if (length(missing_outcomes) > 0) {
     stop("Missing K outcomes in draws: ", paste(missing_outcomes, collapse = ", "))
+  }
+  if (any(is.na(result$draws$fg_attempts))) {
+    stop("FG attempts contain NA values in K draws.")
   }
 
   cat("  K simulation completed successfully\n")

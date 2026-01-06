@@ -135,7 +135,8 @@ print_player_simulation <- function(result) {
         "target_pass_tds_qb",
         "target_interceptions_qb_thrown",
         "target_sacks_qb_taken",
-        "target_qb_rush_yards"
+        "target_qb_rush_yards",
+        "target_qb_rush_tds"
       )
     } else if (is_k) {
       c("target_fg_made_k", "target_pat_made_k")
@@ -176,6 +177,9 @@ print_player_simulation <- function(result) {
   # ============================================================================
   
   cat("\n")
+  if (!is.null(metadata$forced_counterfactual_notice) && nzchar(metadata$forced_counterfactual_notice)) {
+    cat("WARNING: ", metadata$forced_counterfactual_notice, "\n", sep = "")
+  }
   cat(paste0(rep("=", 80), collapse = ""), "\n")
   cat("Player Simulation — ", safe_str(metadata$player_name, default = "(unknown)"), 
       " vs ", safe_str(metadata$opponent, default = "(unknown)"), 

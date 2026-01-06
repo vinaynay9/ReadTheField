@@ -1,142 +1,134 @@
-Simulation started at 2025-12-26 00:27:02.039871 
+Simulation started at 2026-01-05 18:12:01.783254 
 Output will be saved to: player_simulation_output.txt 
 
 
 ================================================================================ 
-Player Simulation — C.Claypool vs ATL (2022-11-20)
+Player Simulation — K.Williams vs ATL (2025-12-29)
 ================================================================================ 
 
 Recent Performance (Last 3 Games):
 --------------------------------------------------------------------------------
-Date         Opponent  Targets  Receptions    Rec Yds    Air Yds    Rec TDs  Total TDs   PPR Points
+Date         Opponent  Carries     Rush Yds  Targets  Receptions    Rec Yds  Total TDs   PPR Points
 --------------------------------------------------------------------------------
-19309        DET             2           1          8         19          0          0          1.8
-19302        MIA             6           2         13         46          0          0          3.3
-19295        PHI             6           4         45         43          0          0          8.5
+20440        SEA            23           70        6           3         15          0         11.5
+20436        DET            15           78        1           1         10          2         21.8
+20429        ARI            13           84        2           2         13          1         17.7
 
 Projected Stat Line (Median):
 --------------------------------------------------------------------------------
-   Targets: 5 
+   Carries: 15 
+   Rush yards: 84 
    Receptions: 3 
-   Receiving yards: 48 
-   Total TDs: 0 
-   PPR Fantasy Points: 9 
+   Receiving yards: 16 
+   Total TDs: 1 
+   PPR Fantasy Points: 18.2 
 
 Confidence Intervals (25th / 50th / 75th Percentiles):
 --------------------------------------------------------------------------------
-   Targets: 4 / 5 / 7 
+   Carries: 13 / 15 / 18 
+   Rush yards: 72 / 84 / 100 
    Receptions: 2 / 3 / 4 
-   Receiving yards: 25 / 48 / 69 
-   Total TDs: 0 / 0 / 0 
-   PPR Fantasy Points: 6 / 9 / 12.2 
+   Receiving yards: 11 / 16 / 21 
+   Total TDs: 0 / 1 / 2 
+   PPR Fantasy Points: 13.9 / 18.2 / 23.3 
 
 Touchdown Probabilities:
 --------------------------------------------------------------------------------
-   Probability of 0 TDs: 78.8% 
-   Probability of ≥1 TD: 21.2% 
-   Probability of ≥2 TDs: 2.7% 
+   Probability of 0 TDs: 36.5% 
+   Probability of ≥1 TD: 63.5% 
+   Probability of ≥2 TDs: 27.1% 
 
 ================================================================================ 
 
 
 ================================================================================ 
-WR Simulation - Technical Diagnostics
-Player: C.Claypool | Game: CHI vs ATL (2022-11-20)
+RB Simulation - Technical Diagnostics
+Player: K.Williams | Game: LAR vs ATL (2025-12-29)
 ================================================================================ 
 
 Simulation Parameters:
 --------------------------------------------------------------------------------
-   Number of Monte Carlo simulations: 5000 
-   Game ID: 2022_11_CHI_ATL 
-   Season: 2022 | Week: 11 
-   Player ID: 00-0036326 
+   Number of Monte Carlo simulations: 4000 
+   Game ID: 2025_17_LA_ATL 
+   Season: 2025 | Week: 17 
+   Player ID: 00-0037840 
+   NOTE: Current season detected (in-progress). Rolling features may be incomplete.
    Availability policy: expected_active 
    Availability state: observed_played 
    Counterfactual: NO 
    Dropped feature groups: none 
    Dropped feature count: 0 
-   Selected regime: standard 
+   Selected regime: mid 
 
 Training Data Used:
 --------------------------------------------------------------------------------
-   Training data information not available
+   Date range: 10846 to 20093 
+   Seasons included: 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024 
+   Number of unique players: 985 
+   Number of unique games: 6895 
 
 Model Inputs and Selection:
 --------------------------------------------------------------------------------
 Season phase: standard
 
 Target distributions:
-  target_targets: fitted (n=9530, non-NA=50632)
-  target_receptions: fitted (n=9530, non-NA=50632)
-  target_rec_yards: fitted (n=9530, non-NA=50632)
-  target_rec_tds: fitted (n=9530, non-NA=50632)
+  target_carries: fitted (n=7024, non-NA=37533)
+  target_receptions: fitted (n=7024, non-NA=37533)
+  target_rush_tds: fitted (n=7024, non-NA=37533)
+  target_rec_tds: fitted (n=7024, non-NA=37533)
 
 Feature inputs:
-  Total candidate features: 62
-  Used features: 62
+  Total candidate features: 53
+  Used features: 53
   Dropped (NA or unavailable): none
-  High-NA features (>90% NA): age
+  High-NA features (>90% NA): target_pass_attempts_qb_roll1, target_pass_yards_qb_roll1, target_pass_tds_qb_roll1, team_rb_carries_total_roll1, team_rb_targets_total_roll1, team_rb_carry_share_top1_roll1, team_rb_carry_share_top2_roll1, team_wr_targets_total_roll1, team_wr_receiving_yards_roll1, team_wr_air_yards_roll1, def_points_defense_allowed_roll1, def_points_defense_allowed_roll5
 
 Final Model Features Used:
 --------------------------------------------------------------------------------
-  is_home, prev_season_targets_total, prev_season_receptions_total, prev_season_rec_yards_total, prev_season_rec_tds_total, prev_season_games_played, is_rookie, draft_round, draft_pick_overall, position, height, weight, age, target_pass_attempts_qb_roll1, target_pass_yards_qb_roll1, target_pass_tds_qb_roll1, team_wr_targets_total_roll1, team_wr_air_yards_roll1, team_wr_target_share_top1_roll1, team_wr_target_share_top2_roll1, team_te_targets_total_roll1, team_rb_targets_total_roll1, targets_roll1, receptions_roll1, rec_yards_roll1, air_yards_roll1, target_share_roll1, air_yards_share_roll1, def_pass_yards_defense_allowed_roll1, def_pass_attempts_defense_allowed_roll1, def_yards_per_pass_defense_allowed_roll1, def_points_defense_allowed_roll1, def_sacks_defense_forced_roll1, def_tackles_for_loss_defense_forced_roll1, def_interceptions_defense_caught_roll1, def_passes_defended_defense_forced_roll1, targets_roll3, receptions_roll3, rec_yards_roll3, air_yards_roll3, targets_roll5, receptions_roll5, rec_yards_roll5, air_yards_roll5, def_pass_yards_defense_allowed_roll3, def_pass_attempts_defense_allowed_roll3, def_yards_per_pass_defense_allowed_roll3, def_points_defense_allowed_roll3, def_sacks_defense_forced_roll3, def_tackles_for_loss_defense_forced_roll3, def_interceptions_defense_caught_roll3, def_passes_defended_defense_forced_roll3, def_pass_yards_defense_allowed_roll5, def_pass_attempts_defense_allowed_roll5, def_yards_per_pass_defense_allowed_roll5, def_points_defense_allowed_roll5, def_sacks_defense_forced_roll5, def_tackles_for_loss_defense_forced_roll5, def_interceptions_defense_caught_roll5, def_passes_defended_defense_forced_roll5, defense_data_available, rolling_window_complete
+  is_home, carries_cum_mean, targets_cum_mean, ypc_cum, ypt_cum, catch_rate_cum, carries_prior, targets_prior, ypc_prior, ypt_prior, prev_season_carries_total, prev_season_targets_total, prev_season_rush_yards_total, prev_season_rec_yards_total, prev_season_games_played, is_rookie, draft_round, draft_pick_overall, target_pass_attempts_qb_roll1, target_pass_yards_qb_roll1, target_pass_tds_qb_roll1, team_rb_carries_total_roll1, team_rb_targets_total_roll1, team_rb_carry_share_top1_roll1, team_rb_carry_share_top2_roll1, team_wr_targets_total_roll1, team_wr_receiving_yards_roll1, team_wr_air_yards_roll1, carries_roll1, targets_roll1, rush_yards_roll1, rec_yards_roll1, rush_tds_roll1, rec_tds_roll1, def_rush_yards_defense_allowed_roll1, def_yards_per_rush_defense_allowed_roll1, def_points_defense_allowed_roll1, def_sacks_defense_forced_roll1, def_tackles_for_loss_defense_forced_roll1, carries_roll3, targets_roll3, carries_roll5, targets_roll5, carries_roll7, targets_roll7, def_rush_yards_defense_allowed_roll5, def_yards_per_rush_defense_allowed_roll5, def_points_defense_allowed_roll5, def_sacks_defense_forced_roll5, def_tackles_for_loss_defense_forced_roll5, position, defense_data_available, rolling_window_complete
 
 Model Information:
 --------------------------------------------------------------------------------
    Model fitting diagnostics:
-     target_targets: poisson (9530 rows)
-     target_receptions: poisson (9530 rows)
-     target_rec_yards: gaussian (9530 rows)
-     target_rec_tds: poisson (9530 rows)
+     target_carries: poisson (1439 rows)
+     target_receptions: poisson (1439 rows)
+     target_rush_tds: poisson (1439 rows)
+     target_rec_tds: poisson (1439 rows)
 
 Defensive Features Used in Models:
 --------------------------------------------------------------------------------
-   Available defensive features: def_pass_yards_defense_allowed_roll1, def_pass_attempts_defense_allowed_roll1, def_yards_per_pass_defense_allowed_roll1, def_points_defense_allowed_roll1, def_sacks_defense_forced_roll1, def_tackles_for_loss_defense_forced_roll1, def_interceptions_defense_caught_roll1, def_passes_defended_defense_forced_roll1, def_pass_yards_defense_allowed_roll3, def_pass_attempts_defense_allowed_roll3, def_yards_per_pass_defense_allowed_roll3, def_points_defense_allowed_roll3, def_sacks_defense_forced_roll3, def_tackles_for_loss_defense_forced_roll3, def_interceptions_defense_caught_roll3, def_passes_defended_defense_forced_roll3, def_pass_yards_defense_allowed_roll5, def_pass_attempts_defense_allowed_roll5, def_yards_per_pass_defense_allowed_roll5, def_points_defense_allowed_roll5, def_sacks_defense_forced_roll5, def_tackles_for_loss_defense_forced_roll5, def_interceptions_defense_caught_roll5, def_passes_defended_defense_forced_roll5
-   Non-NA defensive features: def_pass_yards_defense_allowed_roll1, def_pass_attempts_defense_allowed_roll1, def_yards_per_pass_defense_allowed_roll1, def_points_defense_allowed_roll1, def_sacks_defense_forced_roll1, def_tackles_for_loss_defense_forced_roll1, def_interceptions_defense_caught_roll1, def_passes_defended_defense_forced_roll1, def_pass_yards_defense_allowed_roll3, def_pass_attempts_defense_allowed_roll3, def_yards_per_pass_defense_allowed_roll3, def_points_defense_allowed_roll3, def_sacks_defense_forced_roll3, def_tackles_for_loss_defense_forced_roll3, def_interceptions_defense_caught_roll3, def_passes_defended_defense_forced_roll3, def_pass_yards_defense_allowed_roll5, def_pass_attempts_defense_allowed_roll5, def_yards_per_pass_defense_allowed_roll5, def_points_defense_allowed_roll5, def_sacks_defense_forced_roll5, def_tackles_for_loss_defense_forced_roll5, def_interceptions_defense_caught_roll5, def_passes_defended_defense_forced_roll5
+   Available defensive features: def_rush_yards_defense_allowed_roll1, def_yards_per_rush_defense_allowed_roll1, def_points_defense_allowed_roll1, def_sacks_defense_forced_roll1, def_tackles_for_loss_defense_forced_roll1, def_rush_yards_defense_allowed_roll5, def_yards_per_rush_defense_allowed_roll5, def_sacks_defense_forced_roll5, def_tackles_for_loss_defense_forced_roll5, def_points_defense_allowed_roll5, def_interceptions_defense_caught_roll1, def_interceptions_defense_caught_roll5
+   Non-NA defensive features: def_rush_yards_defense_allowed_roll1, def_yards_per_rush_defense_allowed_roll1, def_sacks_defense_forced_roll1, def_tackles_for_loss_defense_forced_roll1, def_rush_yards_defense_allowed_roll5, def_yards_per_rush_defense_allowed_roll5, def_sacks_defense_forced_roll5, def_tackles_for_loss_defense_forced_roll5, def_interceptions_defense_caught_roll1, def_interceptions_defense_caught_roll5
 
 Offensive Context Values (QB Rolling, prior games only):
 --------------------------------------------------------------------------------
    Note: roll1 = most recent completed game before target; roll3/roll5 are prior-game averages.
 Stat                          roll1      roll3      roll5
 --------------------------------------------------------------------------------
-Pass Attempts (QB)            20.00      23.67      23.80
-Completion % (QB)              0.60       0.65       0.62
-INTs Thrown (QB)               1.00       0.33       0.60
-Sacks Taken (QB)               3.00       3.00       3.60
+Pass Attempts (QB)               NA         NA         NA
+Completion % (QB)                NA         NA         NA
+INTs Thrown (QB)                 NA         NA         NA
+Sacks Taken (QB)                 NA         NA         NA
 
 Defensive Context Values (Rolling, prior games only):
 --------------------------------------------------------------------------------
    Note: roll1 = most recent completed game before target; roll3/roll5 are prior-game averages.
-   def pass yards defense allowed roll1: 209
-   def pass attempts defense allowed roll1: 33
-   def yards per pass defense allowed roll1: 6.33
-   def points defense allowed roll1: 25
-   def sacks defense forced roll1: 5
+   def rush yards defense allowed roll1: 164
+   def rush yards defense allowed roll5: 140.2
+   def yards per rush defense allowed roll1: 5.86
+   def yards per rush defense allowed roll5: 5.09
+   def sacks defense forced roll1: 1
+   def sacks defense forced roll5: 1.6
    def tackles for loss defense forced roll1: 6
-   def interceptions defense caught roll1: 1
-   def passes defended defense forced roll1: 4
-   def pass yards defense allowed roll3: 257
-   def pass attempts defense allowed roll3: 37.33
-   def yards per pass defense allowed roll3: 6.95
-   def points defense allowed roll3: 26.33
-   def sacks defense forced roll3: 3
-   def tackles for loss defense forced roll3: 4
-   def interceptions defense caught roll3: 1
-   def passes defended defense forced roll3: 5.33
-   def pass yards defense allowed roll5: 259.8
-   def pass attempts defense allowed roll5: 37.8
-   def yards per pass defense allowed roll5: 6.9
-   def points defense allowed roll5: 25.6
-   def sacks defense forced roll5: 2.8
-   def tackles for loss defense forced roll5: 3.2
-   def interceptions defense caught roll5: 0.6
-   def passes defended defense forced roll5: 5.6
+   def tackles for loss defense forced roll5: 6.6
+   def points defense allowed roll1: NA (data missing)
+   def points defense allowed roll5: NA (data missing)
 
 Simulation Distribution Statistics:
 --------------------------------------------------------------------------------
-   Targets - Mean: 5.36 , SD: 2.32 
-   Receptions - Mean: 3.16 , SD: 1.76 
-   Receiving yards - Mean: 48.21 , SD: 31.14 
+   Carries - Mean: 15.7 , SD: 3.96 
+   Rushing yards - Mean: 87.42 , SD: 22.05 
+   Receiving yards - Mean: 14.61 , SD: 8.69 
 
 ================================================================================ 
 Technical diagnostics complete.

@@ -119,6 +119,16 @@ if (file.exists("R/positions/K/k_schema_v1.R")) {
 } else {
   stop("Missing R/positions/K/k_schema_v1.R - K v1 schema is required for simulation")
 }
+
+# ============================================================================
+# PRINTING HELPERS (POSITION-AGNOSTIC)
+# ============================================================================
+
+if (file.exists("R/simulation/print_player_simulation.R")) {
+  source("R/simulation/print_player_simulation.R", local = TRUE)
+} else {
+  stop("Missing R/simulation/print_player_simulation.R - print helpers required")
+}
 if (!exists("get_k_v1_targets")) {
   stop("K v1 schema not loaded: get_k_v1_targets() missing")
 }

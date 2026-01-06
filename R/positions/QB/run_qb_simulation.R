@@ -7,6 +7,10 @@ run_qb_simulation <- function(gsis_id,
                               week,
                               n_sims = 5000,
                               game_date = NULL,
+                              schedule_game_id = NULL,
+                              schedule_game_date = NULL,
+                              schedule_home_away = NULL,
+                              schedule_opponent = NULL,
                               seasons_train = NULL,
                               mode_policy = NULL,
                               synthetic_feature_row = NULL,
@@ -128,7 +132,11 @@ run_qb_simulation <- function(gsis_id,
       season = season,
       week = week,
       availability_policy = availability_policy,
-      drop_feature_groups = character(0)
+      drop_feature_groups = character(0),
+      schedule_game_id = schedule_game_id,
+      schedule_game_date = schedule_game_date,
+      schedule_home_away = schedule_home_away,
+      schedule_opponent = schedule_opponent
     )
     identified_game_row <- build_result$feature_row
     availability_state <- build_result$availability_state
@@ -145,9 +153,35 @@ run_qb_simulation <- function(gsis_id,
   result$metadata$opponent <- if ("opponent" %in% names(identified_game_row)) identified_game_row$opponent else NA_character_
   result$metadata$season <- if ("season" %in% names(identified_game_row)) identified_game_row$season else season
   result$metadata$week <- if ("week" %in% names(identified_game_row)) identified_game_row$week else week
+  result$metadata$game_id <- if ("game_id" %in% names(identified_game_row)) identified_game_row$game_id else NA_character_
+  result$metadata$game_key <- if ("game_key" %in% names(identified_game_row)) identified_game_row$game_key else NA_character_
   result$metadata$game_date <- if ("gameday" %in% names(identified_game_row)) identified_game_row$gameday else NA
   result$metadata$home_away <- if ("home_away" %in% names(identified_game_row)) identified_game_row$home_away else NA_character_
   result$metadata$position <- "QB"
+
+  if (!is_future && (is.null(result$metadata$game_id) || is.na(result$metadata$game_id) || result$metadata$game_id == "") &&
+      !is.null(schedule) && nrow(schedule) > 0) {
+    sched_cols <- intersect(c("season", "week", "home_team", "away_team", "game_id", "gameday"), names(schedule))
+    if (length(sched_cols) >= 5) {
+      sched_match <- schedule[
+        schedule$season == result$metadata$season &
+          schedule$week == result$metadata$week &
+          ((schedule$home_team == result$metadata$team & schedule$away_team == result$metadata$opponent) |
+             (schedule$away_team == result$metadata$team & schedule$home_team == result$metadata$opponent)),
+        , drop = FALSE
+      ]
+      if (nrow(sched_match) > 0) {
+        result$metadata$game_id <- sched_match$game_id[1]
+        if (is.na(result$metadata$game_date) && "gameday" %in% names(sched_match)) {
+          result$metadata$game_date <- sched_match$gameday[1]
+        }
+      }
+    }
+  }
+
+  if (!is_future && (is.null(result$metadata$game_id) || is.na(result$metadata$game_id))) {
+    stop("QB simulation requires non-missing game_id for observed games. Check feature row joins.")
+  }
 
   qb_data <- qb_data_all[qb_data_all$season %in% seasons_train, , drop = FALSE]
   if (nrow(qb_data) == 0) {

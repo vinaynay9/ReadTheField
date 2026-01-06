@@ -40,13 +40,22 @@ assemble_qb_weekly_features <- function(qb_weekly_stats) {
 
   # Prior-season QB stats (season - 1 totals)
   qb_stats <- qb_weekly_stats
-  qb_stats$pass_attempts <- suppressWarnings(as.numeric(qb_stats$attempts))
-  qb_stats$pass_yards <- suppressWarnings(as.numeric(qb_stats$passing_yards))
-  qb_stats$pass_tds <- suppressWarnings(as.numeric(qb_stats$passing_tds))
-  qb_stats$interceptions_thrown <- suppressWarnings(as.numeric(qb_stats$passing_interceptions))
-  qb_stats$sacks_taken <- suppressWarnings(as.numeric(qb_stats$sacks_suffered))
-  qb_stats$qb_rush_attempts <- suppressWarnings(as.numeric(qb_stats$carries))
-  qb_stats$qb_rush_yards <- suppressWarnings(as.numeric(qb_stats$rushing_yards))
+  pick_col <- function(df, candidates) {
+    for (candidate in candidates) {
+      if (candidate %in% names(df)) {
+        return(df[[candidate]])
+      }
+    }
+    rep(NA, nrow(df))
+  }
+  qb_stats$pass_attempts <- suppressWarnings(as.numeric(pick_col(qb_stats, c("attempts", "pass_attempts"))))
+  qb_stats$pass_yards <- suppressWarnings(as.numeric(pick_col(qb_stats, c("passing_yards", "pass_yards"))))
+  qb_stats$pass_tds <- suppressWarnings(as.numeric(pick_col(qb_stats, c("passing_tds", "pass_tds"))))
+  qb_stats$interceptions_thrown <- suppressWarnings(as.numeric(pick_col(qb_stats, c("passing_interceptions", "interceptions"))))
+  qb_stats$sacks_taken <- suppressWarnings(as.numeric(pick_col(qb_stats, c("sacks_suffered", "qb_sacks", "sacks_taken"))))
+  qb_stats$qb_rush_attempts <- suppressWarnings(as.numeric(pick_col(qb_stats, c("carries", "rush_attempts", "rushing_attempts"))))
+  qb_stats$qb_rush_yards <- suppressWarnings(as.numeric(pick_col(qb_stats, c("rushing_yards", "rush_yards"))))
+  qb_stats$qb_rush_tds <- suppressWarnings(as.numeric(pick_col(qb_stats, c("rushing_tds", "rush_tds"))))
 
   prev_season_stats <- qb_stats %>%
     group_by(player_id, season) %>%
@@ -58,6 +67,7 @@ assemble_qb_weekly_features <- function(qb_weekly_stats) {
       prev_season_sacks_taken_total = sum(sacks_taken, na.rm = TRUE),
       prev_season_rush_attempts_total = sum(qb_rush_attempts, na.rm = TRUE),
       prev_season_rush_yards_total = sum(qb_rush_yards, na.rm = TRUE),
+      prev_season_rush_tds_total = sum(qb_rush_tds, na.rm = TRUE),
       prev_season_games_played = sum(!is.na(week)),
       .groups = "drop"
     ) %>%
@@ -119,6 +129,27 @@ assemble_qb_weekly_features <- function(qb_weekly_stats) {
     left_join(team_offense_context[, toc_cols, drop = FALSE],
               by = c("team", "season", "week"))
 
+  # Interaction features (QB): explicit combinations of QB usage and team/opponent context.
+  add_interaction <- function(df, col_a, col_b, out_col) {
+    if (col_a %in% names(df) && col_b %in% names(df)) {
+      df[[out_col]] <- suppressWarnings(as.numeric(df[[col_a]])) * suppressWarnings(as.numeric(df[[col_b]]))
+    } else {
+      df[[out_col]] <- NA_real_
+      missing <- setdiff(c(col_a, col_b), names(df))
+      message("Interaction ", out_col, " missing base columns: ", paste(missing, collapse = ", "))
+    }
+    df
+  }
+  features <- add_interaction(features, "target_qb_rush_attempts_roll5", "team_points_roll5",
+                              "target_qb_rush_attempts_roll5_x_team_points_roll5")
+  features <- add_interaction(features, "target_qb_rush_attempts_roll5", "def_points_defense_allowed_roll5",
+                              "target_qb_rush_attempts_roll5_x_def_points_defense_allowed_roll5")
+  features <- add_interaction(features, "target_qb_rush_td_rate_roll5", "team_redzone_td_rate",
+                              "target_qb_rush_td_rate_roll5_x_team_redzone_td_rate")
+  message("Added QB interaction features: target_qb_rush_attempts_roll5_x_team_points_roll5, ",
+          "target_qb_rush_attempts_roll5_x_def_points_defense_allowed_roll5, ",
+          "target_qb_rush_td_rate_roll5_x_team_redzone_td_rate")
+
   # Optional draft metadata (non-imputing; NA when unavailable)
   draft_path <- file.path("data", "external", "player_metadata.parquet")
   draft_meta <- NULL
@@ -174,6 +205,7 @@ assemble_qb_weekly_features <- function(qb_weekly_stats) {
   features$target_sacks_qb_taken <- features$target_sacks_qb_taken
   features$target_qb_rush_attempts <- features$target_qb_rush_attempts
   features$target_qb_rush_yards <- features$target_qb_rush_yards
+  features$target_qb_rush_tds <- features$target_qb_rush_tds
 
   # Drop malformed rows
   bad_rows <- is.na(features$player_id) | is.na(features$season) | is.na(features$week)
@@ -248,6 +280,7 @@ empty_qb_training_df <- function() {
     prev_season_sacks_taken_total = double(0),
     prev_season_rush_attempts_total = double(0),
     prev_season_rush_yards_total = double(0),
+    prev_season_rush_tds_total = double(0),
     prev_season_games_played = double(0),
     team_wr_target_share_top1_roll1 = double(0),
     team_wr_target_share_top2_roll1 = double(0),
@@ -283,6 +316,11 @@ empty_qb_training_df <- function() {
     target_qb_rush_yards_roll1 = double(0),
     target_qb_rush_yards_roll3 = double(0),
     target_qb_rush_yards_roll5 = double(0),
+    target_qb_rush_tds_roll1 = double(0),
+    target_qb_rush_tds_roll3 = double(0),
+    target_qb_rush_tds_roll5 = double(0),
+    target_qb_rush_td_rate_roll3 = double(0),
+    target_qb_rush_td_rate_roll5 = double(0),
     target_pass_attempts_qb = double(0),
     target_completions_qb = double(0),
     target_pass_yards_qb = double(0),
@@ -291,6 +329,10 @@ empty_qb_training_df <- function() {
     target_sacks_qb_taken = double(0),
     target_qb_rush_attempts = double(0),
     target_qb_rush_yards = double(0),
+    target_qb_rush_tds = double(0),
+    target_qb_rush_attempts_roll5_x_team_points_roll5 = double(0),
+    target_qb_rush_attempts_roll5_x_def_points_defense_allowed_roll5 = double(0),
+    target_qb_rush_td_rate_roll5_x_team_redzone_td_rate = double(0),
     qb_regime = character(0)
   )
 }

@@ -56,7 +56,11 @@ simulate_qb_game <- function(feature_row,
       grep("_roll1$", cand_features, value = TRUE)
     )
     strict_features <- setdiff(cand_features, optional_features)
-    na_strict <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
+    if (length(strict_features) == 0) {
+      na_strict <- character(0)
+    } else {
+      na_strict <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
+    }
     if (length(na_strict) > 0) {
       next
     }
@@ -87,7 +91,11 @@ simulate_qb_game <- function(feature_row,
           grep("_roll1$", cand_features, value = TRUE)
         )
         strict_features <- setdiff(cand_features, optional_features)
-        na_strict <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
+        if (length(strict_features) == 0) {
+          na_strict <- character(0)
+        } else {
+          na_strict <- strict_features[sapply(strict_features, function(f) is.na(feature_row[[f]][1]))]
+        }
         if (length(na_strict) == 0) {
           prediction_regime <- cf_regime
           required_features <- cand_features
@@ -161,6 +169,33 @@ simulate_qb_game <- function(feature_row,
     if (is.null(model)) {
       stop("Model is NULL. Cannot sample.")
     }
+    if (!is.null(model$type) && model$type == "hurdle") {
+      # Hurdle model: P(td>0) via logistic, count via Poisson (or fallback).
+      p <- model$prob_fallback
+      if (!is.null(model$prob_model)) {
+        p <- tryCatch(
+          as.numeric(predict(model$prob_model, newdata = newdata, type = "response")),
+          error = function(e) model$prob_fallback
+        )
+      }
+      if (!is.finite(p)) p <- model$prob_fallback
+      p <- pmax(0, pmin(1, p))
+      has_td <- rbinom(n_samples, size = 1, prob = p)
+
+      mu <- model$count_fallback
+      if (!is.null(model$count_model)) {
+        mu <- tryCatch(
+          as.numeric(predict(model$count_model, newdata = newdata, type = "response")),
+          error = function(e) model$count_fallback
+        )
+      }
+      if (availability_policy %in% c("expected_active", "force_counterfactual")) {
+        mu[!is.finite(mu)] <- model$count_fallback
+      }
+      mu <- pmax(mu, 0.01)
+      count_draw <- rpois(n_samples, lambda = mu)
+      return(pmax(0L, as.integer(ifelse(has_td > 0, pmax(1, count_draw), 0))))
+    }
     if (!is.null(model$type) && model$type == "baseline") {
       if (model$is_count) {
         mu <- as.numeric(model$value)
@@ -205,6 +240,23 @@ simulate_qb_game <- function(feature_row,
     }
     if (inherits(model_obj, "lm")) {
       sigma_val <- get_residual_sd_qb(model_obj)
+      if (!is.finite(sigma_val) || is.na(sigma_val)) {
+        sigma_val <- suppressWarnings(stats::sd(model_obj$fitted.values, na.rm = TRUE))
+        if (!is.finite(sigma_val) || is.na(sigma_val)) {
+          sigma_val <- 1.0
+        }
+      }
+      mu <- as.numeric(mu)
+      if (any(!is.finite(mu))) {
+        fallback_mu <- suppressWarnings(mean(model_obj$fitted.values, na.rm = TRUE))
+        if (!is.finite(fallback_mu) || is.na(fallback_mu)) {
+          fallback_mu <- 0
+        }
+        if (availability_policy == "played_only") {
+          warning("Non-finite Gaussian mean prediction under played_only; using fitted-mean fallback.")
+        }
+        mu[!is.finite(mu)] <- fallback_mu
+      }
       return(pmax(0, rnorm(n_samples, mean = mu, sd = sigma_val)))
     }
     stop("Unsupported model type for sampling.")
@@ -243,7 +295,8 @@ compute_qb_percentiles <- function(draws) {
     "target_interceptions_qb_thrown",
     "target_sacks_qb_taken",
     "target_qb_rush_attempts",
-    "target_qb_rush_yards"
+    "target_qb_rush_yards",
+    "target_qb_rush_tds"
   )
   result <- data.frame(
     stat = stats,

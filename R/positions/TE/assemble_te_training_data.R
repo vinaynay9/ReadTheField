@@ -152,6 +152,21 @@ assemble_te_weekly_features <- function(te_weekly_stats) {
   features <- features %>%
     left_join(qb_features[, qb_cols, drop = FALSE], by = c("team", "season", "week"))
 
+  # Interaction features (TE): redzone usage x team scoring context.
+  add_interaction <- function(df, col_a, col_b, out_col) {
+    if (col_a %in% names(df) && col_b %in% names(df)) {
+      df[[out_col]] <- suppressWarnings(as.numeric(df[[col_a]])) * suppressWarnings(as.numeric(df[[col_b]]))
+    } else {
+      df[[out_col]] <- NA_real_
+      missing <- setdiff(c(col_a, col_b), names(df))
+      message("Interaction ", out_col, " missing base columns: ", paste(missing, collapse = ", "))
+    }
+    df
+  }
+  features <- add_interaction(features, "redzone_targets_roll5", "team_points_roll5",
+                              "redzone_targets_roll5_x_team_points_roll5")
+  message("Added TE interaction feature: redzone_targets_roll5_x_team_points_roll5")
+
   # Join prior-season cumulative stats (season - 1 aggregates)
   prior_season_stats_path <- file.path("data", "processed", "prior_season_player_stats.parquet")
   if (!file.exists(prior_season_stats_path)) {
@@ -269,6 +284,7 @@ assemble_te_weekly_features <- function(te_weekly_stats) {
     "rec_yards_roll1", "rec_yards_roll3", "rec_yards_roll5",
     "air_yards_roll1", "air_yards_roll3", "air_yards_roll5",
     "target_share_roll1", "air_yards_share_roll1",
+    "redzone_targets_roll5_x_team_points_roll5",
     get_passing_defense_all_features(),
     "defense_data_available", "rolling_window_complete",
     "is_rookie", "draft_round", "draft_pick_overall",
@@ -423,6 +439,7 @@ empty_te_training_df <- function() {
     target_receptions = integer(0),
     target_rec_yards = double(0),
     target_rec_tds = integer(0),
+    redzone_targets_roll5_x_team_points_roll5 = double(0),
     stringsAsFactors = FALSE
   )
 }

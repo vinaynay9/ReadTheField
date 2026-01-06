@@ -1075,6 +1075,24 @@ assemble_rb_training_data <- function(seasons) {
   } else {
     warning("add_rb_player_priors not found. Player priors will be missing.")
   }
+
+  # Interaction features (RB): usage x opponent/team context.
+  add_interaction <- function(df, col_a, col_b, out_col) {
+    if (col_a %in% names(df) && col_b %in% names(df)) {
+      df[[out_col]] <- suppressWarnings(as.numeric(df[[col_a]])) * suppressWarnings(as.numeric(df[[col_b]]))
+    } else {
+      df[[out_col]] <- NA_real_
+      missing <- setdiff(c(col_a, col_b), names(df))
+      message("Interaction ", out_col, " missing base columns: ", paste(missing, collapse = ", "))
+    }
+    df
+  }
+  rb_data <- add_interaction(rb_data, "carries_roll5", "def_rush_yards_defense_allowed_roll5",
+                             "carries_roll5_x_def_rush_yards_defense_allowed_roll5")
+  rb_data <- add_interaction(rb_data, "goal_line_carry_share", "team_points_roll5",
+                             "goal_line_carry_share_x_team_points_roll5")
+  message("Added RB interaction features: carries_roll5_x_def_rush_yards_defense_allowed_roll5, ",
+          "goal_line_carry_share_x_team_points_roll5")
   
   # Select and order final columns (RB v1 schema: NO yardage targets)
   final_cols <- c(
@@ -1125,6 +1143,9 @@ assemble_rb_training_data <- function(seasons) {
     "def_points_defense_allowed_roll5",
     "def_sacks_defense_forced_roll5", "def_tackles_for_loss_defense_forced_roll5", "def_interceptions_defense_caught_roll5", "def_interceptions_defense_caught_roll1",
     "defense_data_available", "rolling_window_complete",
+    # Interaction features
+    "carries_roll5_x_def_rush_yards_defense_allowed_roll5",
+    "goal_line_carry_share_x_team_points_roll5",
     # Rookie signals
     "is_rookie", "draft_round", "draft_pick_overall",
     # Targets (post-game, for training) - RB v1 schema
@@ -1287,6 +1308,8 @@ empty_rb_training_df <- function() {
     target_targets = integer(0),
     target_receptions = integer(0),
     target_rec_tds = integer(0),
+    carries_roll5_x_def_rush_yards_defense_allowed_roll5 = double(0),
+    goal_line_carry_share_x_team_points_roll5 = double(0),
     stringsAsFactors = FALSE
   )
 }

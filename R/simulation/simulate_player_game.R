@@ -24,7 +24,11 @@ simulate_player_game <- function(gsis_id,
                                  cache_only = TRUE,
                                  availability_policy = "played_only",
                                  counterfactual_mode = FALSE,
-                                 counterfactual_team = NULL) {
+                                 counterfactual_team = NULL,
+                                 schedule_game_id = NULL,
+                                 schedule_game_date = NULL,
+                                 schedule_home_away = NULL,
+                                 schedule_opponent = NULL) {
   
   mode <- match.arg(mode)
   
@@ -103,6 +107,9 @@ simulate_player_game <- function(gsis_id,
   availability_policy <- validate_availability_policy(availability_policy)
   counterfactual_mode <- isTRUE(counterfactual_mode)
   counterfactual_team <- if (!is.null(counterfactual_team)) toupper(as.character(counterfactual_team)) else NA_character_
+  if (!is.null(schedule_home_away) && !is.na(schedule_home_away)) {
+    schedule_home_away <- toupper(as.character(schedule_home_away))
+  }
   if (counterfactual_mode) {
     availability_policy <- "force_counterfactual"
   }
@@ -137,6 +144,21 @@ simulate_player_game <- function(gsis_id,
     ))
   }
   dim_row <- player_dim[player_dim$gsis_id == gsis_id & player_dim$season == season, , drop = FALSE]
+  forced_counterfactual_notice <- NULL
+  if (nrow(dim_row) == 0) {
+    has_any_season <- any(player_dim$gsis_id == gsis_id)
+    if (isTRUE(has_any_season)) {
+      last_dim_row <- player_dim[player_dim$gsis_id == gsis_id, , drop = FALSE]
+      last_dim_row <- last_dim_row[order(last_dim_row$season, decreasing = TRUE), , drop = FALSE]
+      dim_row <- last_dim_row[1, , drop = FALSE]
+      forced_counterfactual_notice <- paste0(
+        "Player not active in season ", season,
+        ". Running forced counterfactual simulation using historical priors."
+      )
+      warning(forced_counterfactual_notice, call. = FALSE)
+      availability_policy <- "force_counterfactual"
+    }
+  }
   if (nrow(dim_row) == 0) {
     # Fallback: infer team/position from weekly stats caches when player_dim is incomplete.
     if (file.exists("R/data/build_weekly_player_layers.R")) {
@@ -263,6 +285,16 @@ simulate_player_game <- function(gsis_id,
       ))
     }
     sched_row <- sched_match[1, ]
+    resolved_game_id <- if (!is.null(schedule_game_id) && !is.na(schedule_game_id)) {
+      as.character(schedule_game_id)
+    } else {
+      as.character(sched_row$game_id)
+    }
+    resolved_game_date <- if (!is.null(schedule_game_date) && !is.na(schedule_game_date)) {
+      as.Date(schedule_game_date)
+    } else {
+      sched_row$gameday
+    }
     if (sched_row$home_team == counterfactual_team) {
       resolved_team <- sched_row$home_team
       resolved_opponent <- sched_row$away_team
@@ -281,7 +313,8 @@ simulate_player_game <- function(gsis_id,
         team = resolved_team,
         opponent = resolved_opponent,
         home_away = resolved_home_away,
-        game_date = NULL
+        game_date = resolved_game_date,
+        game_id = resolved_game_id
       ),
       WR = build_future_wr_feature_row(
         player_id = gsis_id,
@@ -290,7 +323,8 @@ simulate_player_game <- function(gsis_id,
         team = resolved_team,
         opponent = resolved_opponent,
         home_away = resolved_home_away,
-        game_date = NULL
+        game_date = resolved_game_date,
+        game_id = resolved_game_id
       ),
       TE = build_future_te_feature_row(
         player_id = gsis_id,
@@ -299,7 +333,8 @@ simulate_player_game <- function(gsis_id,
         team = resolved_team,
         opponent = resolved_opponent,
         home_away = resolved_home_away,
-        game_date = NULL
+        game_date = resolved_game_date,
+        game_id = resolved_game_id
       ),
       QB = build_future_qb_feature_row(
         player_id = gsis_id,
@@ -308,7 +343,8 @@ simulate_player_game <- function(gsis_id,
         team = resolved_team,
         opponent = resolved_opponent,
         home_away = resolved_home_away,
-        game_date = NULL
+        game_date = resolved_game_date,
+        game_id = resolved_game_id
       ),
       K = build_future_k_feature_row(
         player_id = gsis_id,
@@ -317,7 +353,8 @@ simulate_player_game <- function(gsis_id,
         team = resolved_team,
         opponent = resolved_opponent,
         home_away = resolved_home_away,
-        game_date = NULL
+        game_date = resolved_game_date,
+        game_id = resolved_game_id
       ),
       return(make_error(
         "INSUFFICIENT_HISTORY",
@@ -327,7 +364,7 @@ simulate_player_game <- function(gsis_id,
       ))
     )
     synthetic_feature_row$player_name <- dim_row$full_name[1]
-    resolved_game_date <- NULL
+    resolved_game_date <- resolved_game_date
     is_future <- TRUE
   } else if (is_future) {
     sched_match <- schedules[
@@ -353,6 +390,16 @@ simulate_player_game <- function(gsis_id,
       ))
     }
     sched_row <- sched_match[1, ]
+    resolved_game_id <- if (!is.null(schedule_game_id) && !is.na(schedule_game_id)) {
+      as.character(schedule_game_id)
+    } else {
+      as.character(sched_row$game_id)
+    }
+    resolved_game_date <- if (!is.null(schedule_game_date) && !is.na(schedule_game_date)) {
+      as.Date(schedule_game_date)
+    } else {
+      sched_row$gameday
+    }
     if (sched_row$home_team == player_team) {
       resolved_team <- sched_row$home_team
       resolved_opponent <- sched_row$away_team
@@ -372,7 +419,8 @@ simulate_player_game <- function(gsis_id,
         team = resolved_team,
         opponent = resolved_opponent,
         home_away = resolved_home_away,
-        game_date = NULL
+        game_date = resolved_game_date,
+        game_id = resolved_game_id
       ),
       WR = build_future_wr_feature_row(
         player_id = gsis_id,
@@ -381,7 +429,8 @@ simulate_player_game <- function(gsis_id,
         team = resolved_team,
         opponent = resolved_opponent,
         home_away = resolved_home_away,
-        game_date = NULL
+        game_date = resolved_game_date,
+        game_id = resolved_game_id
       ),
       TE = build_future_te_feature_row(
         player_id = gsis_id,
@@ -390,7 +439,8 @@ simulate_player_game <- function(gsis_id,
         team = resolved_team,
         opponent = resolved_opponent,
         home_away = resolved_home_away,
-        game_date = NULL
+        game_date = resolved_game_date,
+        game_id = resolved_game_id
       ),
       QB = build_future_qb_feature_row(
         player_id = gsis_id,
@@ -399,7 +449,8 @@ simulate_player_game <- function(gsis_id,
         team = resolved_team,
         opponent = resolved_opponent,
         home_away = resolved_home_away,
-        game_date = NULL
+        game_date = resolved_game_date,
+        game_id = resolved_game_id
       ),
       K = build_future_k_feature_row(
         player_id = gsis_id,
@@ -408,7 +459,8 @@ simulate_player_game <- function(gsis_id,
         team = resolved_team,
         opponent = resolved_opponent,
         home_away = resolved_home_away,
-        game_date = NULL
+        game_date = resolved_game_date,
+        game_id = resolved_game_id
       ),
       stop("simulate_player_game does not support position ", player_position, " for future simulation.")
     )
@@ -442,6 +494,10 @@ simulate_player_game <- function(gsis_id,
         week = week,
         n_sims = n_sims,
         game_date = resolved_game_date,
+        schedule_game_id = schedule_game_id,
+        schedule_game_date = schedule_game_date,
+        schedule_home_away = schedule_home_away,
+        schedule_opponent = schedule_opponent,
         seasons_train = seasons_train,
         mode_policy = policy,
         synthetic_feature_row = synthetic_feature_row,
@@ -454,6 +510,10 @@ simulate_player_game <- function(gsis_id,
         week = week,
         n_sims = n_sims,
         game_date = resolved_game_date,
+        schedule_game_id = schedule_game_id,
+        schedule_game_date = schedule_game_date,
+        schedule_home_away = schedule_home_away,
+        schedule_opponent = schedule_opponent,
         seasons_train = seasons_train,
         mode_policy = policy,
         synthetic_feature_row = synthetic_feature_row,
@@ -466,6 +526,10 @@ simulate_player_game <- function(gsis_id,
         week = week,
         n_sims = n_sims,
         game_date = resolved_game_date,
+        schedule_game_id = schedule_game_id,
+        schedule_game_date = schedule_game_date,
+        schedule_home_away = schedule_home_away,
+        schedule_opponent = schedule_opponent,
         seasons_train = seasons_train,
         mode_policy = policy,
         synthetic_feature_row = synthetic_feature_row,
@@ -478,6 +542,10 @@ simulate_player_game <- function(gsis_id,
         week = week,
         n_sims = n_sims,
         game_date = resolved_game_date,
+        schedule_game_id = schedule_game_id,
+        schedule_game_date = schedule_game_date,
+        schedule_home_away = schedule_home_away,
+        schedule_opponent = schedule_opponent,
         seasons_train = seasons_train,
         mode_policy = policy,
         synthetic_feature_row = synthetic_feature_row,
@@ -490,6 +558,10 @@ simulate_player_game <- function(gsis_id,
         week = week,
         n_sims = n_sims,
         game_date = resolved_game_date,
+        schedule_game_id = schedule_game_id,
+        schedule_game_date = schedule_game_date,
+        schedule_home_away = schedule_home_away,
+        schedule_opponent = schedule_opponent,
         seasons_train = seasons_train,
         mode_policy = policy,
         synthetic_feature_row = synthetic_feature_row,
@@ -526,6 +598,9 @@ simulate_player_game <- function(gsis_id,
   result$metadata$counterfactual_team <- if (counterfactual_mode) counterfactual_team else NA_character_
   if (counterfactual_mode) {
     result$metadata$counterfactual_reason <- "User-selected counterfactual roster"
+  }
+  if (!is.null(forced_counterfactual_notice)) {
+    result$metadata$forced_counterfactual_notice <- forced_counterfactual_notice
   }
   
   return(result)

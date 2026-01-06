@@ -44,17 +44,28 @@ build_qb_player_features <- function(qb_weekly_stats) {
   }
   stats$game_date <- as.Date(stats$game_date)
 
+  pick_col <- function(df, candidates) {
+    for (candidate in candidates) {
+      if (candidate %in% names(df)) {
+        return(df[[candidate]])
+      }
+    }
+    rep(NA, nrow(df))
+  }
+
   # nflreadr QB columns (2023 sample): attempts, completions, passing_yards,
-  # passing_tds, passing_interceptions, sacks_suffered, passing_air_yards.
-  stats$pass_attempts <- suppressWarnings(as.numeric(stats$attempts))
-  stats$pass_completions <- suppressWarnings(as.numeric(stats$completions))
-  stats$pass_yards <- suppressWarnings(as.numeric(stats$passing_yards))
-  stats$pass_tds <- suppressWarnings(as.numeric(stats$passing_tds))
-  stats$interceptions_thrown <- suppressWarnings(as.numeric(stats$passing_interceptions))
-  stats$sacks_taken <- suppressWarnings(as.numeric(stats$sacks_suffered))
-  stats$pass_air_yards <- suppressWarnings(as.numeric(stats$passing_air_yards))
-  stats$qb_rush_attempts <- suppressWarnings(as.numeric(stats$carries))
-  stats$qb_rush_yards <- suppressWarnings(as.numeric(stats$rushing_yards))
+  # passing_tds, passing_interceptions, sacks_suffered, passing_air_yards,
+  # rushing_yards, rushing_tds.
+  stats$pass_attempts <- suppressWarnings(as.numeric(pick_col(stats, c("attempts", "pass_attempts"))))
+  stats$pass_completions <- suppressWarnings(as.numeric(pick_col(stats, c("completions", "pass_completions"))))
+  stats$pass_yards <- suppressWarnings(as.numeric(pick_col(stats, c("passing_yards", "pass_yards"))))
+  stats$pass_tds <- suppressWarnings(as.numeric(pick_col(stats, c("passing_tds", "pass_tds"))))
+  stats$interceptions_thrown <- suppressWarnings(as.numeric(pick_col(stats, c("passing_interceptions", "interceptions"))))
+  stats$sacks_taken <- suppressWarnings(as.numeric(pick_col(stats, c("sacks_suffered", "qb_sacks", "sacks_taken"))))
+  stats$pass_air_yards <- suppressWarnings(as.numeric(pick_col(stats, c("passing_air_yards", "air_yards"))))
+  stats$qb_rush_attempts <- suppressWarnings(as.numeric(pick_col(stats, c("carries", "rush_attempts", "rushing_attempts"))))
+  stats$qb_rush_yards <- suppressWarnings(as.numeric(pick_col(stats, c("rushing_yards", "rush_yards"))))
+  stats$qb_rush_tds <- suppressWarnings(as.numeric(pick_col(stats, c("rushing_tds", "rush_tds"))))
 
   stats$completion_pct <- ifelse(
     !is.na(stats$pass_attempts) & stats$pass_attempts > 0,
@@ -88,7 +99,8 @@ build_qb_player_features <- function(qb_weekly_stats) {
       target_sacks_qb_taken = sacks_taken,
       target_air_yards_qb = pass_air_yards,
       target_qb_rush_attempts = qb_rush_attempts,
-      target_qb_rush_yards = qb_rush_yards
+      target_qb_rush_yards = qb_rush_yards,
+      target_qb_rush_tds = qb_rush_tds
     )
 
   roll_cols <- c(
@@ -101,7 +113,8 @@ build_qb_player_features <- function(qb_weekly_stats) {
     "target_sacks_qb_taken",
     "target_air_yards_qb",
     "target_qb_rush_attempts",
-    "target_qb_rush_yards"
+    "target_qb_rush_yards",
+    "target_qb_rush_tds"
   )
 
   for (col in roll_cols) {
@@ -126,6 +139,23 @@ build_qb_player_features <- function(qb_weekly_stats) {
       }
     }
   }
+
+  # Goal-line signal: QB rush TD rate over prior games (leakage-safe).
+  rate_from_roll <- function(tds_roll, att_roll) {
+    ifelse(
+      !is.na(tds_roll) & !is.na(att_roll) & att_roll > 0,
+      tds_roll / att_roll,
+      ifelse(!is.na(tds_roll) & !is.na(att_roll) & att_roll == 0 & tds_roll == 0, 0, NA_real_)
+    )
+  }
+  features$target_qb_rush_td_rate_roll3 <- rate_from_roll(
+    features$target_qb_rush_tds_roll3,
+    features$target_qb_rush_attempts_roll3
+  )
+  features$target_qb_rush_td_rate_roll5 <- rate_from_roll(
+    features$target_qb_rush_tds_roll5,
+    features$target_qb_rush_attempts_roll5
+  )
 
   features
 }

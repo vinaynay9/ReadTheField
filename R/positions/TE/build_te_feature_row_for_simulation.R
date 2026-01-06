@@ -88,7 +88,11 @@ build_te_feature_row_for_simulation <- function(te_weekly_features,
                                                 season,
                                                 week,
                                                 availability_policy = "played_only",
-                                                drop_feature_groups = character(0)) {
+                                                drop_feature_groups = character(0),
+                                                schedule_game_id = NULL,
+                                                schedule_game_date = NULL,
+                                                schedule_home_away = NULL,
+                                                schedule_opponent = NULL) {
   policy <- validate_availability_policy(availability_policy)
   feature_groups <- get_te_feature_groups()
   drop_feature_groups <- unique(drop_feature_groups)
@@ -209,6 +213,21 @@ build_te_feature_row_for_simulation <- function(te_weekly_features,
     }
   }
   if (is.na(team) || team == "") {
+    if (!is.null(player_dim) && nrow(player_dim) > 0) {
+      last_dim <- player_dim[player_dim$gsis_id == player_id, , drop = FALSE]
+      if (nrow(last_dim) > 0) {
+        last_dim <- last_dim[order(last_dim$season, decreasing = TRUE), , drop = FALSE]
+        team <- last_dim$team[1]
+        position <- if (!is.na(last_dim$position[1])) last_dim$position[1] else position
+        if ("full_name" %in% names(last_dim)) player_name <- last_dim$full_name[1]
+        if ("height" %in% names(last_dim)) height <- last_dim$height[1]
+        if ("weight" %in% names(last_dim)) weight <- last_dim$weight[1]
+        if ("age" %in% names(last_dim)) age <- last_dim$age[1]
+        used_sources <- c(used_sources, "player_dim_last_active")
+      }
+    }
+  }
+  if (is.na(team) || team == "") {
     history <- te_weekly_stats[
       te_weekly_stats$player_id == player_id &
         te_weekly_stats$season == season &
@@ -227,16 +246,25 @@ build_te_feature_row_for_simulation <- function(te_weekly_features,
 
   schedule_row <- resolve_schedule_row_te(schedule, season, week, team)
   if (is.null(schedule_row)) {
-    stop("No schedule entry found for team ", team, " in season ", season,
-         " week ", week, ". Cannot build counterfactual row.", call. = FALSE)
+    if (policy == "force_counterfactual") {
+      construction_warnings <- c(construction_warnings, "Schedule row missing; using prior-only counterfactual row.")
+      opponent <- NA_character_
+      home_away <- NA_character_
+      is_home <- NA_integer_
+      gameday <- as.Date(NA)
+      game_id <- NA_character_
+    } else {
+      stop("No schedule entry found for team ", team, " in season ", season,
+           " week ", week, ". Cannot build counterfactual row.", call. = FALSE)
+    }
+  } else {
+    used_sources <- c(used_sources, "schedule")
+    opponent <- if (schedule_row$home_team == team) schedule_row$away_team else schedule_row$home_team
+    home_away <- if (schedule_row$home_team == team) "HOME" else "AWAY"
+    is_home <- ifelse(home_away == "HOME", 1L, 0L)
+    gameday <- as.Date(schedule_row$gameday)
+    game_id <- as.character(schedule_row$game_id)
   }
-  used_sources <- c(used_sources, "schedule")
-
-  opponent <- if (schedule_row$home_team == team) schedule_row$away_team else schedule_row$home_team
-  home_away <- if (schedule_row$home_team == team) "HOME" else "AWAY"
-  is_home <- ifelse(home_away == "HOME", 1L, 0L)
-  gameday <- as.Date(schedule_row$gameday)
-  game_id <- as.character(schedule_row$game_id)
 
   feature_row$player_id <- player_id
   feature_row$season <- season
@@ -352,6 +380,24 @@ build_te_feature_row_for_simulation <- function(te_weekly_features,
       feature_row[1, drop_cols] <- NA
       dropped_features <- unique(c(dropped_features, drop_cols))
     }
+  }
+
+  # Apply schedule-derived overrides (CLI-provided)
+  if (!is.null(schedule_game_id) && !is.na(schedule_game_id) && "game_id" %in% names(feature_row)) {
+    feature_row$game_id <- as.character(schedule_game_id)
+  }
+  if (!is.null(schedule_game_date) && !is.na(schedule_game_date)) {
+    if ("gameday" %in% names(feature_row)) feature_row$gameday <- as.Date(schedule_game_date)
+    if ("game_date" %in% names(feature_row)) feature_row$game_date <- as.Date(schedule_game_date)
+  }
+  if (!is.null(schedule_home_away) && !is.na(schedule_home_away) && "home_away" %in% names(feature_row)) {
+    feature_row$home_away <- toupper(as.character(schedule_home_away))
+    if ("is_home" %in% names(feature_row)) {
+      feature_row$is_home <- ifelse(toupper(as.character(schedule_home_away)) == "HOME", 1L, 0L)
+    }
+  }
+  if (!is.null(schedule_opponent) && !is.na(schedule_opponent) && "opponent" %in% names(feature_row)) {
+    feature_row$opponent <- as.character(schedule_opponent)
   }
 
   list(

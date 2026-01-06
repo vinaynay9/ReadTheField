@@ -43,7 +43,8 @@ build_future_rb_feature_row <- function(player_id,
                                        team,
                                        opponent,
                                        home_away,
-                                       game_date = NULL) {
+                                       game_date = NULL,
+                                       game_id = NULL) {
   
   # Initialize logging
   log_file <- "rb_debug.log"
@@ -176,9 +177,16 @@ build_future_rb_feature_row <- function(player_id,
     synthetic_row$gameday <- NA
   }
   
-  # Clear game identifiers (will be set by caller if needed)
-  synthetic_row$game_id <- NA_character_
-  synthetic_row$game_key <- NA_character_
+  # Set game identifiers when provided by caller (schedule-derived)
+  if (!is.null(game_id) && !is.na(game_id)) {
+    synthetic_row$game_id <- as.character(game_id)
+    if ("game_key" %in% names(synthetic_row) && exists("build_game_key")) {
+      synthetic_row$game_key <- build_game_key(season, week, synthetic_row$gameday, team, opponent, synthetic_row$game_id)
+    }
+  } else {
+    synthetic_row$game_id <- NA_character_
+    synthetic_row$game_key <- NA_character_
+  }
   
   # IMPORTANT: Preserve all rolling features from last game
   # These represent the player's recent performance going into the future game

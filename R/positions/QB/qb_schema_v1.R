@@ -12,7 +12,8 @@ get_qb_v1_targets <- function() {
     "target_interceptions_qb_thrown",
     "target_sacks_qb_taken",
     "target_qb_rush_attempts",
-    "target_qb_rush_yards"
+    "target_qb_rush_yards",
+    "target_qb_rush_tds"
   )
 }
 
@@ -75,6 +76,9 @@ resolve_qb_simulation_schema <- function(draws_df) {
   if ("target_qb_rush_yards" %in% names(draws_df) && !"qb_rush_yards" %in% names(draws_df)) {
     draws_df$qb_rush_yards <- draws_df$target_qb_rush_yards
   }
+  if ("target_qb_rush_tds" %in% names(draws_df) && !"qb_rush_tds" %in% names(draws_df)) {
+    draws_df$qb_rush_tds <- draws_df$target_qb_rush_tds
+  }
 
   if ("pass_attempts" %in% names(draws_df) && !"passing_attempts" %in% names(draws_df)) {
     draws_df$passing_attempts <- draws_df$pass_attempts
@@ -103,7 +107,8 @@ resolve_qb_simulation_schema <- function(draws_df) {
     "interceptions_thrown",
     "qb_sacks_taken",
     "qb_rush_attempts",
-    "qb_rush_yards"
+    "qb_rush_yards",
+    "qb_rush_tds"
   )
   for (col in required_outputs) {
     if (!col %in% names(draws_df)) {

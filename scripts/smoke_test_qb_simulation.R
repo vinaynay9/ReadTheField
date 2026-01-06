@@ -40,15 +40,23 @@ tryCatch({
 
   required_cols <- c(
     "player_id", "season", "week",
+    "game_id",
     "target_pass_attempts_qb",
     "target_pass_yards_qb",
     "target_pass_tds_qb",
     "target_interceptions_qb_thrown",
-    "target_sacks_qb_taken"
+    "target_sacks_qb_taken",
+    "target_qb_rush_tds",
+    "target_qb_rush_tds_roll1",
+    "target_qb_rush_tds_roll3",
+    "target_qb_rush_tds_roll5"
   )
   missing_cols <- setdiff(required_cols, names(qb_features))
   if (length(missing_cols) > 0) {
     stop("QB weekly features missing required columns: ", paste(missing_cols, collapse = ", "))
+  }
+  if (any(is.na(qb_features[["game_id"]]))) {
+    stop("QB weekly features contain missing game_id values.")
   }
 
   qb_stats <- read_qb_weekly_stats_cache() |>
@@ -57,6 +65,41 @@ tryCatch({
     stop("QB weekly stats cache is empty.")
   }
   cat("  Loaded raw QB weekly stats with", nrow(qb_stats), "rows\n")
+
+  # Recompute roll3 sacks for a random sample and compare.
+  set.seed(42)
+  sample_rows <- qb_features |>
+    dplyr::filter(week >= 4, !is.na(target_sacks_qb_taken_roll3)) |>
+    dplyr::sample_n(size = min(30, nrow(qb_features)))
+
+  pick_col <- function(df, candidates) {
+    for (candidate in candidates) {
+      if (candidate %in% names(df)) {
+        return(df[[candidate]])
+      }
+    }
+    rep(NA_real_, nrow(df))
+  }
+
+  roll_mean <- function(x, n) {
+    if (length(x) < n || any(is.na(tail(x, n)))) return(NA_real_)
+    mean(tail(x, n))
+  }
+
+  for (i in seq_len(nrow(sample_rows))) {
+    row <- sample_rows[i, ]
+    stats_player <- qb_stats |>
+      dplyr::filter(player_id == row$player_id, season == row$season) |>
+      dplyr::arrange(week)
+    stats_player$sacks_taken <- as.numeric(pick_col(stats_player, c("sacks_suffered", "sacks_taken", "passing_sacks")))
+    idx <- which(stats_player$week == row$week)[1]
+    prior <- stats_player$sacks_taken[seq_len(idx - 1)]
+    recomputed <- roll_mean(prior, 3)
+    if (is.na(recomputed) || abs(recomputed - row$target_sacks_qb_taken_roll3) > 1e-6) {
+      stop("QB roll3 sacks mismatch for player ", row$player_id,
+           " season ", row$season, " week ", row$week)
+    }
+  }
 }, error = function(e) {
   cat("ERROR: Failed to load QB weekly features or stats:", conditionMessage(e), "\n")
   quit(status = 1)
@@ -151,17 +194,57 @@ tryCatch({
     "interceptions_thrown",
     "qb_sacks_taken",
     "qb_rush_attempts",
-    "qb_rush_yards"
+    "qb_rush_yards",
+    "qb_rush_tds"
   )
   missing_outcomes <- setdiff(required_outcomes, names(result$draws))
   if (length(missing_outcomes) > 0) {
     stop("Missing QB outcomes in draws: ", paste(missing_outcomes, collapse = ", "))
   }
 
+  if (all(is.na(result$draws$qb_rush_tds))) {
+    stop("QB simulation draws missing rushing TDs (all NA).")
+  }
+
   cat("  QB simulation completed successfully\n")
   cat("  Draws:", nrow(result$draws), "rows\n")
 }, error = function(e) {
   cat("ERROR: QB simulation failed:", conditionMessage(e), "\n")
+  quit(status = 1)
+})
+
+cat("\nTest 5: Rushing-heavy QB sanity check...\n")
+tryCatch({
+  rush_td_candidates <- qb_features[
+    qb_features$season >= 2020 &
+      !is.na(qb_features$target_qb_rush_tds) &
+      qb_features$target_qb_rush_tds > 0,
+    , drop = FALSE
+  ]
+  if (nrow(rush_td_candidates) == 0) {
+    stop("No QB rows with rushing TDs found for sanity check.")
+  }
+  rush_row <- rush_td_candidates[1, ]
+  rush_result <- simulate_player_game(
+    gsis_id = rush_row$player_id,
+    season = rush_row$season,
+    week = rush_row$week,
+    n_sims = 500,
+    mode = "historical_replay"
+  )
+  if (is.null(rush_result$draws) || all(is.na(rush_result$draws$qb_rush_tds))) {
+    stop("Rushing TD draws are missing for rushing-heavy QB test.")
+  }
+  if (!any(rush_result$draws$qb_rush_tds > 0, na.rm = TRUE)) {
+    stop("Rushing TD draws are all zero for rushing-heavy QB test.")
+  }
+  rush_td_prob <- mean(rush_result$draws$qb_rush_tds >= 1, na.rm = TRUE)
+  if (!is.finite(rush_td_prob) || rush_td_prob < 0.01) {
+    stop("Rushing TD draw probability too low for rushing-heavy QB test.")
+  }
+  cat("  Rushing-heavy QB simulation completed successfully\n")
+}, error = function(e) {
+  cat("ERROR: Rushing-heavy QB test failed:", conditionMessage(e), "\n")
   quit(status = 1)
 })
 

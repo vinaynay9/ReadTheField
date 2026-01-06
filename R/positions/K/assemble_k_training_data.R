@@ -67,6 +67,24 @@ assemble_k_weekly_features <- function(k_weekly_stats) {
     all.x = TRUE
   )
 
+  # Interaction features (K): FG volume x opponent points allowed, team points x FG rate.
+  add_interaction <- function(df, col_a, col_b, out_col) {
+    if (col_a %in% names(df) && col_b %in% names(df)) {
+      df[[out_col]] <- suppressWarnings(as.numeric(df[[col_a]])) * suppressWarnings(as.numeric(df[[col_b]]))
+    } else {
+      df[[out_col]] <- NA_real_
+      missing <- setdiff(c(col_a, col_b), names(df))
+      message("Interaction ", out_col, " missing base columns: ", paste(missing, collapse = ", "))
+    }
+    df
+  }
+  features <- add_interaction(features, "target_fg_attempts_k_roll5", "def_points_defense_allowed_roll5",
+                              "target_fg_attempts_k_roll5_x_def_points_defense_allowed_roll5")
+  features <- add_interaction(features, "team_points_roll5", "target_fg_pct_k_roll5",
+                              "team_points_roll5_x_target_fg_pct_k_roll5")
+  message("Added K interaction features: target_fg_attempts_k_roll5_x_def_points_defense_allowed_roll5, ",
+          "team_points_roll5_x_target_fg_pct_k_roll5")
+
   # Optional draft metadata (non-imputing; NA when unavailable)
   draft_path <- file.path("data", "external", "player_metadata.parquet")
   draft_meta <- NULL
@@ -208,6 +226,8 @@ empty_k_training_df <- function() {
     target_pat_made_k = double(0),
     target_pat_pct_k = double(0),
     target_fg_long_k = double(0),
+    target_fg_attempts_k_roll5_x_def_points_defense_allowed_roll5 = double(0),
+    team_points_roll5_x_target_fg_pct_k_roll5 = double(0),
     k_regime = character(0)
   )
 }

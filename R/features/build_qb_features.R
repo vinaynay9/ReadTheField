@@ -18,7 +18,8 @@ build_qb_features <- function(qb_game_stats) {
   required_cols <- c("team", "season", "week",
                      "qb_pass_attempts", "qb_pass_completions",
                      "qb_completion_pct", "qb_interceptions_thrown",
-                     "qb_yards_per_attempt", "qb_sacks_taken")
+                     "qb_yards_per_attempt", "qb_sacks_taken",
+                     "qb_rush_attempts", "qb_rush_yards", "qb_rush_tds")
   missing <- setdiff(required_cols, names(qb_game_stats))
   if (length(missing) > 0) {
     stop("QB game stats missing required columns: ", paste(missing, collapse = ", "))
@@ -54,6 +55,20 @@ build_qb_features <- function(qb_game_stats) {
   result$target_sacks_qb_taken_roll1 <- NA_real_
   result$target_sacks_qb_taken_roll3 <- NA_real_
   result$target_sacks_qb_taken_roll5 <- NA_real_
+  result$target_qb_rush_attempts_roll1 <- NA_real_
+  result$target_qb_rush_attempts_roll3 <- NA_real_
+  result$target_qb_rush_attempts_roll5 <- NA_real_
+  result$target_qb_rush_yards_roll1 <- NA_real_
+  result$target_qb_rush_yards_roll3 <- NA_real_
+  result$target_qb_rush_yards_roll5 <- NA_real_
+  result$target_qb_rush_tds_roll1 <- NA_real_
+  result$target_qb_rush_tds_roll3 <- NA_real_
+  result$target_qb_rush_tds_roll5 <- NA_real_
+
+  # Preserve raw QB rush TDs at team-game level for validation/debugging.
+  if ("qb_rush_tds" %in% names(result)) {
+    result$target_qb_rush_tds <- result$qb_rush_tds
+  }
 
   teams <- unique(qb_game_stats$team)
   for (team in teams) {
@@ -90,6 +105,18 @@ build_qb_features <- function(qb_game_stats) {
       result$target_sacks_qb_taken_roll1[season_idx] <- c(NA_real_, head(season_data$qb_sacks_taken, -1))
       result$target_sacks_qb_taken_roll3[season_idx] <- lagged_roll_mean(season_data$qb_sacks_taken, window = 3)
       result$target_sacks_qb_taken_roll5[season_idx] <- lagged_roll_mean(season_data$qb_sacks_taken, window = 5)
+
+      result$target_qb_rush_attempts_roll1[season_idx] <- c(NA_real_, head(season_data$qb_rush_attempts, -1))
+      result$target_qb_rush_attempts_roll3[season_idx] <- lagged_roll_mean(season_data$qb_rush_attempts, window = 3)
+      result$target_qb_rush_attempts_roll5[season_idx] <- lagged_roll_mean(season_data$qb_rush_attempts, window = 5)
+
+      result$target_qb_rush_yards_roll1[season_idx] <- c(NA_real_, head(season_data$qb_rush_yards, -1))
+      result$target_qb_rush_yards_roll3[season_idx] <- lagged_roll_mean(season_data$qb_rush_yards, window = 3)
+      result$target_qb_rush_yards_roll5[season_idx] <- lagged_roll_mean(season_data$qb_rush_yards, window = 5)
+
+      result$target_qb_rush_tds_roll1[season_idx] <- c(NA_real_, head(season_data$qb_rush_tds, -1))
+      result$target_qb_rush_tds_roll3[season_idx] <- lagged_roll_mean(season_data$qb_rush_tds, window = 3)
+      result$target_qb_rush_tds_roll5[season_idx] <- lagged_roll_mean(season_data$qb_rush_tds, window = 5)
     }
   }
 

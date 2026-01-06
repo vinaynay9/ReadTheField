@@ -10,7 +10,8 @@ build_future_qb_feature_row <- function(player_id,
                                         team,
                                         opponent,
                                         home_away,
-                                        game_date = NULL) {
+                                        game_date = NULL,
+                                        game_id = NULL) {
   if (missing(player_id) || is.null(player_id) || length(player_id) == 0) {
     stop("player_id is required for future feature row construction")
   }
@@ -57,6 +58,13 @@ build_future_qb_feature_row <- function(player_id,
   last_row$season <- season
   last_row$gameday <- as.Date(NA)
   last_row$game_date <- as.Date(NA)
+  if (!is.null(game_date) && !is.na(game_date)) {
+    last_row$gameday <- as.Date(game_date)
+    last_row$game_date <- as.Date(game_date)
+  }
+  if (!is.null(game_id) && !is.na(game_id)) {
+    last_row$game_id <- as.character(game_id)
+  }
 
   last_row
 }

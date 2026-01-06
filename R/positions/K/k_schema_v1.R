@@ -4,6 +4,7 @@
 
 get_k_v1_targets <- function() {
   c(
+    "target_fg_attempts_k",
     "target_fg_made_k",
     "target_pat_made_k"
   )
@@ -44,11 +45,14 @@ resolve_k_simulation_schema <- function(draws_df) {
   if ("target_fg_made_k" %in% names(draws_df) && !"fg_made" %in% names(draws_df)) {
     draws_df$fg_made <- draws_df$target_fg_made_k
   }
+  if ("target_fg_attempts_k" %in% names(draws_df) && !"fg_attempts" %in% names(draws_df)) {
+    draws_df$fg_attempts <- draws_df$target_fg_attempts_k
+  }
   if ("target_pat_made_k" %in% names(draws_df) && !"pat_made" %in% names(draws_df)) {
     draws_df$pat_made <- draws_df$target_pat_made_k
   }
 
-  required_outputs <- c("fg_made", "pat_made")
+  required_outputs <- c("fg_attempts", "fg_made", "pat_made")
   for (col in required_outputs) {
     if (!col %in% names(draws_df)) {
       stop("Required output column '", col, "' is missing after schema resolution.")

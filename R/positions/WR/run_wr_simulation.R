@@ -7,6 +7,10 @@ run_wr_simulation <- function(gsis_id,
                               week,
                               n_sims = 5000,
                               game_date = NULL,
+                              schedule_game_id = NULL,
+                              schedule_game_date = NULL,
+                              schedule_home_away = NULL,
+                              schedule_opponent = NULL,
                               seasons_train = NULL,
                               mode_policy = NULL,
                               synthetic_feature_row = NULL,
@@ -233,7 +237,11 @@ run_wr_simulation <- function(gsis_id,
       season = season,
       week = week,
       availability_policy = availability_policy,
-      drop_feature_groups = character(0)
+      drop_feature_groups = character(0),
+      schedule_game_id = schedule_game_id,
+      schedule_game_date = schedule_game_date,
+      schedule_home_away = schedule_home_away,
+      schedule_opponent = schedule_opponent
     )
     identified_game_row <- build_result$feature_row
     availability_state <- build_result$availability_state
@@ -317,6 +325,10 @@ run_wr_simulation <- function(gsis_id,
   result$metadata$home_away <- player_home_away
   result$metadata$position <- if ("position" %in% names(identified_game_row)) identified_game_row$position else "WR"
   result$metadata$is_rookie <- if ("is_rookie" %in% names(identified_game_row)) identified_game_row$is_rookie else FALSE
+
+  if (!is_future && (is.null(result$metadata$game_id) || is.na(result$metadata$game_id) || result$metadata$game_id == "")) {
+    stop("WR simulation requires non-missing game_id for observed games. Check schedule resolution.")
+  }
 
   wr_data_pre <- wr_data
   if (!is.na(game_gameday)) {

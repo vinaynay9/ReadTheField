@@ -29,7 +29,8 @@ build_future_wr_feature_row <- function(player_id,
                                        team,
                                        opponent,
                                        home_away,
-                                       game_date = NULL) {
+                                       game_date = NULL,
+                                       game_id = NULL) {
 
   log_file <- "wr_debug.log"
   if (!file.exists(log_file)) {
@@ -147,8 +148,15 @@ build_future_wr_feature_row <- function(player_id,
     synthetic_row$gameday <- NA
   }
 
-  synthetic_row$game_id <- NA_character_
-  synthetic_row$game_key <- NA_character_
+  if (!is.null(game_id) && !is.na(game_id)) {
+    synthetic_row$game_id <- as.character(game_id)
+    if ("game_key" %in% names(synthetic_row) && exists("build_game_key")) {
+      synthetic_row$game_key <- build_game_key(season, week, synthetic_row$gameday, team, opponent, synthetic_row$game_id)
+    }
+  } else {
+    synthetic_row$game_id <- NA_character_
+    synthetic_row$game_key <- NA_character_
+  }
 
   # Clear target outcome columns only (preserve QB context features with target_* prefix).
   if (exists("get_wr_v1_targets")) {

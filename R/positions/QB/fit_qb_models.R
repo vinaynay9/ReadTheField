@@ -1,7 +1,7 @@
 # Fit QB Models (v1 Contract) - Robust with Fallbacks
 #
 # Models QB outcomes: pass attempts, completions, pass yards, pass TDs,
-# interceptions thrown, sacks taken, rush attempts, rush yards.
+# interceptions thrown, sacks taken, rush attempts, rush yards, rush TDs.
 
 library(dplyr)
 
@@ -39,10 +39,15 @@ fit_count_model_robust <- function(y, data, formula_str, target_name) {
   warnings_captured <- character(0)
 
   tryCatch({
-    fit <- glm(as.formula(formula_str), data = data, family = poisson(link = "log"))
-    if (!any(is.na(coef(fit))) && fit$converged) {
-      fit_type <- "poisson"
+    fit <- glm(as.formula(formula_str), data = data, family = poisson(link = "log"),
+               control = glm.control(maxit = 50))
+    coef_vals <- coef(fit)
+    if (!is.null(coef_vals) && sum(!is.na(coef_vals)) >= 1) {
+      fit_type <- if (isTRUE(fit$converged)) "poisson" else "poisson_nonconverged"
       converged <- TRUE
+      if (!isTRUE(fit$converged)) {
+        warnings_captured <- c(warnings_captured, "Poisson: fit did not fully converge")
+      }
     } else {
       fit <- NULL
     }
@@ -54,10 +59,15 @@ fit_count_model_robust <- function(y, data, formula_str, target_name) {
 
   if (is.null(fit) || !converged) {
     tryCatch({
-      fit <- glm(as.formula(formula_str), data = data, family = quasipoisson(link = "log"))
-      if (!any(is.na(coef(fit))) && fit$converged) {
-        fit_type <- "quasipoisson"
+      fit <- glm(as.formula(formula_str), data = data, family = quasipoisson(link = "log"),
+                 control = glm.control(maxit = 50))
+      coef_vals <- coef(fit)
+      if (!is.null(coef_vals) && sum(!is.na(coef_vals)) >= 1) {
+        fit_type <- if (isTRUE(fit$converged)) "quasipoisson" else "quasipoisson_nonconverged"
         converged <- TRUE
+        if (!isTRUE(fit$converged)) {
+          warnings_captured <- c(warnings_captured, "Quasipoisson: fit did not fully converge")
+        }
       } else {
         fit <- NULL
       }
@@ -71,7 +81,8 @@ fit_count_model_robust <- function(y, data, formula_str, target_name) {
   if ((is.null(fit) || !converged) && requireNamespace("MASS", quietly = TRUE)) {
     tryCatch({
       fit <- MASS::glm.nb(as.formula(formula_str), data = data)
-      if (!any(is.na(coef(fit))) && !is.null(fit$theta) && is.finite(fit$theta)) {
+      coef_vals <- coef(fit)
+      if (!is.null(coef_vals) && sum(!is.na(coef_vals)) >= 1 && !is.null(fit$theta) && is.finite(fit$theta)) {
         fit_type <- "negbin"
         converged <- TRUE
       } else {
@@ -97,7 +108,8 @@ fit_continuous_model_robust <- function(y, data, formula_str, target_name) {
 
   tryCatch({
     fit <- lm(as.formula(formula_str), data = data)
-    if (!any(is.na(coef(fit)))) {
+    coef_vals <- coef(fit)
+    if (!is.null(coef_vals) && sum(!is.na(coef_vals)) >= 1) {
       fit_type <- "gaussian"
     } else {
       fit <- NULL
@@ -109,6 +121,28 @@ fit_continuous_model_robust <- function(y, data, formula_str, target_name) {
   })
 
   list(fit = fit, fit_type = fit_type, warnings = warnings_captured)
+}
+
+fit_binary_model_robust <- function(y, data, formula_str, target_name) {
+  y <- as.numeric(y)
+  data[[target_name]] <- y
+
+  fit <- NULL
+  warnings_captured <- character(0)
+
+  tryCatch({
+    fit <- glm(as.formula(formula_str), data = data, family = binomial(link = "logit"))
+    coef_vals <- coef(fit)
+    if (is.null(coef_vals) || sum(!is.na(coef_vals)) < 1) {
+      fit <- NULL
+    }
+  }, warning = function(w) {
+    warnings_captured <<- c(warnings_captured, paste0("Logit: ", conditionMessage(w)))
+  }, error = function(e) {
+    warnings_captured <<- c(warnings_captured, paste0("Logit: ", conditionMessage(e)))
+  })
+
+  list(fit = fit, warnings = warnings_captured)
 }
 
 fit_qb_models <- function(training_data, min_rows = 200) {
@@ -144,7 +178,8 @@ fit_qb_models <- function(training_data, min_rows = 200) {
     "target_pass_tds_qb",
     "target_interceptions_qb_thrown",
     "target_sacks_qb_taken",
-    "target_qb_rush_attempts"
+    "target_qb_rush_attempts",
+    "target_qb_rush_tds"
   )
   continuous_targets <- c(
     "target_pass_yards_qb",
@@ -181,6 +216,20 @@ fit_qb_models <- function(training_data, min_rows = 200) {
       }
 
       available_features <- intersect(required_features, names(training_data_regime))
+      if (length(available_features) > 0) {
+        is_informative <- vapply(available_features, function(feat) {
+          vals <- training_data_regime[[feat]]
+          vals <- vals[!is.na(vals)]
+          length(unique(vals)) > 1
+        }, logical(1))
+      available_features <- available_features[is_informative]
+      # Drop non-numeric predictors to avoid single-level factor errors.
+      is_numeric_like <- vapply(available_features, function(feat) {
+        vals <- training_data_regime[[feat]]
+        is.numeric(vals) || is.integer(vals) || is.logical(vals)
+      }, logical(1))
+      available_features <- available_features[is_numeric_like]
+      }
       if (length(available_features) == 0) {
         diagnostics[[model_key]] <- list(
           target = target,
@@ -192,9 +241,69 @@ fit_qb_models <- function(training_data, min_rows = 200) {
         next
       }
 
-      formula_str <- paste(target, "~", paste(available_features, collapse = " + "))
       is_count <- target %in% count_targets
 
+      if (target == "target_qb_rush_tds") {
+        # Goal-line signal for rushing TDs: prefer roll3 rate, fallback to roll5 rate.
+        if ("target_qb_rush_td_rate_roll3" %in% names(training_data_regime) ||
+            "target_qb_rush_td_rate_roll5" %in% names(training_data_regime)) {
+          training_data_regime$rush_td_signal <- ifelse(
+            !is.na(training_data_regime$target_qb_rush_td_rate_roll3),
+            training_data_regime$target_qb_rush_td_rate_roll3,
+            training_data_regime$target_qb_rush_td_rate_roll5
+          )
+          if (!all(is.na(training_data_regime$rush_td_signal))) {
+            available_features <- unique(c(available_features, "rush_td_signal"))
+          }
+        }
+        # Hurdle model for zero-inflated rushing TDs: P(td>0) * count(td|td>0).
+        formula_str <- paste(target, "~", paste(available_features, collapse = " + "))
+        y_td <- as.numeric(training_data_regime[[target]])
+        y_bin <- as.integer(y_td > 0)
+        formula_str_bin <- paste("qb_rush_td_any", "~", paste(available_features, collapse = " + "))
+        prob_fit <- fit_binary_model_robust(y_bin, training_data_regime, formula_str_bin, "qb_rush_td_any")
+        count_fit <- NULL
+        count_warnings <- character(0)
+        if (any(y_td > 0, na.rm = TRUE)) {
+          count_data <- training_data_regime[y_td > 0, , drop = FALSE]
+          if (nrow(count_data) >= 30) {
+            count_fit <- fit_count_model_robust(count_data[[target]], count_data, formula_str, target)
+            count_warnings <- count_fit$warnings
+          }
+        }
+
+        if (is.null(prob_fit$fit)) {
+          diagnostics[[model_key]] <- list(
+            target = target,
+            regime = regime,
+            fit_type = "baseline",
+            fallback_reason = "hurdle_prob_fit_failed",
+            warnings = prob_fit$warnings
+          )
+          models[[model_key]] <- create_baseline_model(target, y_td, is_count = TRUE)
+        } else {
+          diagnostics[[model_key]] <- list(
+            target = target,
+            regime = regime,
+            fit_type = "hurdle",
+            n_rows_final = n_rows_available,
+            warnings = c(prob_fit$warnings, count_warnings)
+          )
+          models[[model_key]] <- list(
+            type = "hurdle",
+            target = target,
+            prob_model = prob_fit$fit,
+            count_model = if (!is.null(count_fit) && !is.null(count_fit$fit)) count_fit$fit else NULL,
+            count_is_count = TRUE,
+            prob_fallback = mean(y_bin, na.rm = TRUE),
+            count_fallback = if (any(y_td > 0, na.rm = TRUE)) mean(y_td[y_td > 0], na.rm = TRUE) else 1.0,
+            warnings = c(prob_fit$warnings, count_warnings)
+          )
+        }
+        next
+      }
+
+      formula_str <- paste(target, "~", paste(available_features, collapse = " + "))
       if (is_count) {
         fit_result <- fit_count_model_robust(training_data_regime[[target]], training_data_regime, formula_str, target)
       } else {

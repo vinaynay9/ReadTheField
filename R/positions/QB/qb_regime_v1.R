@@ -36,6 +36,7 @@ get_qb_features_by_week <- function(week) {
     "prev_season_sacks_taken_total",
     "prev_season_rush_attempts_total",
     "prev_season_rush_yards_total",
+    "prev_season_rush_tds_total",
     "prev_season_games_played"
   )
   rookie_features <- c(
@@ -65,6 +66,7 @@ get_qb_features_by_week <- function(week) {
     "target_sacks_qb_taken_roll1",
     "target_qb_rush_attempts_roll1",
     "target_qb_rush_yards_roll1",
+    "target_qb_rush_tds_roll1",
     "target_air_yards_qb_roll1",
     get_passing_defense_roll1_features()
   )
@@ -93,9 +95,11 @@ get_qb_features_by_week <- function(week) {
              "target_pass_yards_qb_roll3",
              "target_pass_tds_qb_roll3",
              "target_interceptions_qb_thrown_roll3",
-             "target_sacks_qb_taken_roll3",
+      "target_sacks_qb_taken_roll3",
              "target_qb_rush_attempts_roll3",
              "target_qb_rush_yards_roll3",
+             "target_qb_rush_tds_roll3",
+             "target_qb_rush_td_rate_roll3",
              "target_air_yards_qb_roll3",
              defense_roll3_features))
   }
@@ -113,22 +117,26 @@ get_qb_features_by_week <- function(week) {
              "target_pass_yards_qb_roll3",
              "target_pass_tds_qb_roll3",
              "target_interceptions_qb_thrown_roll3",
-             "target_sacks_qb_taken_roll3",
-             "target_qb_rush_attempts_roll3",
-             "target_qb_rush_yards_roll3",
-             "target_air_yards_qb_roll3",
-             "target_pass_attempts_qb_roll5",
-             "target_completions_qb_roll5",
-             "target_completion_pct_qb_roll5",
-             "target_pass_yards_qb_roll5",
-             "target_pass_tds_qb_roll5",
-             "target_interceptions_qb_thrown_roll5",
-             "target_sacks_qb_taken_roll5",
-             "target_qb_rush_attempts_roll5",
-             "target_qb_rush_yards_roll5",
-             "target_air_yards_qb_roll5",
-             defense_roll3_features,
-             defense_roll5_features))
+      "target_sacks_qb_taken_roll3",
+      "target_qb_rush_attempts_roll3",
+      "target_qb_rush_yards_roll3",
+      "target_qb_rush_tds_roll3",
+      "target_qb_rush_td_rate_roll3",
+      "target_air_yards_qb_roll3",
+      "target_pass_attempts_qb_roll5",
+      "target_completions_qb_roll5",
+      "target_completion_pct_qb_roll5",
+      "target_pass_yards_qb_roll5",
+      "target_pass_tds_qb_roll5",
+      "target_interceptions_qb_thrown_roll5",
+      "target_sacks_qb_taken_roll5",
+      "target_qb_rush_attempts_roll5",
+      "target_qb_rush_yards_roll5",
+      "target_qb_rush_tds_roll5",
+      "target_qb_rush_td_rate_roll5",
+      "target_air_yards_qb_roll5",
+      defense_roll3_features,
+      defense_roll5_features))
   }
 
   return(c("is_home",
@@ -146,6 +154,8 @@ get_qb_features_by_week <- function(week) {
            "target_sacks_qb_taken_roll3",
            "target_qb_rush_attempts_roll3",
            "target_qb_rush_yards_roll3",
+           "target_qb_rush_tds_roll3",
+           "target_qb_rush_td_rate_roll3",
            "target_air_yards_qb_roll3",
            "target_pass_attempts_qb_roll5",
            "target_completions_qb_roll5",
@@ -156,6 +166,8 @@ get_qb_features_by_week <- function(week) {
            "target_sacks_qb_taken_roll5",
            "target_qb_rush_attempts_roll5",
            "target_qb_rush_yards_roll5",
+           "target_qb_rush_tds_roll5",
+           "target_qb_rush_td_rate_roll5",
            "target_air_yards_qb_roll5",
            defense_roll3_features,
            defense_roll5_features))
@@ -173,6 +185,7 @@ get_qb_features_by_regime <- function() {
     "target_sacks_qb_taken_roll1",
     "target_qb_rush_attempts_roll1",
     "target_qb_rush_yards_roll1",
+    "target_qb_rush_tds_roll1",
     "target_air_yards_qb_roll1",
     get_passing_defense_roll1_features()
   )
@@ -187,6 +200,7 @@ get_qb_features_by_regime <- function() {
     "prev_season_sacks_taken_total",
     "prev_season_rush_attempts_total",
     "prev_season_rush_yards_total",
+    "prev_season_rush_tds_total",
     "prev_season_games_played"
   )
   rookie_features <- c(
@@ -240,6 +254,8 @@ get_qb_features_by_regime <- function() {
       "target_sacks_qb_taken_roll3",
       "target_qb_rush_attempts_roll3",
       "target_qb_rush_yards_roll3",
+      "target_qb_rush_tds_roll3",
+      "target_qb_rush_td_rate_roll3",
       "target_air_yards_qb_roll3",
       defense_roll3_features
     ),
@@ -259,6 +275,8 @@ get_qb_features_by_regime <- function() {
       "target_sacks_qb_taken_roll3",
       "target_qb_rush_attempts_roll3",
       "target_qb_rush_yards_roll3",
+      "target_qb_rush_tds_roll3",
+      "target_qb_rush_td_rate_roll3",
       "target_air_yards_qb_roll3",
       "target_pass_attempts_qb_roll5",
       "target_completions_qb_roll5",
@@ -269,6 +287,8 @@ get_qb_features_by_regime <- function() {
       "target_sacks_qb_taken_roll5",
       "target_qb_rush_attempts_roll5",
       "target_qb_rush_yards_roll5",
+      "target_qb_rush_tds_roll5",
+      "target_qb_rush_td_rate_roll5",
       "target_air_yards_qb_roll5",
       defense_roll3_features,
       defense_roll5_features
@@ -289,6 +309,8 @@ get_qb_features_by_regime <- function() {
       "target_sacks_qb_taken_roll3",
       "target_qb_rush_attempts_roll3",
       "target_qb_rush_yards_roll3",
+      "target_qb_rush_tds_roll3",
+      "target_qb_rush_td_rate_roll3",
       "target_air_yards_qb_roll3",
       "target_pass_attempts_qb_roll5",
       "target_completions_qb_roll5",
@@ -299,6 +321,8 @@ get_qb_features_by_regime <- function() {
       "target_sacks_qb_taken_roll5",
       "target_qb_rush_attempts_roll5",
       "target_qb_rush_yards_roll5",
+      "target_qb_rush_tds_roll5",
+      "target_qb_rush_td_rate_roll5",
       "target_air_yards_qb_roll5",
       defense_roll3_features,
       defense_roll5_features

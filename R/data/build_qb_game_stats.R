@@ -61,6 +61,21 @@ build_qb_game_stats <- function(seasons, season_type = "REG") {
     c("sacks_suffered", "sacks_taken", "passing_sacks", "qb_sacked", "sacked", "sacks"),
     NA
   ))
+  qb_rush_attempts <- as.numeric(select_first_available(
+    stats,
+    c("carries", "rush_attempts", "rushing_attempts"),
+    NA
+  ))
+  qb_rush_yards <- as.numeric(select_first_available(
+    stats,
+    c("rushing_yards", "rush_yards"),
+    NA
+  ))
+  qb_rush_tds <- as.numeric(select_first_available(
+    stats,
+    c("rushing_tds", "rush_tds"),
+    NA
+  ))
 
   qb_df <- data.frame(
     team = teams,
@@ -72,6 +87,9 @@ build_qb_game_stats <- function(seasons, season_type = "REG") {
     pass_yards = pass_yards,
     interceptions_thrown = interceptions,
     sacks_taken = qb_sacks_taken,
+    rush_attempts = qb_rush_attempts,
+    rush_yards = qb_rush_yards,
+    rush_tds = qb_rush_tds,
     stringsAsFactors = FALSE
   ) %>%
     filter(position == "QB", !is.na(team), team != "", !is.na(season), !is.na(week))
@@ -102,7 +120,10 @@ build_qb_game_stats <- function(seasons, season_type = "REG") {
       qb_pass_completions = pass_completions,
       qb_pass_yards = pass_yards,
       qb_interceptions_thrown = interceptions_thrown,
-      qb_sacks_taken = sacks_taken
+      qb_sacks_taken = sacks_taken,
+      qb_rush_attempts = rush_attempts,
+      qb_rush_yards = rush_yards,
+      qb_rush_tds = rush_tds
     ) %>%
     mutate(
       qb_completion_pct = ifelse(!is.na(qb_pass_attempts) & qb_pass_attempts > 0,

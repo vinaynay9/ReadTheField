@@ -1004,6 +1004,30 @@ build_qb_weekly_stats <- function(seasons,
   qb_dataset <- stats[qb_mask, , drop = FALSE]
   qb_dataset <- qb_dataset[!is.na(qb_dataset$player_id) & !is.na(qb_dataset$season) & !is.na(qb_dataset$week), , drop = FALSE]
 
+  qb_col_candidates <- list(
+    pass_attempts = c("attempts", "pass_attempts"),
+    completions = c("completions", "pass_completions"),
+    pass_yards = c("passing_yards", "pass_yards"),
+    pass_tds = c("passing_tds", "pass_tds"),
+    interceptions = c("passing_interceptions", "interceptions"),
+    sacks_taken = c("sacks_suffered", "qb_sacks", "sacks_taken"),
+    rush_attempts = c("carries", "rush_attempts", "rushing_attempts"),
+    rush_yards = c("rushing_yards", "rush_yards"),
+    rush_tds = c("rushing_tds", "rush_tds")
+  )
+  qb_col_found <- vapply(qb_col_candidates, function(cands) {
+    hit <- intersect(cands, names(qb_dataset))
+    if (length(hit) > 0) hit[1] else NA_character_
+  }, character(1))
+  cat("QB weekly stats column report:\n")
+  for (nm in names(qb_col_found)) {
+    cat("  ", nm, ": ", if (!is.na(qb_col_found[[nm]])) qb_col_found[[nm]] else "(missing)", "\n", sep = "")
+  }
+  if (is.na(qb_col_found[["rush_tds"]])) {
+    stop("QB weekly stats missing rushing TD column. Expected one of: ",
+         paste(qb_col_candidates$rush_tds, collapse = ", "), call. = FALSE)
+  }
+
   if (file.exists(player_week_identity_path)) {
     identity <- read_parquet_cache(player_week_identity_path, "Player week identity cache", "scripts/refresh_weekly_cache.R")
     identity_cols <- intersect(c("player_id", "season", "week", "game_id", "gameday", "opponent", "home_away", "is_home", "game_key"), names(identity))
@@ -1022,6 +1046,69 @@ build_qb_weekly_stats <- function(seasons,
   }
   if (!"opponent" %in% names(qb_dataset)) {
     qb_dataset$opponent <- normalize_team_abbr(select_first_available(qb_dataset, c("opponent_team", "opp_team", "defteam"), NA), qb_dataset$season)
+  }
+
+  # Schedule-derived home/away context and game_id (no string parsing).
+  sched_lookup <- build_schedule_team_lookup(unique(qb_dataset$season))
+  if (!is.null(sched_lookup) && nrow(sched_lookup) > 0) {
+    sched_cols <- intersect(c("team", "season", "week", "opponent", "home_away", "is_home", "game_id", "gameday"), names(sched_lookup))
+    qb_dataset <- merge(
+      qb_dataset,
+      sched_lookup[, sched_cols, drop = FALSE],
+      by = c("season", "week", "team", "opponent"),
+      all.x = TRUE,
+      suffixes = c("", "_sched")
+    )
+    if ("game_id_sched" %in% names(qb_dataset)) {
+      qb_dataset$game_id <- ifelse(
+        is.na(qb_dataset$game_id) | qb_dataset$game_id == "",
+        qb_dataset$game_id_sched,
+        qb_dataset$game_id
+      )
+    }
+    if (!"game_date" %in% names(qb_dataset) && "gameday" %in% names(qb_dataset)) {
+      qb_dataset$game_date <- qb_dataset$gameday
+    }
+    if ("gameday_sched" %in% names(qb_dataset)) {
+      if ("game_date" %in% names(qb_dataset)) {
+        qb_dataset$game_date <- ifelse(is.na(qb_dataset$game_date), qb_dataset$gameday_sched, qb_dataset$game_date)
+      }
+      if ("gameday" %in% names(qb_dataset)) {
+        qb_dataset$gameday <- ifelse(is.na(qb_dataset$gameday), qb_dataset$gameday_sched, qb_dataset$gameday)
+      }
+    }
+    if ("home_away_sched" %in% names(qb_dataset)) {
+      qb_dataset$home_away <- ifelse(is.na(qb_dataset$home_away), qb_dataset$home_away_sched, qb_dataset$home_away)
+    }
+    if ("is_home_sched" %in% names(qb_dataset)) {
+      qb_dataset$is_home <- ifelse(is.na(qb_dataset$is_home), qb_dataset$is_home_sched, qb_dataset$is_home)
+    }
+    helper_cols <- grep("(_sched)$", names(qb_dataset), value = TRUE)
+    if (length(helper_cols) > 0) {
+      qb_dataset <- qb_dataset[, setdiff(names(qb_dataset), helper_cols), drop = FALSE]
+    }
+  }
+
+  # Fallback: construct deterministic game_id when missing after schedule joins.
+  if (!exists("build_game_key")) {
+    if (file.exists("R/utils/cache_helpers.R")) {
+      source("R/utils/cache_helpers.R", local = TRUE)
+    }
+  }
+  if (exists("build_game_key") && "game_id" %in% names(qb_dataset)) {
+    missing_game_id <- is.na(qb_dataset$game_id) | qb_dataset$game_id == ""
+    if (any(missing_game_id)) {
+      qb_dataset$game_id[missing_game_id] <- mapply(
+        build_game_key,
+        season = qb_dataset$season[missing_game_id],
+        week = qb_dataset$week[missing_game_id],
+        game_date = if ("game_date" %in% names(qb_dataset)) qb_dataset$game_date[missing_game_id] else qb_dataset$gameday[missing_game_id],
+        team = qb_dataset$team[missing_game_id],
+        opponent = qb_dataset$opponent[missing_game_id],
+        game_id = qb_dataset$game_id[missing_game_id],
+        USE.NAMES = FALSE
+      )
+    }
   }
   qb_dataset$defense_team <- qb_dataset$opponent
   qb_dataset <- qb_dataset[!is.na(qb_dataset$opponent) & qb_dataset$opponent != "", , drop = FALSE]

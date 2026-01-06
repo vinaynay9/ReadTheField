@@ -64,6 +64,7 @@ if (file.exists("README.md") && file.exists("R") && file.exists("scripts")) {
   cat("Working directory set to:", getwd(), "\n")
   cat("Project root verified.\n\n")
 }
+options(warn = 1)
 
 main <- function() {
   cat("Loading simulation bootstrap...\n")
@@ -229,12 +230,59 @@ main <- function() {
       player_team <- dim_row$team[1]
       player_position <- dim_row$position[1]
     }
+    if (is.na(player_team) && nrow(player_dim) > 0) {
+      last_dim <- player_dim[player_dim$gsis_id == chosen_gsis_id, , drop = FALSE]
+      if (nrow(last_dim) > 0) {
+        last_dim <- last_dim[order(last_dim$season, decreasing = TRUE), , drop = FALSE]
+        player_team <- last_dim$team[1]
+        player_position <- last_dim$position[1]
+      }
+    }
   }
   
   if (is.na(player_team)) {
     cat("Selected: ", chosen_name, " (", player_position, ")\n", sep = "")
   } else {
     cat("Selected: ", chosen_name, " (", player_position, " ", player_team, ")\n", sep = "")
+  }
+
+  # ========================================================================
+  # Schedule resolution (game_id/game_date/home/away/opponent)
+  # ========================================================================
+  if (!exists("load_schedules")) {
+    if (file.exists("R/data/load_schedules.R")) {
+      source("R/data/load_schedules.R", local = TRUE)
+    } else {
+      stop("Missing R/data/load_schedules.R for schedule resolution.")
+    }
+  }
+  schedule_team <- if (isTRUE(counterfactual_mode)) counterfactual_team else player_team
+  if (is.na(schedule_team) || !nzchar(schedule_team)) {
+    stop("Unable to resolve team for schedule lookup. Check player_dim or pass --counterfactual_team.")
+  }
+  schedules <- load_schedules(seasons = target_season, cache_only = TRUE)
+  if (nrow(schedules) == 0) {
+    stop("Schedule cache is empty for season ", target_season, ".")
+  }
+  sched_match <- schedules[
+    schedules$season == target_season &
+      schedules$week == target_week &
+      (schedules$home_team == schedule_team | schedules$away_team == schedule_team),
+    , drop = FALSE
+  ]
+  if (nrow(sched_match) == 0) {
+    stop("No schedule entry found for team ", schedule_team, " season ", target_season, " week ", target_week, ".")
+  }
+  if (nrow(sched_match) > 1) {
+    stop("Multiple schedule entries found for team ", schedule_team, " season ", target_season, " week ", target_week, ".")
+  }
+  sched_row <- sched_match[1, ]
+  schedule_game_id <- as.character(sched_row$game_id)
+  schedule_game_date <- sched_row$gameday
+  schedule_home_away <- if (sched_row$home_team == schedule_team) "HOME" else "AWAY"
+  schedule_opponent <- if (sched_row$home_team == schedule_team) sched_row$away_team else sched_row$home_team
+  if (is.na(schedule_game_id) || !nzchar(schedule_game_id)) {
+    stop("Schedule resolution returned missing game_id for team ", schedule_team, ".")
   }
   
   # ========================================================================
@@ -247,7 +295,11 @@ main <- function() {
     n_sims = n_sims,
     availability_policy = availability_policy,
     counterfactual_mode = counterfactual_mode,
-    counterfactual_team = counterfactual_team
+    counterfactual_team = counterfactual_team,
+    schedule_game_id = schedule_game_id,
+    schedule_game_date = schedule_game_date,
+    schedule_home_away = schedule_home_away,
+    schedule_opponent = schedule_opponent
   )
 
   if (!is.null(result$status) && identical(result$status, "error")) {

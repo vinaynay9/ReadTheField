@@ -7,6 +7,10 @@ run_k_simulation <- function(gsis_id,
                              week,
                              n_sims = 5000,
                              game_date = NULL,
+                             schedule_game_id = NULL,
+                             schedule_game_date = NULL,
+                             schedule_home_away = NULL,
+                             schedule_opponent = NULL,
                              seasons_train = NULL,
                              mode_policy = NULL,
                              synthetic_feature_row = NULL,
@@ -128,7 +132,11 @@ run_k_simulation <- function(gsis_id,
       season = season,
       week = week,
       availability_policy = availability_policy,
-      drop_feature_groups = character(0)
+      drop_feature_groups = character(0),
+      schedule_game_id = schedule_game_id,
+      schedule_game_date = schedule_game_date,
+      schedule_home_away = schedule_home_away,
+      schedule_opponent = schedule_opponent
     )
     identified_game_row <- build_result$feature_row
     availability_state <- build_result$availability_state
@@ -145,9 +153,35 @@ run_k_simulation <- function(gsis_id,
   result$metadata$opponent <- if ("opponent" %in% names(identified_game_row)) identified_game_row$opponent else NA_character_
   result$metadata$season <- if ("season" %in% names(identified_game_row)) identified_game_row$season else season
   result$metadata$week <- if ("week" %in% names(identified_game_row)) identified_game_row$week else week
+  result$metadata$game_id <- if ("game_id" %in% names(identified_game_row)) identified_game_row$game_id else NA_character_
+  result$metadata$game_key <- if ("game_key" %in% names(identified_game_row)) identified_game_row$game_key else NA_character_
   result$metadata$game_date <- if ("gameday" %in% names(identified_game_row)) identified_game_row$gameday else NA
   result$metadata$home_away <- if ("home_away" %in% names(identified_game_row)) identified_game_row$home_away else NA_character_
   result$metadata$position <- "K"
+
+  if (!is_future && (is.null(result$metadata$game_id) || is.na(result$metadata$game_id) || result$metadata$game_id == "") &&
+      !is.null(schedule) && nrow(schedule) > 0) {
+    sched_cols <- intersect(c("season", "week", "home_team", "away_team", "game_id", "gameday"), names(schedule))
+    if (length(sched_cols) >= 5) {
+      sched_match <- schedule[
+        schedule$season == result$metadata$season &
+          schedule$week == result$metadata$week &
+          ((schedule$home_team == result$metadata$team & schedule$away_team == result$metadata$opponent) |
+             (schedule$away_team == result$metadata$team & schedule$home_team == result$metadata$opponent)),
+        , drop = FALSE
+      ]
+      if (nrow(sched_match) > 0) {
+        result$metadata$game_id <- sched_match$game_id[1]
+        if (is.na(result$metadata$game_date) && "gameday" %in% names(sched_match)) {
+          result$metadata$game_date <- sched_match$gameday[1]
+        }
+      }
+    }
+  }
+
+  if (!is_future && (is.null(result$metadata$game_id) || is.na(result$metadata$game_id))) {
+    stop("K simulation requires non-missing game_id for observed games. Check feature row joins.")
+  }
 
   k_data <- k_data_all[k_data_all$season %in% seasons_train, , drop = FALSE]
   if (nrow(k_data) == 0) {
@@ -197,6 +231,15 @@ run_k_simulation <- function(gsis_id,
   ]
   player_feature_row <- identified_game_row[, available_feature_cols, drop = FALSE]
 
+  # Guardrail: K simulations must not include QB offensive context columns.
+  qb_like_cols <- grep("pass_|completion|interception|sack", names(player_feature_row), value = TRUE, ignore.case = TRUE)
+  qb_like_cols <- qb_like_cols[!grepl("^def_", qb_like_cols)]
+  if (length(qb_like_cols) > 0) {
+    stop("K simulation input contains QB/offense context columns: ",
+         paste(qb_like_cols, collapse = ", "),
+         ". Remove QB context from K feature assembly.")
+  }
+
   # Defensive context (K uses sacks/points allowed as opponent pressure context)
   def_features <- c(
     "def_sacks_defense_forced_roll1", "def_sacks_defense_forced_roll3", "def_sacks_defense_forced_roll5",
@@ -217,21 +260,6 @@ run_k_simulation <- function(gsis_id,
     available = def_cols_present,
     non_na = def_cols_non_na
   )
-
-  # Offensive context table expects QB rolling fields; leave explicit NAs if missing.
-  qb_context_features <- c(
-    "target_pass_attempts_qb_roll1", "target_pass_attempts_qb_roll3", "target_pass_attempts_qb_roll5",
-    "target_completion_pct_qb_roll1", "target_completion_pct_qb_roll3", "target_completion_pct_qb_roll5",
-    "target_interceptions_qb_thrown_roll1", "target_interceptions_qb_thrown_roll3", "target_interceptions_qb_thrown_roll5",
-    "target_sacks_qb_taken_roll1", "target_sacks_qb_taken_roll3", "target_sacks_qb_taken_roll5"
-  )
-  for (feat in qb_context_features) {
-    if (feat %in% names(identified_game_row)) {
-      result$offensive_context[[feat]] <- identified_game_row[[feat]]
-    } else {
-      result$offensive_context[[feat]] <- NA_real_
-    }
-  }
 
   result$diagnostics$feature_usage <- list(
     candidate_features = feature_cols,
@@ -260,6 +288,12 @@ run_k_simulation <- function(gsis_id,
   }
   if (exists("resolve_k_simulation_schema")) {
     result$draws <- resolve_k_simulation_schema(result$draws)
+  }
+
+  if ("fg_attempts" %in% names(result$draws)) {
+    if (any(is.na(result$draws$fg_attempts))) {
+      stop("FG attempts are NA in K simulation draws. Check target_fg_attempts_k modeling.")
+    }
   }
 
   # Derive fantasy points from draw-level FG/PAT outputs (no new modeling).

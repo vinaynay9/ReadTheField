@@ -216,7 +216,7 @@ simulate_k_game <- function(feature_row,
 }
 
 compute_k_percentiles <- function(draws) {
-  stats <- c("target_fg_made_k", "target_pat_made_k")
+  stats <- c("target_fg_attempts_k", "target_fg_made_k", "target_pat_made_k")
   result <- data.frame(
     stat = stats,
     p25 = NA_real_,

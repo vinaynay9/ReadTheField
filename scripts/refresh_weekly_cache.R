@@ -58,6 +58,13 @@ if (!exists("lagged_roll_mean") || !exists("lagged_roll_sum")) {
 }
 
 current_year <- as.integer(format(Sys.Date(), "%Y"))
+if (requireNamespace("nflreadr", quietly = TRUE)) {
+  nfl_year <- tryCatch(as.integer(nflreadr::most_recent_season()), error = function(e) NA_integer_)
+  if (is.finite(nfl_year)) {
+    # Clamp to nflreadr's known season range to avoid future-year roster errors.
+    current_year <- min(current_year, nfl_year)
+  }
+}
 resolve_max_season <- function(default_year) {
   max_season <- NA_integer_
   cache_dir <- file.path("data", "cache")
@@ -86,6 +93,9 @@ resolve_max_season <- function(default_year) {
   if (!is.finite(max_season)) {
     max_season <- default_year
   } else if (max_season < default_year) {
+    max_season <- default_year
+  } else if (max_season > default_year) {
+    # Guard against future seasons beyond current_year (e.g., preseason schedule stubs).
     max_season <- default_year
   }
   max_season
