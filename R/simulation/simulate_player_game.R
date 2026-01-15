@@ -602,7 +602,7 @@ simulate_player_game <- function(gsis_id,
   if (!is.null(forced_counterfactual_notice)) {
     result$metadata$forced_counterfactual_notice <- forced_counterfactual_notice
   }
+  result$metadata$position <- player_position
   
   return(result)
 }
-

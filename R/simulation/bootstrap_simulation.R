@@ -129,6 +129,15 @@ if (file.exists("R/simulation/print_player_simulation.R")) {
 } else {
   stop("Missing R/simulation/print_player_simulation.R - print helpers required")
 }
+if (file.exists("R/simulation/warning_policy_v1.R")) {
+  source("R/simulation/warning_policy_v1.R", local = TRUE)
+}
+if (file.exists("R/simulation/report_schema_v1.R")) {
+  source("R/simulation/report_schema_v1.R", local = TRUE)
+}
+if (file.exists("R/simulation/simulate_player_game_v1.R")) {
+  source("R/simulation/simulate_player_game_v1.R", local = TRUE)
+}
 if (!exists("get_k_v1_targets")) {
   stop("K v1 schema not loaded: get_k_v1_targets() missing")
 }
@@ -646,4 +655,3 @@ if (length(missing_functions) > 0) {
   stop("Simulation bootstrap incomplete: The following functions are not loaded: ",
        paste(missing_functions, collapse = ", "))
 }
-

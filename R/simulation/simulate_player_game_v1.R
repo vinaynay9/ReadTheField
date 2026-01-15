@@ -1,0 +1,349 @@
+# Simulation Entry Point v1
+#
+# Canonical API-safe wrapper for simulation consumers (frontend/API).
+
+normalize_summary_stats_v1 <- function(summary_df, position, draws = NULL) {
+  if (is.null(summary_df) || nrow(summary_df) == 0 || !"stat" %in% names(summary_df)) {
+    return(summary_df)
+  }
+  position <- toupper(as.character(position))
+  rename_map <- list()
+  if (position %in% c("RB", "WR", "TE")) {
+    rename_map <- c(
+      rush_yards = "rushing_yards",
+      rec_yards = "receiving_yards",
+      rush_tds = "rushing_tds",
+      rec_tds = "receiving_tds"
+    )
+  } else if (position == "QB") {
+    rename_map <- c(
+      target_pass_attempts_qb = "passing_attempts",
+      target_completions_qb = "passing_completions",
+      target_pass_yards_qb = "passing_yards",
+      target_pass_tds_qb = "passing_tds",
+      target_interceptions_qb_thrown = "interceptions_thrown",
+      target_sacks_qb_taken = "qb_sacks_taken",
+      target_qb_rush_attempts = "qb_rush_attempts",
+      target_qb_rush_yards = "qb_rush_yards",
+      target_qb_rush_tds = "qb_rush_tds"
+    )
+  } else if (position == "K") {
+    rename_map <- c(
+      target_fg_attempts_k = "fg_attempts",
+      target_fg_made_k = "fg_made",
+      target_pat_made_k = "pat_made"
+    )
+  }
+
+  for (nm in names(rename_map)) {
+    summary_df$stat[summary_df$stat == nm] <- rename_map[[nm]]
+  }
+
+  if (position %in% c("WR", "TE")) {
+    if (!"total_touchdowns" %in% summary_df$stat && "receiving_tds" %in% summary_df$stat) {
+      td_rows <- summary_df[summary_df$stat == "receiving_tds", , drop = FALSE]
+      if (nrow(td_rows) > 0) {
+        summary_df <- rbind(
+          summary_df,
+          data.frame(
+            stat = "total_touchdowns",
+            p25 = td_rows$p25[1],
+            p50 = td_rows$p50[1],
+            p75 = td_rows$p75[1]
+          )
+        )
+      }
+    }
+  }
+
+  if (position == "RB") {
+    if (!"total_touchdowns" %in% summary_df$stat &&
+        all(c("rushing_tds", "receiving_tds") %in% summary_df$stat) &&
+        !is.null(draws)) {
+      td_vec <- draws$rush_tds + draws$rec_tds
+      summary_df <- rbind(
+        summary_df,
+        data.frame(
+          stat = "total_touchdowns",
+          p25 = stats::quantile(td_vec, 0.25, na.rm = TRUE),
+          p50 = stats::quantile(td_vec, 0.50, na.rm = TRUE),
+          p75 = stats::quantile(td_vec, 0.75, na.rm = TRUE)
+        )
+      )
+    }
+  }
+
+  summary_df
+}
+
+simulate_player_game_v1 <- function(player_id,
+                                    season,
+                                    week,
+                                    n_sims = NULL,
+                                    availability_policy = "played_only",
+                                    seed = NULL,
+                                    schema_version = "v1") {
+  if (!exists("simulate_player_game")) {
+    if (file.exists("R/simulation/simulate_player_game.R")) {
+      source("R/simulation/simulate_player_game.R", local = TRUE)
+    } else {
+      stop("Missing R/simulation/simulate_player_game.R")
+    }
+  }
+  if (!exists("validate_report_schema_v1")) {
+    if (file.exists("R/simulation/report_schema_v1.R")) {
+      source("R/simulation/report_schema_v1.R", local = TRUE)
+    } else {
+      stop("Missing R/simulation/report_schema_v1.R")
+    }
+  }
+  if (!exists("handle_warnings_v1")) {
+    if (file.exists("R/simulation/warning_policy_v1.R")) {
+      source("R/simulation/warning_policy_v1.R", local = TRUE)
+    }
+  }
+
+  make_error_v1 <- function(error_type, error_code, message, details = list(), meta = list()) {
+    list(
+      status = "error",
+      error_type = error_type,
+      error_code = error_code,
+      message = message,
+      details = details,
+      metadata = meta
+    )
+  }
+
+  validate_inputs <- function() {
+    if (is.null(schema_version) || !nzchar(as.character(schema_version))) {
+      return(make_error_v1(
+        "invalid_input",
+        "invalid_schema_version",
+        "schema_version is required.",
+        list(schema_version = schema_version)
+      ))
+    }
+    if (!identical(as.character(schema_version), get_report_schema_version_v1())) {
+      return(make_error_v1(
+        "invalid_input",
+        "unsupported_schema_version",
+        "schema_version is not supported.",
+        list(schema_version = schema_version)
+      ))
+    }
+    if (is.null(player_id) || !nzchar(trimws(as.character(player_id)))) {
+      return(make_error_v1("invalid_input", "player_id_missing", "player_id is required."))
+    }
+    if (is.null(season) || is.na(season)) {
+      return(make_error_v1("invalid_input", "season_missing", "season is required."))
+    }
+    if (is.null(week) || is.na(week)) {
+      return(make_error_v1("invalid_input", "week_missing", "week is required."))
+    }
+    season <- as.integer(season)
+    week <- as.integer(week)
+    if (!is.finite(season) || season < 1990 || season > 2100) {
+      return(make_error_v1("invalid_input", "season_out_of_range", "season is out of range.",
+                           list(season = season)))
+    }
+    if (!is.finite(week) || week < 1 || week > 18) {
+      return(make_error_v1("invalid_input", "week_out_of_range", "week must be between 1 and 18.",
+                           list(week = week)))
+    }
+
+    if (!exists("validate_availability_policy")) {
+      if (file.exists("R/simulation/availability_policy.R")) {
+        source("R/simulation/availability_policy.R", local = TRUE)
+      } else {
+        return(make_error_v1("internal_error", "availability_policy_missing",
+                             "Availability policy validation is unavailable."))
+      }
+    }
+    availability_policy <- tryCatch(
+      validate_availability_policy(availability_policy),
+      error = function(e) e
+    )
+    if (inherits(availability_policy, "error")) {
+      return(make_error_v1("invalid_input", "availability_policy_invalid",
+                           conditionMessage(availability_policy)))
+    }
+
+    if (!exists("get_available_seasons_from_cache")) {
+      if (file.exists("R/utils/cache_helpers.R")) {
+        source("R/utils/cache_helpers.R", local = TRUE)
+      }
+    }
+    if (exists("get_available_seasons_from_cache")) {
+      available <- get_available_seasons_from_cache()
+      if (length(available) == 0) {
+        return(make_error_v1("data_unavailable", "seasons_unavailable",
+                             "No seasons available in cache. Run refresh_weekly_cache."))
+      }
+      if (!season %in% available) {
+        return(make_error_v1("data_unavailable", "season_not_available",
+                             "Requested season is not available in cache.",
+                             list(season = season)))
+      }
+    }
+
+    if (!exists("read_player_dim_cache")) {
+      if (file.exists("R/data/build_player_dim.R")) {
+        source("R/data/build_player_dim.R", local = TRUE)
+      }
+    }
+    if (!exists("read_player_dim_cache")) {
+      return(make_error_v1("internal_error", "player_dim_missing",
+                           "Player dimension cache loader not available."))
+    }
+    player_dim <- read_player_dim_cache()
+    if (is.null(player_dim) || nrow(player_dim) == 0) {
+      return(make_error_v1("data_unavailable", "player_dim_empty",
+                           "Player dimension cache is empty. Run refresh_weekly_cache."))
+    }
+    player_id <- as.character(player_id)
+    dim_row <- player_dim[player_dim$gsis_id == player_id & player_dim$season == season, , drop = FALSE]
+    if (nrow(dim_row) == 0) {
+      any_row <- player_dim[player_dim$gsis_id == player_id, , drop = FALSE]
+      if (nrow(any_row) == 0) {
+        return(make_error_v1("invalid_input", "player_id_unknown",
+                             "player_id not found in cache.",
+                             list(player_id = player_id)))
+      }
+      dim_row <- any_row[order(any_row$season, decreasing = TRUE), , drop = FALSE]
+    }
+    position <- toupper(as.character(dim_row$position[1]))
+    if (is.na(position) || !nzchar(position)) {
+      return(make_error_v1("data_unavailable", "position_missing",
+                           "Player position is missing in cache.",
+                           list(player_id = player_id)))
+    }
+
+    limits <- list(
+      RB = list(default = 1000L, max = 20000L),
+      WR = list(default = 1000L, max = 20000L),
+      TE = list(default = 1000L, max = 20000L),
+      QB = list(default = 1000L, max = 20000L),
+      K = list(default = 500L, max = 10000L)
+    )
+    if (!position %in% names(limits)) {
+      return(make_error_v1("invalid_input", "position_unsupported",
+                           "Position is not supported.",
+                           list(position = position)))
+    }
+    n_sims_val <- if (is.null(n_sims) || is.na(n_sims)) limits[[position]]$default else as.integer(n_sims)
+    if (!is.finite(n_sims_val) || n_sims_val < 100L) {
+      return(make_error_v1("invalid_input", "n_sims_too_small",
+                           "n_sims must be at least 100.",
+                           list(n_sims = n_sims_val)))
+    }
+    if (n_sims_val > limits[[position]]$max) {
+      return(make_error_v1("invalid_input", "n_sims_too_large",
+                           "n_sims exceeds hard limit.",
+                           list(n_sims = n_sims_val, max = limits[[position]]$max)))
+    }
+
+    list(
+      player_id = player_id,
+      season = season,
+      week = week,
+      n_sims = n_sims_val,
+      availability_policy = availability_policy,
+      position = position
+    )
+  }
+
+  runner <- function() {
+    validated <- validate_inputs()
+    if (is.list(validated) && !is.null(validated$status) && validated$status == "error") {
+      validated$metadata <- list(
+        player_id = player_id,
+        season = as.integer(season),
+        week = as.integer(week),
+        n_sims = if (is.null(n_sims)) NA_integer_ else as.integer(n_sims),
+        position = NA_character_,
+        availability_policy = availability_policy,
+        report_schema_version = get_report_schema_version_v1(),
+        seed = if (is.null(seed)) NA_integer_ else as.integer(seed),
+        error_code = validated$error_code
+      )
+      return(validated)
+    }
+
+    if (!is.null(seed)) {
+      set.seed(as.integer(seed))
+    }
+    result <- simulate_player_game(
+      gsis_id = validated$player_id,
+      season = validated$season,
+      week = validated$week,
+      n_sims = validated$n_sims,
+      availability_policy = validated$availability_policy,
+      mode = "historical_replay"
+    )
+    if (is.null(result) || !is.list(result)) {
+      return(make_error_v1("internal_error", "invalid_result", "Simulation returned an invalid result."))
+    }
+    if (!is.null(result$status) && identical(result$status, "error")) {
+      map <- list(
+        PLAYER_NOT_FOUND = "invalid_input",
+        PLAYER_RETIRED_OR_NO_RECENT_DATA = "data_unavailable",
+        INSUFFICIENT_HISTORY = "data_unavailable",
+        PLAYER_INACTIVE = "player_inactive"
+      )
+      err_type <- map[[as.character(result$error_type)]]
+      if (is.null(err_type)) err_type <- "simulation_error"
+      return(make_error_v1(
+        err_type,
+        tolower(as.character(result$error_type)),
+        as.character(result$reason),
+        list(player_name = result$player_name),
+        meta = list(
+          player_id = validated$player_id,
+          season = validated$season,
+          week = validated$week,
+          n_sims = validated$n_sims,
+          position = validated$position,
+          availability_policy = validated$availability_policy,
+          report_schema_version = get_report_schema_version_v1(),
+          seed = if (is.null(seed)) NA_integer_ else as.integer(seed),
+          error_code = tolower(as.character(result$error_type))
+        )
+      ))
+    }
+
+    position <- toupper(as.character(result$metadata$position))
+    if (is.na(position) || !nzchar(position)) {
+      return(make_error_v1("internal_error", "position_missing",
+                           "Simulation result missing metadata.position."))
+    }
+    result$metadata$position <- position
+    if (!is.null(result$diagnostics$availability$policy)) {
+      result$metadata$availability_policy <- as.character(result$diagnostics$availability$policy)
+    } else {
+      result$metadata$availability_policy <- validated$availability_policy
+    }
+    result$metadata$report_schema_version <- get_report_schema_version_v1()
+    result$metadata$seed <- if (is.null(seed)) NA_integer_ else as.integer(seed)
+    result$metadata$error_code <- NA_character_
+
+    result$summary <- normalize_summary_stats_v1(result$summary, result$metadata$position, result$draws)
+
+    validate_report_schema_v1(result)
+    result
+  }
+
+  safe_runner <- function() {
+    tryCatch(
+      runner(),
+      error = function(e) {
+        make_error_v1("internal_error", "internal_error", conditionMessage(e))
+      }
+    )
+  }
+
+  if (exists("handle_warnings_v1")) {
+    handle_warnings_v1(safe_runner(), context = "simulate_player_game_v1")
+  } else {
+    safe_runner()
+  }
+}
