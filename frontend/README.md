@@ -1,10 +1,10 @@
 # Frontend - Read the Field
 
-This directory contains the frontend implementation for Read the Field, a probabilistic NFL player projection system focused on offensive skill positions and kickers. The frontend visualizes the prediction process and resulting outcome distributions through a retro cartridge football aesthetic.
+This directory contains the frontend implementation for Read the Field, a probabilistic NFL player simulation demo. The frontend visualizes the prediction process and results through a retro cartridge football aesthetic.
 
 ## Localhost Testing
 
-The frontend is a static HTML/CSS/JavaScript application that can be run locally without any build process or backend dependencies.
+The frontend is a static HTML/CSS/JavaScript application that can be run locally without any build process. It expects the backend API to be running on `http://localhost:8000`.
 
 ### Quick Start
 
@@ -12,13 +12,10 @@ The frontend is a static HTML/CSS/JavaScript application that can be run locally
 ```bash
 # Python 3
 cd frontend
-python -m http.server 8000
-
-# Python 2
-python -m SimpleHTTPServer 8000
+python3 -m http.server 5173
 ```
 
-Then open `http://localhost:8000` in your browser.
+Then open `http://localhost:5173` in your browser.
 
 **Option 2: Node.js HTTP Server**
 ```bash
@@ -27,10 +24,10 @@ npm install -g http-server
 
 # Run server
 cd frontend
-http-server -p 8000
+http-server -p 5173
 ```
 
-Then open `http://localhost:8000` in your browser.
+Then open `http://localhost:5173` in your browser.
 
 **Option 3: VS Code Live Server**
 If using VS Code, install the "Live Server" extension and right-click on `index.html` to select "Open with Live Server".
@@ -59,7 +56,7 @@ The frontend follows a strict Cartridge Football aesthetic:
 
 ### Notes
 
-- No API calls are made - all data is mock data
-- No backend required
+- Calls `POST /simulate` on the backend API
+- Requires the backend running at `http://localhost:8000`
 - All pages are static HTML
 - Navigation is handled via footer links

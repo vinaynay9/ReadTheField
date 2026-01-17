@@ -1,3 +1,29 @@
 # API
 
-This directory will contain the API implementation for serving model predictions and analytics results to external consumers. The API will provide RESTful endpoints for accessing trained models, generating predictions for specific matchups, and retrieving simulation results. It will consume model artifacts from the saved_models directory and prediction outputs without requiring direct access to the modeling codebase. The API serves as the deployment interface that enables integration with external systems and applications. This separation ensures that the modeling pipeline remains independent from deployment concerns while providing programmatic access to model capabilities.
+Minimal API for the public demo.
+
+## Run locally
+
+```
+Rscript api/run_api.R
+```
+
+## Endpoint
+
+`POST /simulate`
+
+Body (JSON):
+```
+{
+  "player_id": "00-0033873",
+  "season": 2024,
+  "week": 8,
+  "n_sims": 1000,
+  "seed": 4242,
+  "availability_policy": "played_only",
+  "schema_version": "v1"
+}
+```
+
+If `player_id` is missing, the API will attempt to resolve `player_name` against
+the cached player directory.

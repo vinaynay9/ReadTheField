@@ -1,171 +1,123 @@
-// Mock Data - Players (Offensive Skilled Positions Only: QB, RB, WR, TE, K)
-const mockPlayers = [
-    // QBs
-    { id: 1, name: 'Patrick Mahomes', position: 'QB', team: 'Kansas City Chiefs', initials: 'PM' },
-    { id: 2, name: 'Josh Allen', position: 'QB', team: 'Buffalo Bills', initials: 'JA' },
-    { id: 3, name: 'Lamar Jackson', position: 'QB', team: 'Baltimore Ravens', initials: 'LJ' },
-    { id: 4, name: 'Jalen Hurts', position: 'QB', team: 'Philadelphia Eagles', initials: 'JH' },
-    { id: 5, name: 'Joe Burrow', position: 'QB', team: 'Cincinnati Bengals', initials: 'JB' },
-    { id: 6, name: 'Dak Prescott', position: 'QB', team: 'Dallas Cowboys', initials: 'DP' },
-    { id: 7, name: 'Justin Herbert', position: 'QB', team: 'Los Angeles Chargers', initials: 'JH' },
-    { id: 8, name: 'C.J. Stroud', position: 'QB', team: 'Houston Texans', initials: 'CS' },
-    // RBs
-    { id: 9, name: 'Christian McCaffrey', position: 'RB', team: 'San Francisco 49ers', initials: 'CM' },
-    { id: 10, name: 'Derrick Henry', position: 'RB', team: 'Tennessee Titans', initials: 'DH' },
-    { id: 11, name: 'Austin Ekeler', position: 'RB', team: 'Los Angeles Chargers', initials: 'AE' },
-    { id: 12, name: 'Saquon Barkley', position: 'RB', team: 'New York Giants', initials: 'SB' },
-    { id: 13, name: 'Breece Hall', position: 'RB', team: 'New York Jets', initials: 'BH' },
-    { id: 14, name: 'Alvin Kamara', position: 'RB', team: 'New Orleans Saints', initials: 'AK' },
-    // WRs
-    { id: 15, name: 'Justin Jefferson', position: 'WR', team: 'Minnesota Vikings', initials: 'JJ' },
-    { id: 16, name: 'Tyreek Hill', position: 'WR', team: 'Miami Dolphins', initials: 'TH' },
-    { id: 17, name: 'CeeDee Lamb', position: 'WR', team: 'Dallas Cowboys', initials: 'CL' },
-    { id: 18, name: 'Davante Adams', position: 'WR', team: 'Las Vegas Raiders', initials: 'DA' },
-    { id: 19, name: 'Cooper Kupp', position: 'WR', team: 'Los Angeles Rams', initials: 'CK' },
-    { id: 20, name: 'Stefon Diggs', position: 'WR', team: 'Buffalo Bills', initials: 'SD' },
-    { id: 21, name: 'Amon-Ra St. Brown', position: 'WR', team: 'Detroit Lions', initials: 'AS' },
-    { id: 22, name: 'A.J. Brown', position: 'WR', team: 'Philadelphia Eagles', initials: 'AB' },
-    // TEs
-    { id: 23, name: 'Travis Kelce', position: 'TE', team: 'Kansas City Chiefs', initials: 'TK' },
-    { id: 24, name: 'Mark Andrews', position: 'TE', team: 'Baltimore Ravens', initials: 'MA' },
-    { id: 25, name: 'T.J. Hockenson', position: 'TE', team: 'Detroit Lions', initials: 'TH' },
-    { id: 26, name: 'Sam LaPorta', position: 'TE', team: 'Detroit Lions', initials: 'SL' },
-    // Kickers
-    { id: 27, name: 'Justin Tucker', position: 'K', team: 'Baltimore Ravens', initials: 'JT' },
-    { id: 28, name: 'Daniel Carlson', position: 'K', team: 'Las Vegas Raiders', initials: 'DC' },
-    { id: 29, name: 'Harrison Butker', position: 'K', team: 'Kansas City Chiefs', initials: 'HB' },
-    { id: 30, name: 'Evan McPherson', position: 'K', team: 'Cincinnati Bengals', initials: 'EM' }
-];
-
-// Mock Data - Teams grouped by division
-const mockTeams = {
-    'AFC East': [
-        { id: 'BUF', name: 'Buffalo Bills', colorClass: 'team-buffalo' },
-        { id: 'MIA', name: 'Miami Dolphins', colorClass: 'team-miami' },
-        { id: 'NE', name: 'New England Patriots', colorClass: 'team-new-england' },
-        { id: 'NYJ', name: 'New York Jets', colorClass: 'team-ny-jets' }
-    ],
-    'AFC North': [
-        { id: 'BAL', name: 'Baltimore Ravens', colorClass: 'team-baltimore' },
-        { id: 'CIN', name: 'Cincinnati Bengals', colorClass: 'team-cincinnati' },
-        { id: 'CLE', name: 'Cleveland Browns', colorClass: 'team-cleveland' },
-        { id: 'PIT', name: 'Pittsburgh Steelers', colorClass: 'team-pittsburgh' }
-    ],
-    'AFC South': [
-        { id: 'HOU', name: 'Houston Texans', colorClass: 'team-houston' },
-        { id: 'IND', name: 'Indianapolis Colts', colorClass: 'team-indianapolis' },
-        { id: 'JAX', name: 'Jacksonville Jaguars', colorClass: 'team-jacksonville' },
-        { id: 'TEN', name: 'Tennessee Titans', colorClass: 'team-tennessee' }
-    ],
-    'AFC West': [
-        { id: 'DEN', name: 'Denver Broncos', colorClass: 'team-denver' },
-        { id: 'KC', name: 'Kansas City Chiefs', colorClass: 'team-kansas-city' },
-        { id: 'LV', name: 'Las Vegas Raiders', colorClass: 'team-las-vegas' },
-        { id: 'LAC', name: 'Los Angeles Chargers', colorClass: 'team-la-chargers' }
-    ],
-    'NFC East': [
-        { id: 'DAL', name: 'Dallas Cowboys', colorClass: 'team-dallas' },
-        { id: 'NYG', name: 'New York Giants', colorClass: 'team-ny-giants' },
-        { id: 'PHI', name: 'Philadelphia Eagles', colorClass: 'team-philadelphia' },
-        { id: 'WAS', name: 'Washington Commanders', colorClass: 'team-washington' }
-    ],
-    'NFC North': [
-        { id: 'CHI', name: 'Chicago Bears', colorClass: 'team-chicago' },
-        { id: 'DET', name: 'Detroit Lions', colorClass: 'team-detroit' },
-        { id: 'GB', name: 'Green Bay Packers', colorClass: 'team-green-bay' },
-        { id: 'MIN', name: 'Minnesota Vikings', colorClass: 'team-minnesota' }
-    ],
-    'NFC South': [
-        { id: 'ATL', name: 'Atlanta Falcons', colorClass: 'team-atlanta' },
-        { id: 'CAR', name: 'Carolina Panthers', colorClass: 'team-carolina' },
-        { id: 'NO', name: 'New Orleans Saints', colorClass: 'team-new-orleans' },
-        { id: 'TB', name: 'Tampa Bay Buccaneers', colorClass: 'team-tampa-bay' }
-    ],
-    'NFC West': [
-        { id: 'ARI', name: 'Arizona Cardinals', colorClass: 'team-arizona' },
-        { id: 'LAR', name: 'Los Angeles Rams', colorClass: 'team-la-rams' },
-        { id: 'SF', name: 'San Francisco 49ers', colorClass: 'team-san-francisco' },
-        { id: 'SEA', name: 'Seattle Seahawks', colorClass: 'team-seattle' }
-    ]
-};
+const API_BASE_URL = window.RTF_API_URL || 'http://localhost:8000';
+const DEFAULT_N_SIMS = 1000;
+const DEFAULT_SEED = 4242;
 
 // State
 let simulationMode = 'historical'; // 'historical', 'this-week', 'hypothetical'
 let selectedPlayer = null;
 let selectedTeam = null;
 let selectedDate = null;
+let selectedSeason = null;
+let selectedWeek = null;
+let selectedGame = null;
+let nextGame = null;
 let homeAway = 'vs'; // 'vs' or 'away'
 
-// Mock Data - This Week's Schedule
-// TODO: Replace with real API call
-const mockThisWeekSchedule = {
-    // Bijan Robinson (from user requirements)
-    9: { opponent: 'TB', location: 'vs', opponentName: 'Tampa Bay Buccaneers' }, // Using Christian McCaffrey's ID for Bijan
-    // Tyreek Hill (from user requirements)
-    16: { opponent: 'NYJ', location: '@', opponentName: 'New York Jets' },
-    // Add more mock schedules as needed
-    1: { opponent: 'DEN', location: 'vs', opponentName: 'Denver Broncos' },
-    2: { opponent: 'KC', location: '@', opponentName: 'Kansas City Chiefs' },
-    3: { opponent: 'CLE', location: 'vs', opponentName: 'Cleveland Browns' },
-    4: { opponent: 'DAL', location: '@', opponentName: 'Dallas Cowboys' },
-    5: { opponent: 'PIT', location: 'vs', opponentName: 'Pittsburgh Steelers' },
-    6: { opponent: 'PHI', location: 'vs', opponentName: 'Philadelphia Eagles' },
-    7: { opponent: 'LV', location: '@', opponentName: 'Las Vegas Raiders' },
-    8: { opponent: 'IND', location: 'vs', opponentName: 'Indianapolis Colts' },
-    10: { opponent: 'SEA', location: '@', opponentName: 'Seattle Seahawks' },
-    11: { opponent: 'KC', location: 'vs', opponentName: 'Kansas City Chiefs' },
-    12: { opponent: 'WAS', location: '@', opponentName: 'Washington Commanders' },
-    13: { opponent: 'MIA', location: 'vs', opponentName: 'Miami Dolphins' },
-    14: { opponent: 'DET', location: '@', opponentName: 'Detroit Lions' },
-    15: { opponent: 'GB', location: 'vs', opponentName: 'Green Bay Packers' },
-    17: { opponent: 'BUF', location: '@', opponentName: 'Buffalo Bills' },
-    18: { opponent: 'NE', location: 'vs', opponentName: 'New England Patriots' },
-    19: { opponent: 'SF', location: '@', opponentName: 'San Francisco 49ers' },
-    20: { opponent: 'NYJ', location: 'vs', opponentName: 'New York Jets' },
-    21: { opponent: 'CHI', location: '@', opponentName: 'Chicago Bears' },
-    22: { opponent: 'DAL', location: 'vs', opponentName: 'Dallas Cowboys' },
-    23: { opponent: 'DEN', location: '@', opponentName: 'Denver Broncos' },
-    24: { opponent: 'CIN', location: 'vs', opponentName: 'Cincinnati Bengals' },
-    25: { opponent: 'MIN', location: '@', opponentName: 'Minnesota Vikings' },
-    26: { opponent: 'GB', location: 'vs', opponentName: 'Green Bay Packers' },
-    27: { opponent: 'LAC', location: '@', opponentName: 'Los Angeles Chargers' },
-    28: { opponent: 'KC', location: 'vs', opponentName: 'Kansas City Chiefs' },
-    29: { opponent: 'LV', location: '@', opponentName: 'Las Vegas Raiders' },
-    30: { opponent: 'BAL', location: 'vs', opponentName: 'Baltimore Ravens' }
-};
+let players = [];
+let teams = [];
+let playerGames = [];
+let availableSeasons = [];
+const teamNameMap = new Map();
 
-// Mock Data - Historical Game Dates
-// TODO: Replace with real API call
-const mockHistoricalDates = {
-    // Format: playerId_opponentId: [array of dates]
-    '9_TB': ['2023-11-19', '2022-10-23', '2021-09-26'],
-    '9_PHI': ['2023-12-03', '2022-11-20'],
-    '9_DAL': ['2023-10-08', '2022-09-11'],
-    '9_SF': ['2023-01-15', '2022-12-18'],
-    '16_NYJ': ['2023-11-12', '2022-10-09', '2021-11-21'],
-    '16_BUF': ['2023-12-17', '2022-11-13'],
-    '16_NE': ['2023-10-29', '2022-09-18'],
-    '16_MIA': ['2023-09-24', '2022-10-30'],
-    // Add more combinations as needed - default fallback dates
-    'default': ['2023-11-26', '2023-10-15', '2023-09-10', '2022-12-11', '2022-11-06']
-};
+async function fetchJson(path) {
+    const response = await fetch(`${API_BASE_URL}${path}`);
+    const data = await response.json();
+    if (!response.ok) {
+        const message = data && data.message ? data.message : 'Request failed.';
+        throw new Error(message);
+    }
+    return data;
+}
 
-// Add Bijan Robinson to mock players (user requirement)
-// Note: Using ID 31 to avoid conflicts
-mockPlayers.push({ id: 31, name: 'Bijan Robinson', position: 'RB', team: 'Atlanta Falcons', initials: 'BR' });
-mockThisWeekSchedule[31] = { opponent: 'TB', location: 'vs', opponentName: 'Tampa Bay Buccaneers' };
+function buildTeamNameMap() {
+    teamNameMap.clear();
+    teams.forEach(team => {
+        if (team.team) {
+            teamNameMap.set(team.team, team.name || team.team);
+        }
+    });
+}
+
+function getTeamName(teamId) {
+    if (!teamId) return 'Unknown Team';
+    return teamNameMap.get(teamId) || teamId;
+}
+
+function getPlayerInitials(name) {
+    if (!name) return '';
+    const parts = name.split(' ').filter(Boolean);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+async function loadInitialData() {
+    try {
+        const [playersResp, teamsResp, seasonsResp] = await Promise.all([
+            fetchJson('/players'),
+            fetchJson('/teams'),
+            fetchJson('/seasons')
+        ]);
+        players = playersResp.players || [];
+        teams = teamsResp.teams || [];
+        availableSeasons = seasonsResp.seasons || [];
+        buildTeamNameMap();
+        populateSeasonWeekSelects();
+        initializeTeamSelection();
+    } catch (err) {
+        const searchInput = document.getElementById('player-search');
+        if (searchInput) {
+            searchInput.placeholder = 'Unable to load players';
+        }
+        console.error(err);
+    }
+}
+
+function populateSeasonWeekSelects() {
+    const seasonSelect = document.getElementById('season-select');
+    const weekSelect = document.getElementById('week-select');
+    if (!seasonSelect || !weekSelect) return;
+
+    seasonSelect.innerHTML = '<option value="">-- SELECT SEASON --</option>';
+    weekSelect.innerHTML = '<option value="">-- SELECT WEEK --</option>';
+
+    const seasons = availableSeasons.length > 0 ? availableSeasons : [];
+    seasons.forEach((season) => {
+        const opt = document.createElement('option');
+        opt.value = season;
+        opt.textContent = season;
+        seasonSelect.appendChild(opt);
+    });
+
+    for (let wk = 1; wk <= 18; wk++) {
+        const opt = document.createElement('option');
+        opt.value = wk;
+        opt.textContent = `Week ${wk}`;
+        weekSelect.appendChild(opt);
+    }
+
+    seasonSelect.addEventListener('change', (e) => {
+        selectedSeason = e.target.value ? parseInt(e.target.value, 10) : null;
+        updateCalculateButton();
+    });
+    weekSelect.addEventListener('change', (e) => {
+        selectedWeek = e.target.value ? parseInt(e.target.value, 10) : null;
+        updateCalculateButton();
+    });
+}
 
 // Initialize on DOM load
 document.addEventListener('DOMContentLoaded', () => {
     initializeModeToggle();
     initializePlayerSearch();
-    initializeTeamSelection();
     initializeHomeAwayToggle();
     initializeDateSelection();
     initializeSimulationButton();
-    updateCalculateButton();
-    switchMode('historical'); // Set initial mode
+    loadInitialData().then(() => {
+        switchMode('historical');
+        updateCalculateButton();
+    });
 });
+
 
 // Player Search Functionality
 function initializePlayerSearch() {
@@ -185,11 +137,11 @@ function initializePlayerSearch() {
 
         // Only show offensive skilled positions: QB, RB, WR, TE, K
         const allowedPositions = ['QB', 'RB', 'WR', 'TE', 'K'];
-        const filtered = mockPlayers.filter(player => 
+        const filtered = players.filter(player =>
             allowedPositions.includes(player.position) &&
-            (player.name.toLowerCase().includes(query) ||
+            (player.player_name.toLowerCase().includes(query) ||
             player.position.toLowerCase().includes(query) ||
-            player.team.toLowerCase().includes(query))
+            (player.team || '').toLowerCase().includes(query))
         );
 
         displayAutocompleteResults(filtered);
@@ -213,11 +165,11 @@ function displayAutocompleteResults(players) {
     }
 
     autocompleteResults.innerHTML = players.map(player => `
-        <div class="autocomplete-item" data-player-id="${player.id}">
-            <div class="player-headshot">${player.initials}</div>
+        <div class="autocomplete-item" data-player-id="${player.player_id}">
+            <div class="player-headshot">${getPlayerInitials(player.player_name)}</div>
             <div class="player-info">
-                <div class="player-name">${player.name}</div>
-                <div class="player-details">${player.position} • ${player.team}</div>
+                <div class="player-name">${player.player_name}</div>
+                <div class="player-details">${player.position} • ${player.team || 'N/A'}</div>
             </div>
         </div>
     `).join('');
@@ -227,32 +179,37 @@ function displayAutocompleteResults(players) {
     // Add click handlers
     autocompleteResults.querySelectorAll('.autocomplete-item').forEach(item => {
         item.addEventListener('click', () => {
-            const playerId = parseInt(item.dataset.playerId);
+            const playerId = item.dataset.playerId;
             selectPlayer(playerId);
         });
     });
 }
 
 function selectPlayer(playerId) {
-    const player = mockPlayers.find(p => p.id === playerId);
+    const player = players.find(p => p.player_id === playerId);
     if (!player) return;
 
     selectedPlayer = player;
+    selectedTeam = null;
+    selectedDate = null;
+    selectedGame = null;
+    nextGame = null;
+    playerGames = [];
     
     const searchInput = document.getElementById('player-search');
     const autocompleteResults = document.getElementById('autocomplete-results');
     const selectedPlayerDiv = document.getElementById('selected-player');
 
-    if (searchInput) searchInput.value = player.name;
+    if (searchInput) searchInput.value = player.player_name;
     if (autocompleteResults) autocompleteResults.classList.remove('active');
     
     if (selectedPlayerDiv) {
         selectedPlayerDiv.innerHTML = `
             <div style="display: flex; align-items: center; gap: 0.75rem;">
-                <div class="player-headshot">${player.initials}</div>
+                <div class="player-headshot">${getPlayerInitials(player.player_name)}</div>
                 <div style="flex: 1; min-width: 0;">
-                    <div class="player-name">${player.name}</div>
-                    <div class="player-details">${player.position} • ${player.team}</div>
+                    <div class="player-name">${player.player_name}</div>
+                    <div class="player-details">${player.position} • ${player.team || 'N/A'}</div>
                 </div>
             </div>
         `;
@@ -263,7 +220,7 @@ function selectPlayer(playerId) {
     if (simulationMode === 'this-week') {
         updateThisWeekMatchup();
     } else if (simulationMode === 'historical') {
-        updateHistoricalDates();
+        loadPlayerGames();
     }
     
     updateCalculateButton();
@@ -325,6 +282,7 @@ function switchMode(mode) {
     // Reset incompatible inputs
     if (mode !== 'historical') {
         selectedDate = null;
+        selectedGame = null;
         const dateSelect = document.getElementById('game-date-select');
         if (dateSelect) {
             dateSelect.value = '';
@@ -342,7 +300,6 @@ function switchMode(mode) {
     }
     
     if (mode === 'this-week') {
-        // Auto-fill opponent and location for this week's game
         updateThisWeekMatchup();
     } else {
         // Clear auto-filled fields
@@ -350,91 +307,118 @@ function switchMode(mode) {
         const autoLocation = document.getElementById('auto-location');
         if (autoOpponent) autoOpponent.textContent = '--';
         if (autoLocation) autoLocation.textContent = '--';
+        nextGame = null;
     }
     
     // Re-initialize team selection for the active mode
     initializeTeamSelection();
     
     // If switching to historical mode and player/team already selected, populate dates
-    if (mode === 'historical' && selectedPlayer && selectedTeam) {
-        updateHistoricalDates();
+    if (mode === 'historical' && selectedPlayer) {
+        loadPlayerGames();
     }
     
     // Update button state
     updateCalculateButton();
 }
 
-function updateThisWeekMatchup() {
+async function updateThisWeekMatchup() {
     if (!selectedPlayer) return;
-    
-    const schedule = mockThisWeekSchedule[selectedPlayer.id];
+
     const autoOpponent = document.getElementById('auto-opponent');
     const autoLocation = document.getElementById('auto-location');
-    
-    if (schedule && autoOpponent && autoLocation) {
-        autoOpponent.textContent = schedule.opponentName;
-        autoLocation.textContent = schedule.location === 'vs' ? 'VS (HOME)' : '@ (AWAY)';
-        selectedTeam = schedule.opponent;
-        homeAway = schedule.location;
-    } else {
-        if (autoOpponent) autoOpponent.textContent = '--';
-        if (autoLocation) autoLocation.textContent = '--';
+    if (autoOpponent) autoOpponent.textContent = 'Loading...';
+    if (autoLocation) autoLocation.textContent = '--';
+
+    try {
+        const data = await fetchJson(`/player/${selectedPlayer.player_id}/next_game`);
+        nextGame = data;
+        selectedSeason = data.season;
+        selectedWeek = data.week;
+        selectedTeam = data.opponent;
+        homeAway = data.home_away === 'AWAY' ? 'away' : 'vs';
+
+        const opponentName = getTeamName(data.opponent);
+        if (autoOpponent) autoOpponent.textContent = opponentName;
+        if (autoLocation) autoLocation.textContent = data.home_away === 'AWAY' ? '@ (AWAY)' : 'VS (HOME)';
+
+        const seasonSelect = document.getElementById('season-select');
+        const weekSelect = document.getElementById('week-select');
+        if (seasonSelect) seasonSelect.value = data.season;
+        if (weekSelect) weekSelect.value = data.week;
+    } catch (err) {
+        nextGame = null;
+        selectedSeason = null;
+        selectedWeek = null;
         selectedTeam = null;
+        if (autoOpponent) autoOpponent.textContent = err.message || 'No upcoming game found for this player';
+        if (autoLocation) autoLocation.textContent = '--';
     }
-    
+
     updateCalculateButton();
 }
 
 // Team Selection Functionality
 function initializeTeamSelection() {
-    // Get the appropriate team selection container based on mode
     let teamSelectionDiv;
     if (simulationMode === 'historical') {
         teamSelectionDiv = document.getElementById('team-selection-historical');
     } else if (simulationMode === 'hypothetical') {
         teamSelectionDiv = document.getElementById('team-selection-hypothetical');
     } else {
-        // This week's game doesn't need team selection
         return;
     }
-    
+
     if (!teamSelectionDiv) return;
 
-    let html = '';
+    let teamList = teams;
+    if (simulationMode === 'historical') {
+        teamList = getOpponentTeams();
+    }
 
-    // Render teams by division
-    const divisions = Object.keys(mockTeams);
-    divisions.forEach(division => {
-        html += '<div class="division-group">';
-        html += `<div class="division-title">${division}</div>`;
-        html += '<div class="team-grid">';
-        mockTeams[division].forEach(team => {
-            html += `
-                <div class="team-item ${team.colorClass}" data-team-id="${team.id}">
-                    <span class="team-name">${team.name}</span>
-                </div>
-            `;
-        });
-        html += '</div></div>';
+    renderTeamSelection(teamSelectionDiv, teamList);
+}
+
+function renderTeamSelection(container, teamList) {
+    if (!container) return;
+
+    let html = '<div class="division-group">';
+    html += '<div class="division-title">Teams</div>';
+    html += '<div class="team-grid">';
+
+    teamList.forEach(team => {
+        html += `
+            <div class="team-item" data-team-id="${team.team}">
+                <span class="team-name">${team.name || team.team}</span>
+            </div>
+        `;
     });
 
-    teamSelectionDiv.innerHTML = html;
+    html += '</div></div>';
+    container.innerHTML = html;
 
-    // Add click handlers
-    teamSelectionDiv.querySelectorAll('.team-item').forEach(item => {
+    container.querySelectorAll('.team-item').forEach(item => {
         item.addEventListener('click', () => {
             const teamId = item.dataset.teamId;
             selectTeam(teamId);
         });
     });
-    
-    // Restore selection if exists
+
     if (selectedTeam) {
-        const selectedItem = teamSelectionDiv.querySelector(`[data-team-id="${selectedTeam}"]`);
+        const selectedItem = container.querySelector(`[data-team-id="${selectedTeam}"]`);
         if (selectedItem) {
             selectedItem.classList.add('selected');
         }
     }
+}
+
+function getOpponentTeams() {
+    if (!playerGames || playerGames.length === 0) return [];
+    const opponents = new Set(playerGames.map(game => game.opponent).filter(Boolean));
+    if (teams.length === 0) {
+        return Array.from(opponents).map(teamId => ({ team: teamId, name: teamId }));
+    }
+    return teams.filter(team => opponents.has(team.team));
 }
 
 function selectTeam(teamId) {
@@ -473,50 +457,90 @@ function initializeDateSelection() {
     if (!dateSelect) return;
     
     dateSelect.addEventListener('change', (e) => {
+        const option = e.target.selectedOptions[0];
         selectedDate = e.target.value;
+        if (option) {
+            selectedGame = {
+                season: option.dataset.season ? parseInt(option.dataset.season, 10) : null,
+                week: option.dataset.week ? parseInt(option.dataset.week, 10) : null,
+                opponent: option.dataset.opponent || null,
+                home_away: option.dataset.homeAway || null,
+                game_date: option.dataset.gameDate || null
+            };
+            selectedSeason = selectedGame.season;
+            selectedWeek = selectedGame.week;
+
+            const seasonSelect = document.getElementById('season-select');
+            const weekSelect = document.getElementById('week-select');
+            if (seasonSelect && selectedSeason) seasonSelect.value = selectedSeason;
+            if (weekSelect && selectedWeek) weekSelect.value = selectedWeek;
+        } else {
+            selectedGame = null;
+        }
         updateCalculateButton();
     });
 }
 
-function updateHistoricalDates() {
-    if (!selectedPlayer || !selectedTeam) {
-        const dateSelect = document.getElementById('game-date-select');
-        if (dateSelect) {
-            dateSelect.innerHTML = '<option value="">-- SELECT DATE --</option>';
-            dateSelect.value = '';
+async function loadPlayerGames() {
+    if (!selectedPlayer) return;
+    try {
+        const data = await fetchJson(`/player/${selectedPlayer.player_id}/games`);
+        playerGames = data.games || [];
+        initializeTeamSelection();
+        if (selectedTeam && !playerGames.some(game => game.opponent === selectedTeam)) {
+            selectedTeam = null;
         }
-        selectedDate = null;
-        return;
+        updateHistoricalDates();
+    } catch (err) {
+        playerGames = [];
+        selectedTeam = null;
+        updateHistoricalDates();
     }
-    
-    // Get historical dates for this player-opponent combination
-    const dateKey = `${selectedPlayer.id}_${selectedTeam}`;
-    let dates = mockHistoricalDates[dateKey];
-    
-    // Fallback to default dates if no specific match found
-    if (!dates || dates.length === 0) {
-        dates = mockHistoricalDates['default'];
-    }
-    
+}
+
+function updateHistoricalDates() {
     const dateSelect = document.getElementById('game-date-select');
     if (!dateSelect) return;
-    
+
+    if (!selectedPlayer || !selectedTeam || playerGames.length === 0) {
+        dateSelect.innerHTML = '<option value="">-- SELECT DATE --</option>';
+        dateSelect.value = '';
+        selectedDate = null;
+        selectedGame = null;
+        return;
+    }
+
+    const games = playerGames.filter(game => game.opponent === selectedTeam);
+    if (games.length === 0) {
+        dateSelect.innerHTML = '<option value="">-- NO GAMES FOUND --</option>';
+        dateSelect.value = '';
+        selectedDate = null;
+        selectedGame = null;
+        return;
+    }
+
     dateSelect.innerHTML = '<option value="">-- SELECT DATE --</option>';
-    dates.forEach(date => {
+    games.forEach(game => {
         const option = document.createElement('option');
-        option.value = date;
-        // Format date for display (e.g., "Nov 19, 2023")
-        const dateObj = new Date(date);
-        const formattedDate = dateObj.toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'short', 
-            day: 'numeric' 
-        });
-        option.textContent = formattedDate;
+        option.value = `${game.season}-wk${game.week}-${game.opponent}`;
+        option.dataset.season = game.season;
+        option.dataset.week = game.week;
+        option.dataset.opponent = game.opponent;
+        option.dataset.homeAway = game.home_away;
+        option.dataset.gameDate = game.game_date;
+
+        const dateObj = game.game_date ? new Date(game.game_date) : null;
+        const formattedDate = dateObj && !isNaN(dateObj.getTime())
+            ? dateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+            : 'Date unavailable';
+        const opponentName = getTeamName(game.opponent);
+        const location = game.home_away === 'AWAY' ? '@' : 'vs';
+        option.textContent = `${game.season} Week ${game.week} ${location} ${opponentName} (${formattedDate})`;
         dateSelect.appendChild(option);
     });
-    
+
     selectedDate = null;
+    selectedGame = null;
     dateSelect.value = '';
     updateCalculateButton();
 }
@@ -543,26 +567,76 @@ function initializeHomeAwayToggle() {
     });
 }
 
+function resolvePayload() {
+    if (!selectedPlayer) {
+        return { valid: false, message: 'Select a player.' };
+    }
+
+    let season = selectedSeason;
+    let week = selectedWeek;
+    let availabilityPolicy = 'played_only';
+    let mode = 'historical_replay';
+    let scheduleOpponent = null;
+    let scheduleHomeAway = null;
+
+    if (simulationMode === 'historical') {
+        if (!selectedGame || !selectedGame.season || !selectedGame.week) {
+            return { valid: false, message: 'Select a historical game.' };
+        }
+        season = selectedGame.season;
+        week = selectedGame.week;
+        availabilityPolicy = 'played_only';
+        mode = 'historical_replay';
+        scheduleOpponent = selectedGame.opponent || null;
+        scheduleHomeAway = selectedGame.home_away || null;
+    } else if (simulationMode === 'this-week') {
+        if (!nextGame || !nextGame.season || !nextGame.week) {
+            return { valid: false, message: 'No upcoming game found for this player.' };
+        }
+        season = nextGame.season;
+        week = nextGame.week;
+        availabilityPolicy = 'expected_active';
+        mode = 'upcoming_game';
+        scheduleOpponent = nextGame.opponent || null;
+        scheduleHomeAway = nextGame.home_away || null;
+    } else if (simulationMode === 'hypothetical') {
+        if (!season || !week) {
+            return { valid: false, message: 'Select a season and week.' };
+        }
+        if (!selectedTeam) {
+            return { valid: false, message: 'Select an opponent.' };
+        }
+        availabilityPolicy = 'force_counterfactual';
+        mode = 'hypothetical_matchup';
+        scheduleOpponent = selectedTeam;
+        scheduleHomeAway = homeAway === 'away' ? 'AWAY' : 'HOME';
+    }
+
+    return {
+        valid: true,
+        payload: {
+            player_id: selectedPlayer.player_id || null,
+            player_name: selectedPlayer.player_name || null,
+            season: season,
+            week: week,
+            n_sims: DEFAULT_N_SIMS,
+            seed: DEFAULT_SEED,
+            availability_policy: availabilityPolicy,
+            schema_version: 'v1',
+            mode: mode,
+            schedule_opponent: scheduleOpponent,
+            schedule_home_away: scheduleHomeAway
+        }
+    };
+}
+
 // Update Calculate Button State
 function updateCalculateButton() {
     const simulationButton = document.getElementById('simulation-button');
     if (!simulationButton) return;
 
-    let isValid = false;
-    
-    switch(simulationMode) {
-        case 'historical':
-            isValid = selectedPlayer && selectedTeam && selectedDate;
-            break;
-        case 'this-week':
-            isValid = selectedPlayer && selectedTeam; // Team is auto-filled
-            break;
-        case 'hypothetical':
-            isValid = selectedPlayer && selectedTeam;
-            break;
-    }
-    
-    simulationButton.disabled = !isValid;
+    const resolved = resolvePayload();
+    simulationButton.disabled = !resolved.valid;
 }
 
 // Simulation Button
@@ -571,19 +645,7 @@ function initializeSimulationButton() {
     if (!simulationButton) return;
 
     const handleActivate = () => {
-        // Validate based on mode
-        let isValid = false;
-        switch(simulationMode) {
-            case 'historical':
-                isValid = selectedPlayer && selectedTeam && selectedDate;
-                break;
-            case 'this-week':
-                isValid = selectedPlayer && selectedTeam;
-                break;
-            case 'hypothetical':
-                isValid = selectedPlayer && selectedTeam;
-                break;
-        }
+        const isValid = selectedPlayer && selectedSeason && selectedWeek;
         
         if (!isValid) {
             return;
@@ -599,7 +661,7 @@ function initializeSimulationButton() {
         const terminalContainer = document.getElementById('terminal-container');
         if (terminalContainer) {
             terminalContainer.style.display = 'block';
-            startTerminalAnimation();
+            runSimulationRequest();
         }
     };
 
@@ -618,10 +680,107 @@ function initializeSimulationButton() {
     simulationButton.setAttribute('tabindex', '0');
 }
 
-function getTeamName(teamId) {
-    const allTeams = Object.values(mockTeams).flat();
-    const team = allTeams.find(t => t.id === teamId);
-    return team ? team.name : 'Unknown Team';
+async function runSimulationRequest() {
+    const terminalOutput = document.getElementById('terminalOutput');
+    const simulationButton = document.getElementById('simulation-button');
+
+    if (!terminalOutput) return;
+    terminalOutput.innerHTML = '<div class="terminal-line">Running simulation...</div>';
+    if (simulationButton) {
+        simulationButton.disabled = true;
+        simulationButton.textContent = 'RUNNING...';
+    }
+
+    const resolved = resolvePayload();
+    if (!resolved.valid) {
+        renderError(resolved.message || 'Missing required inputs.');
+        if (simulationButton) {
+            simulationButton.disabled = false;
+            simulationButton.textContent = 'RUN SIMULATION';
+        }
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/simulate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(resolved.payload)
+        });
+        const data = await response.json();
+        if (!response.ok || data.status === 'error') {
+            const message = data.message || 'Simulation failed.';
+            renderError(message);
+        } else {
+            renderResults(data);
+        }
+    } catch (err) {
+        renderError('Unable to reach the simulation service.');
+    } finally {
+        if (simulationButton) {
+            simulationButton.disabled = false;
+            simulationButton.textContent = 'RUN SIMULATION';
+        }
+    }
+}
+
+function renderError(message) {
+    const terminalOutput = document.getElementById('terminalOutput');
+    const resultsPanel = document.getElementById('results-panel');
+    const resultsContent = document.getElementById('results-content');
+    if (terminalOutput) {
+        terminalOutput.innerHTML = `<div class="terminal-line error">ERROR: ${message}</div>`;
+    }
+    if (resultsPanel && resultsContent) {
+        resultsPanel.style.display = 'block';
+        resultsContent.innerHTML = `<div class="result-row error">${message}</div>`;
+    }
+}
+
+function renderResults(result) {
+    const terminalOutput = document.getElementById('terminalOutput');
+    const resultsPanel = document.getElementById('results-panel');
+    const resultsContent = document.getElementById('results-content');
+    if (!resultsPanel || !resultsContent) return;
+
+    if (terminalOutput) {
+        terminalOutput.innerHTML = '<div class="terminal-line success">Simulation complete.</div>';
+    }
+
+    const summary = result.summary || [];
+    const meta = result.metadata || {};
+    const header = document.createElement('div');
+    header.className = 'result-row';
+    header.innerHTML = `<strong>${meta.player_name || selectedPlayer.player_name}</strong> | ${meta.season} Week ${meta.week}`;
+    resultsContent.innerHTML = '';
+    resultsContent.appendChild(header);
+
+    const table = document.createElement('table');
+    table.className = 'results-table';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>Stat</th>
+                <th>P25</th>
+                <th>P50</th>
+                <th>P75</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    `;
+    const tbody = table.querySelector('tbody');
+    summary.forEach((row) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${row.stat}</td>
+            <td>${Math.round(row.p25)}</td>
+            <td>${Math.round(row.p50)}</td>
+            <td>${Math.round(row.p75)}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+    resultsContent.appendChild(table);
+    resultsPanel.style.display = 'block';
 }
 
 // Terminal Animation
@@ -636,7 +795,7 @@ function startTerminalAnimation() {
     // Get cursor reference after recreating HTML
     const terminalCursor = document.getElementById('terminalCursor');
 
-    const playerName = selectedPlayer.name;
+    const playerName = selectedPlayer.player_name;
     const playerPos = selectedPlayer.position;
     const opponentName = getTeamName(selectedTeam);
     const location = homeAway === 'vs' ? 'Home' : 'Away';

@@ -82,7 +82,10 @@ simulate_player_game_v1 <- function(player_id,
                                     n_sims = NULL,
                                     availability_policy = "played_only",
                                     seed = NULL,
-                                    schema_version = "v1") {
+                                    schema_version = "v1",
+                                    mode = NULL,
+                                    schedule_opponent = NULL,
+                                    schedule_home_away = NULL) {
   if (!exists("simulate_player_game")) {
     if (file.exists("R/simulation/simulate_player_game.R")) {
       source("R/simulation/simulate_player_game.R", local = TRUE)
@@ -115,6 +118,20 @@ simulate_player_game_v1 <- function(player_id,
   }
 
   validate_inputs <- function() {
+    mode_val <- if (is.null(mode) || !nzchar(trimws(as.character(mode)))) {
+      "historical_replay"
+    } else {
+      as.character(mode)[1]
+    }
+    allowed_modes <- c("historical_replay", "upcoming_game", "hypothetical_matchup")
+    if (!mode_val %in% allowed_modes) {
+      return(make_error_v1(
+        "invalid_input",
+        "invalid_mode",
+        "mode is not supported.",
+        list(mode = mode_val)
+      ))
+    }
     if (is.null(schema_version) || !nzchar(as.character(schema_version))) {
       return(make_error_v1(
         "invalid_input",
@@ -242,13 +259,27 @@ simulate_player_game_v1 <- function(player_id,
                            list(n_sims = n_sims_val, max = limits[[position]]$max)))
     }
 
+    schedule_opponent_val <- if (!is.null(schedule_opponent) && nzchar(trimws(as.character(schedule_opponent)))) {
+      toupper(trimws(as.character(schedule_opponent)))
+    } else {
+      NULL
+    }
+    schedule_home_away_val <- if (!is.null(schedule_home_away) && nzchar(trimws(as.character(schedule_home_away)))) {
+      toupper(trimws(as.character(schedule_home_away)))
+    } else {
+      NULL
+    }
+
     list(
       player_id = player_id,
       season = season,
       week = week,
       n_sims = n_sims_val,
       availability_policy = availability_policy,
-      position = position
+      position = position,
+      mode = mode_val,
+      schedule_opponent = schedule_opponent_val,
+      schedule_home_away = schedule_home_away_val
     )
   }
 
@@ -278,7 +309,9 @@ simulate_player_game_v1 <- function(player_id,
       week = validated$week,
       n_sims = validated$n_sims,
       availability_policy = validated$availability_policy,
-      mode = "historical_replay"
+      mode = validated$mode,
+      schedule_opponent = validated$schedule_opponent,
+      schedule_home_away = validated$schedule_home_away
     )
     if (is.null(result) || !is.list(result)) {
       return(make_error_v1("internal_error", "invalid_result", "Simulation returned an invalid result."))

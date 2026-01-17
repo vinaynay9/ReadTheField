@@ -8,6 +8,7 @@
     --primary-green: #0d4f3c;
     --secondary-green: #1a7a5e;
     --accent-gold: #d4af37;
+    --accent-red: #ff5a5a;
     --dark-bg: #0a0f0d;
     --card-bg: #141a17;
     --text-primary: #ffffff;
@@ -1239,6 +1240,30 @@ body {
     flex-direction: column;
     gap: 1.5rem;
     margin-top: 1.5rem;
+}
+
+.results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.5rem;
+    text-transform: uppercase;
+}
+
+.results-table th,
+.results-table td {
+    border: 2px solid var(--border-color);
+    padding: 0.5rem;
+    text-align: center;
+}
+
+.results-table th {
+    background: var(--dark-bg);
+    color: var(--accent-gold);
+}
+
+.result-row.error {
+    color: var(--accent-red);
 }
 
 /* Primary Projection Panel */

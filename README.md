@@ -83,6 +83,21 @@ Refresh caches:
 Rscript scripts/refresh_weekly_cache.R
 ```
 
+## Local Demo (Frontend + API)
+Run the API:
+```
+Rscript api/run_api.R
+```
+
+Run the frontend (static site):
+```
+cd frontend
+python3 -m http.server 5173
+```
+
+Open the UI at `http://localhost:5173` and ensure the API is reachable at
+`http://localhost:8000`.
+
 Smoke test:
 ```
 Rscript scripts/smoke_test_rb_simulation.R
