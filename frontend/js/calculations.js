@@ -17,9 +17,9 @@
         { text: '> Initializing simulation pipeline...', delay: 600, class: 'prompt' },
         { text: '', delay: 800, class: 'info' },
         { text: '[1/7] Loading historical NFL data...', delay: 1000, class: 'info' },
-        { text: '    Scanning data/processed/player_weekly.parquet', delay: 1200, class: 'info' },
-        { text: '    Scanning data/processed/defense_weekly.parquet', delay: 1400, class: 'info' },
-        { text: '    Scanning data/processed/game_context.parquet', delay: 1600, class: 'info' },
+        { text: '    Scanning data/cache/player_week_identity.parquet', delay: 1200, class: 'info' },
+        { text: '    Scanning data/processed/defense_weekly_features.parquet', delay: 1400, class: 'info' },
+        { text: '    Scanning data/processed/team_offense_context.parquet', delay: 1600, class: 'info' },
         { text: '    Loaded 12,847 player-game records (2019-2024)', delay: 1800, class: 'success' },
         { text: '    Loaded 1,536 team-defense records', delay: 2000, class: 'success' },
         { text: '    Loaded 1,536 game context records', delay: 2200, class: 'success' },
@@ -182,4 +182,3 @@
         }
     });
 })();
-

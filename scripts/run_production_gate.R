@@ -3,18 +3,25 @@
 # Runs cache refresh, smoke tests, and representative simulations in a
 # fail-fast, deterministic sequence.
 
-if (file.exists("README.md") && file.exists("R") && file.exists("scripts")) {
-  # Already in project root
-} else {
-  script_path <- commandArgs(trailingOnly = FALSE)
-  if (length(script_path) > 0) {
-    script_file <- sub("--file=", "", script_path[grep("--file=", script_path)])
-    if (length(script_file) > 0 && file.exists(script_file)) {
-      project_root <- dirname(dirname(normalizePath(script_file)))
-      setwd(project_root)
-    }
+get_script_path <- function() {
+  cmd_args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- "--file="
+  match <- grep(file_arg, cmd_args, value = TRUE)
+  if (length(match) > 0) {
+    return(normalizePath(sub(file_arg, "", match[1])))
   }
+  if (!is.null(sys.frames()[[1]]$ofile)) {
+    return(normalizePath(sys.frames()[[1]]$ofile))
+  }
+  stop("Unable to determine script path to set working directory.")
 }
+
+script_path <- get_script_path()
+repo_root <- normalizePath(file.path(dirname(script_path), ".."))
+setwd(repo_root)
+options(READTHEFIELD_REPO_ROOT = repo_root)
+
+source(file.path(repo_root, "R/simulation/bootstrap_simulation.R"))
 
 options(warn = 1)
 
@@ -23,9 +30,6 @@ fail_fast <- function(msg) {
   quit(status = 1)
 }
 
-if (file.exists("R/simulation/warning_policy_v1.R")) {
-  source("R/simulation/warning_policy_v1.R", local = TRUE)
-}
 
 parse_args <- function() {
   args <- commandArgs(trailingOnly = TRUE)
@@ -157,11 +161,6 @@ for (test_script in smoke_tests) {
 cat("\n")
 
 cat("Step 3: Representative simulation (sanity check)\n")
-tryCatch({
-  source("R/simulation/bootstrap_simulation.R")
-}, error = function(e) {
-  fail_fast(paste0("Failed to load bootstrap: ", conditionMessage(e)))
-})
 if (!exists("simulate_player_game_v1")) {
   fail_fast("simulate_player_game_v1 not loaded. Check bootstrap_simulation.R.")
 }

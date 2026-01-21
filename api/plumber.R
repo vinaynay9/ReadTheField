@@ -1,7 +1,15 @@
 # ReadTheField API
 # Start from repo root with: Rscript api/run_api.R
 
-setwd(normalizePath(".."))
+repo_root <- getOption("READTHEFIELD_REPO_ROOT")
+if (is.null(repo_root) || !nzchar(repo_root)) {
+  stop("READTHEFIELD_REPO_ROOT not set. Start the API with Rscript api/run_api.R.")
+}
+repo_root <- normalizePath(repo_root, mustWork = TRUE)
+
+source_repo <- function(path, local = FALSE) {
+  source(file.path(repo_root, path), local = local)
+}
 
 if (!requireNamespace("plumber", quietly = TRUE)) {
   stop("Package 'plumber' is required. Install with install.packages('plumber').")
@@ -10,17 +18,72 @@ if (!requireNamespace("jsonlite", quietly = TRUE)) {
   stop("Package 'jsonlite' is required. Install with install.packages('jsonlite').")
 }
 
-source("R/simulation/simulate_player_game_v1.R")
+source_repo("R/simulation/bootstrap_simulation.R")
 
-if (!exists("read_player_directory_cache") || !exists("read_player_week_identity_cache")) {
-  source("R/data/build_weekly_player_layers.R", local = TRUE)
+PLAYER_DIRECTORY <- NULL
+PLAYER_WEEK_IDENTITY <- NULL
+TEAM_REGISTRY <- NULL
+
+load_parquet_df <- function(label, path) {
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("Package 'arrow' is required to read ", label, ". Install with install.packages('arrow').")
+  }
+  if (!file.exists(path)) {
+    stop(label, " missing at ", path)
+  }
+  df <- arrow::read_parquet(path)
+  if (is.null(df) || nrow(df) == 0) {
+    stop(label, " is empty at ", path)
+  }
+  df <- as.data.frame(df)
+  stopifnot(is.data.frame(df))
+  df
 }
-if (!exists("load_schedules")) {
-  source("R/data/load_schedules.R", local = TRUE)
+
+get_player_directory <- function() {
+  if (is.null(PLAYER_DIRECTORY)) {
+    path <- file.path(repo_root, "data", "cache", "player_directory.parquet")
+    PLAYER_DIRECTORY <<- load_parquet_df("player_directory.parquet", path)
+  }
+  PLAYER_DIRECTORY
 }
-if (!exists("get_available_seasons_from_cache")) {
-  source("R/utils/cache_helpers.R", local = TRUE)
+
+get_player_week_identity <- function() {
+  if (is.null(PLAYER_WEEK_IDENTITY)) {
+    path <- file.path(repo_root, "data", "cache", "player_week_identity.parquet")
+    PLAYER_WEEK_IDENTITY <<- load_parquet_df("player_week_identity.parquet", path)
+  }
+  PLAYER_WEEK_IDENTITY
 }
+
+get_team_registry <- function() {
+  if (is.null(TEAM_REGISTRY)) {
+    path <- file.path(repo_root, "data", "teams", "teams.csv")
+    if (!file.exists(path)) {
+      stop("teams.csv missing at ", path)
+    }
+    team_df <- read.csv(path, stringsAsFactors = FALSE)
+    required_cols <- c("team", "slug", "name", "conference", "division", "color_primary", "color_secondary")
+    missing <- setdiff(required_cols, names(team_df))
+    if (length(missing) > 0) {
+      stop("teams.csv missing columns: ", paste(missing, collapse = ", "))
+    }
+    team_df$team <- toupper(as.character(team_df$team))
+    team_df$slug <- as.character(team_df$slug)
+    team_df$name <- as.character(team_df$name)
+    TEAM_REGISTRY <<- team_df[order(team_df$conference, team_df$division, team_df$name), , drop = FALSE]
+  }
+  TEAM_REGISTRY
+}
+
+read_player_directory_cache <- function() {
+  get_player_directory()
+}
+
+read_player_week_identity_cache <- function() {
+  get_player_week_identity()
+}
+
 
 get_col <- function(df, candidates, default = NA) {
   for (nm in candidates) {
@@ -71,7 +134,7 @@ get_available_seasons <- function() {
     }
   }
   if (length(seasons) == 0 && exists("read_player_week_identity_cache")) {
-    identity <- read_player_week_identity_cache()
+    identity <- get_player_week_identity()
     if (!is.null(identity) && "season" %in% names(identity)) {
       seasons <- unique(as.integer(identity$season))
     }
@@ -81,12 +144,9 @@ get_available_seasons <- function() {
 }
 
 get_players <- function() {
-  dir <- read_player_directory_cache()
-  if (is.null(dir) || nrow(dir) == 0) {
-    return(data.frame())
-  }
+  dir <- get_player_directory()
   ids <- as.character(get_col(dir, c("player_id", "gsis_id"), ""))
-  names <- as.character(get_col(dir, c("full_name", "player_name", "name"), ""))
+  names <- as.character(get_col(dir, c("player_name", "full_name", "name"), ""))
   positions <- toupper(as.character(get_col(dir, c("position"), "")))
   teams <- toupper(as.character(get_col(dir, c("team", "team_abbr"), "")))
   seasons <- as.integer(get_col(dir, c("season", "season_year"), NA))
@@ -99,7 +159,14 @@ get_players <- function() {
     season = seasons,
     stringsAsFactors = FALSE
   )
-  players <- players[players$player_id != "" & players$player_name != "", , drop = FALSE]
+  players <- players[
+    players$player_id != "" &
+      players$player_name != "" &
+      players$position != "" &
+      players$team != "",
+    , drop = FALSE
+  ]
+  players <- players[players$position %in% c("QB", "RB", "WR", "TE", "K"), , drop = FALSE]
 
   if ("season" %in% names(players)) {
     players <- players[order(players$player_id, -players$season), , drop = FALSE]
@@ -111,42 +178,13 @@ get_players <- function() {
 }
 
 get_teams <- function() {
-  seasons <- get_available_seasons()
-  if (length(seasons) == 0) {
-    return(data.frame())
-  }
-  sched <- load_schedules(seasons = seasons, cache_only = TRUE)
-  if (is.null(sched) || nrow(sched) == 0) {
-    dir <- read_player_directory_cache()
-    if (is.null(dir) || nrow(dir) == 0) return(data.frame())
-    teams <- unique(toupper(as.character(get_col(dir, c("team", "team_abbr"), ""))))
-    teams <- teams[teams != ""]
-    return(data.frame(team = teams, name = teams, stringsAsFactors = FALSE))
-  }
-
-  home_team <- toupper(as.character(get_col(sched, c("home_team", "home_team_abbr"), "")))
-  away_team <- toupper(as.character(get_col(sched, c("away_team", "away_team_abbr"), "")))
-  home_name <- as.character(get_col(sched, c("home_team_name", "home_team_full"), ""))
-  away_name <- as.character(get_col(sched, c("away_team_name", "away_team_full"), ""))
-
-  teams <- data.frame(
-    team = c(home_team, away_team),
-    name = c(home_name, away_name),
-    stringsAsFactors = FALSE
-  )
-  teams <- teams[teams$team != "", , drop = FALSE]
-  teams$name <- ifelse(is.na(teams$name) | teams$name == "", teams$team, teams$name)
-  teams <- teams[!duplicated(teams$team), , drop = FALSE]
-  teams <- teams[order(teams$name), , drop = FALSE]
+  teams <- get_team_registry()
   rownames(teams) <- NULL
   teams
 }
 
 get_player_games <- function(player_id) {
-  identity <- read_player_week_identity_cache()
-  if (is.null(identity) || nrow(identity) == 0) {
-    return(data.frame())
-  }
+  identity <- get_player_week_identity()
   identity$player_id <- as.character(identity$player_id)
   rows <- identity[identity$player_id == as.character(player_id), , drop = FALSE]
   if (nrow(rows) == 0) {
@@ -161,8 +199,7 @@ get_player_games <- function(player_id) {
 }
 
 get_next_game <- function(player_id) {
-  dir <- read_player_directory_cache()
-  if (is.null(dir) || nrow(dir) == 0) return(NULL)
+  dir <- get_player_directory()
   dir$player_id <- as.character(get_col(dir, c("player_id", "gsis_id"), ""))
   rows <- dir[dir$player_id == as.character(player_id), , drop = FALSE]
   if (nrow(rows) == 0) return(NULL)
@@ -279,7 +316,7 @@ simulate_endpoint <- function(req, res) {
     return(list(status = "error", message = "Request body is required."))
   }
 
-  directory_df <- read_player_directory_cache()
+  directory_df <- get_player_directory()
   player_id <- body$player_id
   if (is.null(player_id) || !nzchar(trimws(as.character(player_id)))) {
     player_id <- resolve_player_id(body$player_name, directory_df)

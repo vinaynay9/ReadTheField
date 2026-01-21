@@ -29,26 +29,9 @@ The system currently supports five position groups:
 - **TE**: Tight ends
 - **K**: Kickers
 
-### Modeling Base Schema
+### Modeling Base Schema (Deprecated)
 
-The `modeling_base.parquet` schema (documented in `docs/schema/modeling_base_v1.md`) contains:
-
-**Identifiers and Metadata:**
-- Primary keys: `game_id`, `player_id`
-- Temporal ordering: `season`, `week`, `gameday`
-- Context: `team`, `opponent`, `home_away`, `is_home`
-
-**Pre-Game Features (Leakage-Safe):**
-- Player bio: `height_in`, `weight_lb`, `age`, `experience_years`
-- Rolling usage: `carries_roll3`, `carries_roll5`, `targets_roll3`, `targets_roll5` (position-specific)
-- Efficiency metrics: `yards_per_carry_roll5`, `yards_per_target_roll5`, `catch_rate_roll5` (ratio-of-sums)
-- Team context: `team_pass_attempts_roll5`, `team_rush_attempts_roll5`, `team_points_roll5`
-- Opponent context: `opp_rush_yards_allowed_roll5`, `opp_pass_yards_allowed_roll5`, etc.
-- Position-specific features: QB, RB, WR, TE, and K each have dedicated feature sets
-
-**Post-Game Targets:**
-- Position-specific target columns prefixed with `target_` (e.g., `target_rb_rush_yards`, `target_wr_receptions`)
-- Targets are never used as features for the same row
+`modeling_base.parquet` is a legacy artifact and is not produced by the current pipeline. The active contracts are the position-specific weekly feature caches and `defense_weekly_features.parquet`. See `data/processed/README.md` for the canonical list of produced artifacts.
 
 ### Features vs Targets
 
@@ -603,7 +586,7 @@ The system fails safely by:
 - Safe fallback values for missing features
 
 **Data Structure Validation:**
-- Schema documentation exists (`docs/schema/modeling_base_v1.md`)
+- Legacy schema documentation exists (`docs/schema/modeling_base_v1.md`, deprecated; not produced)
 - Validation checklist defined but not automated
 
 **No Model Performance Validation:**
@@ -788,10 +771,9 @@ The RB pipeline is runnable end-to-end with manual orchestration:
 ### Documentation Files
 
 - `docs/distributions_v1.md` - Distribution framework specification
-- `docs/schema/modeling_base_v1.md` - Schema specification
+- `docs/schema/modeling_base_v1.md` - Deprecated legacy schema (not produced)
 - `README.md` - Project overview
 
 ---
 
 **End of Report**
-

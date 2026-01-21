@@ -21,11 +21,7 @@ player_directory_path <- file.path("data", "cache", "player_directory.parquet")
 
 # Ensure cache helpers are available for build_game_key
 if (!exists("build_game_key")) {
-  if (file.exists("R/utils/cache_helpers.R")) {
-    source("R/utils/cache_helpers.R", local = TRUE)
-  } else {
-    stop("R/utils/cache_helpers.R is required for building game keys")
-  }
+  stop("Cache helpers not loaded. Source R/simulation/bootstrap_simulation.R before calling build_weekly_player_layers.")
 }
 
 normalize_team_abbr <- function(team, season) {
@@ -48,11 +44,7 @@ normalize_team_abbr <- function(team, season) {
 
 build_schedule_team_lookup <- function(seasons) {
   if (!exists("load_schedules")) {
-    if (file.exists("R/data/load_schedules.R")) {
-      source("R/data/load_schedules.R", local = TRUE)
-    } else {
-      stop("R/data/load_schedules.R is required for schedule joins")
-    }
+    stop("load_schedules not loaded. Source R/simulation/bootstrap_simulation.R before calling build_schedule_team_lookup.")
   }
   schedules <- load_schedules(seasons, use_cache = TRUE)
   if (is.null(schedules) || nrow(schedules) == 0) {
@@ -115,6 +107,26 @@ load_weekly_player_stats_from_nflreadr <- function(seasons, season_type) {
     stop("Package 'nflreadr' is required. Install with install.packages('nflreadr').")
   }
 
+  snapshot_key <- paste0(
+    "weekly_player_stats_",
+    season_type_input,
+    "_",
+    paste(seasons, collapse = "_"),
+    ".rds"
+  )
+  use_raw_cache <- isTRUE(getOption("READTHEFIELD_USE_RAW_CACHE", TRUE))
+  freeze_raw <- isTRUE(getOption("READTHEFIELD_FREEZE_RAW", FALSE))
+  if (exists("read_raw_snapshot") && use_raw_cache) {
+    cached_raw <- read_raw_snapshot(snapshot_key)
+    if (!is.null(cached_raw) && nrow(cached_raw) > 0) {
+      assign(cache_key, cached_raw, envir = .weekly_player_stats_env)
+      return(cached_raw)
+    }
+  }
+  if (freeze_raw) {
+    stop("Raw snapshot missing for weekly_player_stats (", snapshot_key, "). Set READTHEFIELD_FREEZE_RAW=FALSE to download.")
+  }
+
   raw_stats <- nflreadr::load_player_stats(
     seasons = seasons,
     summary_level = "week"
@@ -137,6 +149,17 @@ load_weekly_player_stats_from_nflreadr <- function(seasons, season_type) {
   }
 
   assign(cache_key, stats_df, envir = .weekly_player_stats_env)
+  if (exists("write_raw_snapshot")) {
+    write_raw_snapshot(stats_df, snapshot_key)
+  }
+  if (exists("write_snapshot_info")) {
+    write_snapshot_info(c(
+      paste0("weekly_player_stats: ", snapshot_key),
+      paste0("seasons: ", paste(seasons, collapse = ",")),
+      paste0("season_type: ", season_type_input),
+      paste0("rows: ", nrow(stats_df))
+    ))
+  }
   stats_df
 }
 
@@ -175,6 +198,59 @@ normalize_home_away <- function(values) {
   result[home_values & !away_values] <- "HOME"
   result[away_values & !home_values] <- "AWAY"
   result
+}
+
+get_allowed_team_abbrs <- function() {
+  path <- file.path("data", "teams", "teams.csv")
+  teams <- character(0)
+  if (file.exists(path)) {
+    team_df <- read.csv(path, stringsAsFactors = FALSE)
+    if ("team" %in% names(team_df)) {
+      teams <- toupper(as.character(team_df$team))
+    }
+  }
+  legacy <- c("OAK", "SD", "STL", "LA", "WAS", "JAC")
+  sort(unique(c(teams, legacy)))
+}
+
+validate_position_team_contract <- function(df,
+                                            label,
+                                            position_col = "position",
+                                            team_col = "team") {
+  if (is.null(df) || nrow(df) == 0) {
+    stop(label, " is empty; cannot validate position/team contract.")
+  }
+  if (!position_col %in% names(df)) {
+    stop(label, " missing position column: ", position_col)
+  }
+  if (!team_col %in% names(df)) {
+    stop(label, " missing team column: ", team_col)
+  }
+
+  positions <- toupper(trimws(as.character(df[[position_col]])))
+  teams <- toupper(trimws(as.character(df[[team_col]])))
+
+  if (any(is.na(positions) | positions == "")) {
+    stop(label, " contains missing positions.")
+  }
+  if (any(is.na(teams) | teams == "")) {
+    stop(label, " contains missing teams.")
+  }
+
+  allowed_positions <- c("QB", "RB", "WR", "TE", "K")
+  invalid_pos <- setdiff(unique(positions), allowed_positions)
+  if (length(invalid_pos) > 0) {
+    stop(label, " contains invalid positions: ", paste(invalid_pos, collapse = ", "))
+  }
+
+  allowed_teams <- get_allowed_team_abbrs()
+  if (length(allowed_teams) > 0) {
+    invalid_teams <- setdiff(unique(teams), allowed_teams)
+    if (length(invalid_teams) > 0) {
+      stop(label, " contains invalid team codes: ", paste(invalid_teams, collapse = ", "))
+    }
+  }
+  invisible(TRUE)
 }
 
 build_player_game_key <- function(season, week, team, opponent, game_date, game_id, player_id) {
@@ -1091,9 +1167,7 @@ build_qb_weekly_stats <- function(seasons,
 
   # Fallback: construct deterministic game_id when missing after schedule joins.
   if (!exists("build_game_key")) {
-    if (file.exists("R/utils/cache_helpers.R")) {
-      source("R/utils/cache_helpers.R", local = TRUE)
-    }
+    stop("Cache helpers not loaded. Source R/simulation/bootstrap_simulation.R before building game keys.")
   }
   if (exists("build_game_key") && "game_id" %in% names(qb_dataset)) {
     missing_game_id <- is.na(qb_dataset$game_id) | qb_dataset$game_id == ""
@@ -1256,134 +1330,119 @@ read_k_weekly_features_cache <- function() {
   read_parquet_cache(k_weekly_features_path, "K weekly features cache", "scripts/refresh_weekly_cache.R")
 }
 
-#' Build player directory cache from nflreadr
+#' Build player directory cache from player_dim (authoritative position/team)
 #'
-#' Creates a canonical player directory using nflreadr::load_players().
-#' This provides full names and player_id mappings for name resolution.
-#' player_id is the source of truth; weekly stats may use abbreviated names.
+#' Creates a canonical player directory using the most recent season row per player
+#' in player_dim. player_dim is the single source of truth for position/team.
 #'
 #' @param write_cache Logical, if TRUE write to parquet cache (default TRUE)
 #' @return data.frame with player directory columns
 build_player_directory <- function(write_cache = TRUE) {
-  if (!requireNamespace("nflreadr", quietly = TRUE)) {
-    stop("Package 'nflreadr' is required. Install with install.packages('nflreadr').")
-  }
-  
   if (!requireNamespace("arrow", quietly = TRUE)) {
     stop("Package 'arrow' is required. Install with install.packages('arrow').")
   }
-  
-  cat("Loading player directory from nflreadr (live if available)...\n")
-  cache_path <- player_directory_path
-  players <- tryCatch(
-    nflreadr::load_players(),
-    error = function(e) {
-      message("WARNING: nflreadr::load_players() failed: ", e$message)
-      NULL
-    }
-  )
-  
-  if (is.null(players) || nrow(players) == 0) {
-    message("WARNING: Live player download unavailable.")
-    
-    if (file.exists(cache_path)) {
-      message("Falling back to cached player directory: ", cache_path)
-      players <- arrow::read_parquet(cache_path)
-    } else {
-      stop(
-        "Player directory unavailable: live download failed and no cached copy exists.",
-        call. = FALSE
-      )
-    }
-  }
-  
-  # Required columns: player_id, full_name, first_name, last_name
-  required_cols <- c("gsis_id", "display_name", "first_name", "last_name")
-  
-  # Map nflreadr column names to canonical names
-  # gsis_id -> player_id
-  # display_name -> full_name
-  if (!"gsis_id" %in% names(players)) {
-    # Try alternative column names
-    if ("player_id" %in% names(players)) {
-      players$gsis_id <- players$player_id
-    } else if ("player_gsis_id" %in% names(players)) {
-      players$gsis_id <- players$player_gsis_id
-    } else {
-      stop("Cannot find player_id column in nflreadr::load_players() output. ",
-           "Expected: gsis_id, player_id, or player_gsis_id")
-    }
-  }
-  
-  if (!"display_name" %in% names(players)) {
-    if ("full_name" %in% names(players)) {
-      players$display_name <- players$full_name
-    } else if ("name" %in% names(players)) {
-      players$display_name <- players$name
-    } else {
-      stop("Cannot find full_name column in nflreadr::load_players() output. ",
-           "Expected: display_name, full_name, or name")
-    }
-  }
-  
-  if (!"first_name" %in% names(players)) {
-    stop("Cannot find first_name column in nflreadr::load_players() output.")
-  }
-  
-  if (!"last_name" %in% names(players)) {
-    stop("Cannot find last_name column in nflreadr::load_players() output.")
-  }
-  
-  # Build canonical player directory
-  player_dir <- data.frame(
-    player_id = as.character(players$gsis_id),
-    full_name = as.character(players$display_name),
-    first_name = as.character(players$first_name),
-    last_name = as.character(players$last_name),
-    stringsAsFactors = FALSE
-  )
-
-  # Optional draft metadata (leave NA when unavailable)
-  draft_round <- select_first_available(players, c("draft_round"), NA)
-  draft_pick_overall <- select_first_available(players, c("draft_pick_overall", "draft_pick"), NA)
-  player_dir$draft_round <- as.integer(draft_round)
-  player_dir$draft_pick_overall <- as.integer(draft_pick_overall)
-  
-  # Remove rows with missing player_id or full_name
-  player_dir <- player_dir[
-    !is.na(player_dir$player_id) & player_dir$player_id != "" &
-    !is.na(player_dir$full_name) & player_dir$full_name != "",
-    , drop = FALSE
-  ]
-  
-  if (nrow(player_dir) == 0) {
-    stop("Player directory built with zero valid rows. Check nflreadr::load_players() output.")
-  }
-  
-  # Remove duplicates (keep first occurrence)
-  player_dir <- player_dir[!duplicated(player_dir$player_id), , drop = FALSE]
-  
-  # Add canonical name for matching
-  # Define canonicalize_name helper if not available
   canonicalize_name_local <- function(x) {
     if (is.null(x) || length(x) == 0) {
       return(character(0))
     }
     x <- as.character(x)
     x <- tolower(x)
-    x <- gsub("\\.", "", x)  # Remove periods
-    x <- gsub("\\s+", " ", x)  # Normalize whitespace
+    x <- gsub("\\.", "", x)
+    x <- gsub("\\s+", " ", x)
     x <- trimws(x)
     x[nchar(x) == 0] <- NA_character_
     x
   }
-  
-  player_dir$canonical_name <- canonicalize_name_local(player_dir$full_name)
-  
-  # Order by player_id for consistency
-  player_dir <- player_dir[order(player_dir$player_id), ]
+
+  player_dim <- NULL
+  if (exists("read_player_dim_cache")) {
+    player_dim <- tryCatch(read_player_dim_cache(), error = function(e) NULL)
+  }
+  if (is.null(player_dim) || nrow(player_dim) == 0) {
+    player_dim_path <- file.path("data", "processed", "player_dim.parquet")
+    if (file.exists(player_dim_path)) {
+      player_dim <- tryCatch(arrow::read_parquet(player_dim_path), error = function(e) NULL)
+    }
+  }
+  if (is.null(player_dim) || nrow(player_dim) == 0) {
+    stop("player_dim cache is required to build player_directory. Run scripts/refresh_weekly_cache.R first.")
+  }
+
+  player_dim$player_id <- as.character(select_first_available(player_dim, c("player_id", "gsis_id"), NA))
+  player_dim$season <- as.integer(select_first_available(player_dim, c("season", "season_year"), NA))
+  player_dim$position <- normalize_position(select_first_available(player_dim, c("position"), NA))
+  player_dim$team <- normalize_team_abbr(select_first_available(player_dim, c("team", "team_abbr"), NA), player_dim$season)
+  player_dim$full_name <- as.character(select_first_available(player_dim, c("full_name", "display_name", "player_name", "name"), NA))
+  player_dim$first_name <- as.character(select_first_available(player_dim, c("first_name"), NA))
+  player_dim$last_name <- as.character(select_first_available(player_dim, c("last_name"), NA))
+  player_dim$draft_round <- as.integer(select_first_available(player_dim, c("draft_round"), NA))
+  player_dim$draft_pick_overall <- as.integer(select_first_available(player_dim, c("draft_pick_overall", "draft_pick"), NA))
+
+  player_dim <- player_dim[
+    !is.na(player_dim$player_id) & player_dim$player_id != "" &
+      !is.na(player_dim$season),
+    , drop = FALSE
+  ]
+  if (nrow(player_dim) == 0) {
+    stop("player_dim contains no valid (player_id, season) rows.")
+  }
+
+  player_dim <- player_dim[order(player_dim$player_id, player_dim$season), ]
+  latest_rows <- player_dim[!duplicated(player_dim$player_id, fromLast = TRUE), , drop = FALSE]
+
+  player_dir <- data.frame(
+    player_id = as.character(latest_rows$player_id),
+    player_name = as.character(latest_rows$full_name),
+    position = as.character(latest_rows$position),
+    team = as.character(latest_rows$team),
+    full_name = as.character(latest_rows$full_name),
+    first_name = as.character(latest_rows$first_name),
+    last_name = as.character(latest_rows$last_name),
+    canonical_name = canonicalize_name_local(latest_rows$full_name),
+    draft_round = as.integer(latest_rows$draft_round),
+    draft_pick_overall = as.integer(latest_rows$draft_pick_overall),
+    stringsAsFactors = FALSE
+  )
+
+  player_dir$player_name <- ifelse(
+    is.na(player_dir$player_name) | player_dir$player_name == "",
+    player_dir$player_id,
+    player_dir$player_name
+  )
+
+  missing_player_id <- is.na(player_dir$player_id) | player_dir$player_id == ""
+  if (any(missing_player_id)) {
+    stop("Player directory validation failed: missing player_id values detected.")
+  }
+
+  valid_positions <- c("QB", "RB", "WR", "TE", "K")
+  invalid_positions <- setdiff(unique(player_dir$position), valid_positions)
+  if (length(invalid_positions) > 0) {
+    stop(
+      "Player directory validation failed: invalid positions found: ",
+      paste(invalid_positions, collapse = ", ")
+    )
+  }
+
+  team_present <- !is.na(player_dir$team) & player_dir$team != ""
+  if (any(!team_present)) {
+    stop("Player directory validation failed: team is missing for one or more players.")
+  }
+
+  allowed_teams <- get_allowed_team_abbrs()
+  if (length(allowed_teams) > 0) {
+    invalid_teams <- setdiff(unique(player_dir$team), allowed_teams)
+    if (length(invalid_teams) > 0) {
+      stop(
+        "Player directory validation failed: invalid team codes detected: ",
+        paste(invalid_teams, collapse = ", ")
+      )
+    }
+  }
+
+  player_dir <- player_dir[order(player_dir$player_name, player_dir$team), ]
   rownames(player_dir) <- NULL
-  
+
   if (write_cache) {
     dir.create(dirname(player_directory_path), recursive = TRUE, showWarnings = FALSE)
     tryCatch(
@@ -1396,11 +1455,10 @@ build_player_directory <- function(write_cache = TRUE) {
       }
     )
   }
-  
+
   player_dir
 }
 
 read_player_directory_cache <- function() {
   read_parquet_cache(player_directory_path, "Player directory cache", "scripts/refresh_weekly_cache.R")
 }
-

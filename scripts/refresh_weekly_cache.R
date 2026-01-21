@@ -3,58 +3,37 @@
 # Builds Layer 1/2 caches and Layer 3 RB rolling features using nflreadr.
 # This script is the only place that performs nflreadr downloads.
 
-if (basename(getwd()) == "scripts") {
-  setwd("..")
+get_script_path <- function() {
+  cmd_args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- "--file="
+  match <- grep(file_arg, cmd_args, value = TRUE)
+  if (length(match) > 0) {
+    return(normalizePath(sub(file_arg, "", match[1])))
+  }
+  if (!is.null(sys.frames()[[1]]$ofile)) {
+    return(normalizePath(sys.frames()[[1]]$ofile))
+  }
+  stop("Unable to determine script path to set working directory.")
 }
 
-if (!exists("build_player_week_identity") || !exists("build_rb_weekly_stats") ||
-    !exists("build_wr_weekly_stats") || !exists("build_te_weekly_stats") ||
-    !exists("read_rb_weekly_features_cache") || !exists("read_wr_weekly_features_cache") ||
-    !exists("read_te_weekly_features_cache")) {
-  if (file.exists("R/data/build_weekly_player_layers.R")) {
-    source("R/data/build_weekly_player_layers.R")
-  } else {
-    stop("Missing R/data/build_weekly_player_layers.R")
-  }
-}
-if (!exists("build_player_dim")) {
-  if (file.exists("R/data/build_player_dim.R")) {
-    source("R/data/build_player_dim.R")
-  } else {
-    stop("Missing R/data/build_player_dim.R")
-  }
-}
+script_path <- get_script_path()
+repo_root <- normalizePath(file.path(dirname(script_path), ".."))
+setwd(repo_root)
+options(READTHEFIELD_REPO_ROOT = repo_root)
+options(READTHEFIELD_SKIP_CACHE_CHECK = TRUE)
 
-if (!exists("assemble_rb_weekly_features")) {
-  if (file.exists("R/assemble/assemble_rb_training_data.R")) {
-    source("R/assemble/assemble_rb_training_data.R")
-  } else {
-    stop("Missing R/assemble/assemble_rb_training_data.R")
+args <- commandArgs(trailingOnly = TRUE)
+mode_arg <- args[grepl("^--mode=", args)]
+if (length(mode_arg) > 0) {
+  mode_val <- sub("^--mode=", "", mode_arg[1])
+  if (nzchar(mode_val)) {
+    options(READTHEFIELD_REFRESH_MODE = mode_val)
   }
 }
 
-if (!exists("assemble_wr_weekly_features")) {
-  if (file.exists("R/positions/WR/assemble_wr_training_data.R")) {
-    source("R/positions/WR/assemble_wr_training_data.R")
-  } else {
-    stop("Missing R/positions/WR/assemble_wr_training_data.R")
-  }
-}
-
-if (!exists("assemble_te_weekly_features")) {
-  if (file.exists("R/positions/TE/assemble_te_training_data.R")) {
-    source("R/positions/TE/assemble_te_training_data.R")
-  } else {
-    stop("Missing R/positions/TE/assemble_te_training_data.R")
-  }
-}
-
-if (!exists("lagged_roll_mean") || !exists("lagged_roll_sum")) {
-  if (file.exists("R/utils/rolling_helpers.R")) {
-    source("R/utils/rolling_helpers.R")
-  } else {
-    stop("Missing R/utils/rolling_helpers.R required for rolling features")
-  }
+source(file.path(repo_root, "R/simulation/bootstrap_simulation.R"))
+if (!exists("get_rb_v1_targets")) {
+  stop("Bootstrap incomplete: get_rb_v1_targets not loaded.")
 }
 
 current_year <- as.integer(format(Sys.Date(), "%Y"))
@@ -101,9 +80,40 @@ resolve_max_season <- function(default_year) {
   max_season
 }
 max_season <- resolve_max_season(current_year)
-seasons_to_refresh <- 1999:max_season
+refresh_mode <- getOption("READTHEFIELD_REFRESH_MODE", "daily")
+refresh_mode <- tolower(as.character(refresh_mode)[1])
+if (!refresh_mode %in% c("daily", "full")) {
+  stop("Invalid READTHEFIELD_REFRESH_MODE: ", refresh_mode, ". Use 'daily' or 'full'.")
+}
 
-cat("Refreshing weekly RB caches for seasons", min(seasons_to_refresh), "through", max(seasons_to_refresh), "...\n")
+if (refresh_mode == "full") {
+  seasons_to_refresh <- 1999:max_season
+} else {
+  seasons_to_refresh <- unique(c(max_season, max_season - 1))
+  seasons_to_refresh <- seasons_to_refresh[seasons_to_refresh >= 1999]
+}
+
+cat("Refresh mode:", refresh_mode, "\n")
+cat("Refreshing weekly caches for seasons", min(seasons_to_refresh), "through", max(seasons_to_refresh), "...\n")
+
+# Cache paths for output and reuse
+player_directory_path <- file.path("data", "cache", "player_directory.parquet")
+player_week_identity_path <- file.path("data", "cache", "player_week_identity.parquet")
+rb_weekly_stats_path <- file.path("data", "cache", "rb_weekly_stats.parquet")
+rb_weekly_features_path <- file.path("data", "processed", "rb_weekly_features.parquet")
+wr_weekly_stats_path <- file.path("data", "cache", "wr_weekly_stats.parquet")
+wr_weekly_features_path <- file.path("data", "processed", "wr_weekly_features.parquet")
+te_weekly_stats_path <- file.path("data", "cache", "te_weekly_stats.parquet")
+te_weekly_features_path <- file.path("data", "processed", "te_weekly_features.parquet")
+qb_weekly_stats_path <- file.path("data", "cache", "qb_weekly_stats.parquet")
+qb_player_weekly_features_path <- file.path("data", "processed", "qb_player_weekly_features.parquet")
+k_weekly_stats_path <- file.path("data", "cache", "k_weekly_stats.parquet")
+k_weekly_features_path <- file.path("data", "processed", "k_weekly_features.parquet")
+defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
+player_dim_path <- file.path("data", "processed", "player_dim.parquet")
+team_offense_context_path <- file.path("data", "processed", "team_offense_context.parquet")
+qb_weekly_features_path <- file.path("data", "processed", "qb_weekly_features.parquet")
+prior_season_player_stats_path <- file.path("data", "processed", "prior_season_player_stats.parquet")
 
 # Rolling window diagnostics (no mutation)
 log_roll_window_summary <- function(df, label, expected_windows = NULL, disallowed_windows = NULL) {
@@ -163,111 +173,206 @@ validate_roll_na_weeks <- function(df, label, roll_size, weeks) {
   invisible(NULL)
 }
 
-# Build player directory cache (required for name resolution)
-if (!exists("build_player_directory")) {
-  if (file.exists("R/data/build_weekly_player_layers.R")) {
-    source("R/data/build_weekly_player_layers.R")
-  } else {
-    stop("Missing R/data/build_weekly_player_layers.R")
+run_block <- function(label, expr) {
+  timing <- system.time(result <- eval(expr, parent.frame()))
+  cat("Timing:", label, "-", sprintf("%.1f", timing[["elapsed"]]), "sec\n")
+  result
+}
+
+ensure_arrow <- function() {
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("Package 'arrow' is required to read/write parquet caches. Install with install.packages('arrow').")
   }
 }
 
-message("Building player directory cache (live if available, cached fallback)...")
-player_dir <- build_player_directory(write_cache = TRUE)
-stopifnot(exists("player_dir"), nrow(player_dir) > 1000)
-cat("  Built player directory cache with", nrow(player_dir), "players\n")
-
-cat("  Building player dimension cache...\n")
-player_dim <- build_player_dim(seasons = seasons_to_refresh, write_cache = TRUE)
-if (nrow(player_dim) == 0) {
-  stop("Player dimension cache built with zero rows; ensure nflreadr returned data.")
+read_parquet_safe <- function(path) {
+  if (!file.exists(path)) return(NULL)
+  ensure_arrow()
+  arrow::read_parquet(path)
 }
-cat("  Built player dimension cache with", nrow(player_dim), "rows\n")
 
-identity <- build_player_week_identity(
-  seasons = seasons_to_refresh,
-  season_type = "REG",
-  write_cache = TRUE
-)
-if (nrow(identity) == 0) {
-  stop("Player identity cache built with zero rows; ensure nflreadr returned data and try again.")
+merge_season_cache <- function(existing, refreshed, seasons) {
+  if (is.null(existing) || nrow(existing) == 0) return(refreshed)
+  if (is.null(refreshed) || nrow(refreshed) == 0) return(existing)
+  if (!"season" %in% names(existing) || !"season" %in% names(refreshed)) {
+    stop("Cannot merge caches: missing 'season' column.")
+  }
+  keep_existing <- existing[!as.integer(existing$season) %in% as.integer(seasons), , drop = FALSE]
+  combined <- rbind(keep_existing, refreshed)
+  combined
 }
-cat("  Built player week identity cache with", nrow(identity), "rows\n")
 
-rb_stats <- build_rb_weekly_stats(
-  seasons = seasons_to_refresh,
-  season_type = "REG",
-  write_cache = TRUE
-)
-if (nrow(rb_stats) == 0) {
-  stop("RB weekly stats cache built with zero rows; ensure nflreadr returned RB rows.")
-}
-cat("  Built RB weekly stats cache with", nrow(rb_stats), "rows\n")
-
-wr_stats <- build_wr_weekly_stats(
-  seasons = seasons_to_refresh,
-  season_type = "REG",
-  write_cache = TRUE
-)
-if (nrow(wr_stats) == 0) {
-  stop("WR weekly stats cache built with zero rows; ensure nflreadr returned WR rows.")
-}
-cat("  Built WR weekly stats cache with", nrow(wr_stats), "rows\n")
-
-te_stats <- build_te_weekly_stats(
-  seasons = seasons_to_refresh,
-  season_type = "REG",
-  write_cache = TRUE
-)
-if (nrow(te_stats) == 0) {
-  stop("TE weekly stats cache built with zero rows; ensure nflreadr returned TE rows.")
-}
-cat("  Built TE weekly stats cache with", nrow(te_stats), "rows\n")
-
-qb_stats <- build_qb_weekly_stats(
-  seasons = seasons_to_refresh,
-  season_type = "REG",
-  write_cache = TRUE
-)
-if (nrow(qb_stats) == 0) {
-  stop("QB weekly stats cache built with zero rows; ensure nflreadr returned QB rows.")
-}
-cat("  Built QB weekly stats cache with", nrow(qb_stats), "rows\n")
-
-k_stats <- build_k_weekly_stats(
-  seasons = seasons_to_refresh,
-  season_type = "REG",
-  write_cache = TRUE
-)
-if (nrow(k_stats) == 0) {
-  stop("K weekly stats cache built with zero rows; ensure nflreadr returned K rows.")
-}
-cat("  Built K weekly stats cache with", nrow(k_stats), "rows\n")
-
-# ------------------------------------------------------------------
-# Build defensive weekly features FIRST (dependency for RB features)
-# ------------------------------------------------------------------
-
-cat("  Computing defensive weekly features...\n")
-
-if (!exists("build_team_defense_game_stats")) {
-  if (file.exists("R/data/build_team_defense_game_stats.R")) {
-    source("R/data/build_team_defense_game_stats.R")
-  } else {
-    stop("Missing R/data/build_team_defense_game_stats.R")
+stats_seasons <- seasons_to_refresh
+if (refresh_mode == "daily") {
+  existing_stats_probe <- read_parquet_safe(rb_weekly_stats_path)
+  if (is.null(existing_stats_probe) ||
+      !"season" %in% names(existing_stats_probe) ||
+      all(as.integer(existing_stats_probe$season) %in% as.integer(seasons_to_refresh))) {
+    stats_seasons <- 1999:max_season
+    cat("  Daily mode: historical stats cache missing; refreshing full seasons for weekly stats/identity.\n")
   }
 }
 
-if (!exists("build_team_defense_features")) {
-  if (file.exists("R/features/build_team_defense_features.R")) {
-    source("R/features/build_team_defense_features.R")
-  } else {
-    stop("Missing R/features/build_team_defense_features.R")
+existing_identity <- if (refresh_mode == "daily") read_parquet_safe(player_week_identity_path) else NULL
+identity <- run_block("player week identity cache", quote({
+  identity <- build_player_week_identity(
+    seasons = stats_seasons,
+    season_type = "REG",
+    write_cache = TRUE
+  )
+  if (nrow(identity) == 0) {
+    stop("Player identity cache built with zero rows; ensure nflreadr returned data and try again.")
   }
+  cat("  Built player week identity cache with", nrow(identity), "rows\n")
+  identity
+}))
+if (refresh_mode == "daily" && !is.null(existing_identity)) {
+  identity <- merge_season_cache(existing_identity, identity, stats_seasons)
+  ensure_arrow()
+  arrow::write_parquet(identity, player_week_identity_path)
+  cat("  Daily mode: merged player week identity cache with existing seasons.\n")
 }
 
-def_game_stats <- build_team_defense_game_stats(seasons = seasons_to_refresh)
-def_features <- build_team_defense_features(def_game_stats)
+if (refresh_mode == "full") {
+  player_dim <- run_block("player dimension cache", quote({
+    cat("  Building player dimension cache...\n")
+    player_dim <- build_player_dim(seasons = seasons_to_refresh, write_cache = TRUE)
+    if (nrow(player_dim) == 0) {
+      stop("Player dimension cache built with zero rows; ensure nflreadr returned data.")
+    }
+    cat("  Built player dimension cache with", nrow(player_dim), "rows\n")
+    player_dim
+  }))
+} else {
+  cat("  Daily mode: skipping player dimension rebuild (reusing existing cache).\n")
+}
+
+existing_rb_stats <- if (refresh_mode == "daily") read_parquet_safe(rb_weekly_stats_path) else NULL
+rb_stats <- run_block("RB weekly stats cache", quote({
+  rb_stats <- build_rb_weekly_stats(
+    seasons = stats_seasons,
+    season_type = "REG",
+    write_cache = TRUE
+  )
+  if (nrow(rb_stats) == 0) {
+    stop("RB weekly stats cache built with zero rows; ensure nflreadr returned RB rows.")
+  }
+  cat("  Built RB weekly stats cache with", nrow(rb_stats), "rows\n")
+  rb_stats
+}))
+if (refresh_mode == "daily" && !is.null(existing_rb_stats)) {
+  rb_stats <- merge_season_cache(existing_rb_stats, rb_stats, stats_seasons)
+  ensure_arrow()
+  arrow::write_parquet(rb_stats, rb_weekly_stats_path)
+  cat("  Daily mode: merged RB weekly stats with existing seasons.\n")
+}
+
+existing_wr_stats <- if (refresh_mode == "daily") read_parquet_safe(wr_weekly_stats_path) else NULL
+wr_stats <- run_block("WR weekly stats cache", quote({
+  wr_stats <- build_wr_weekly_stats(
+    seasons = stats_seasons,
+    season_type = "REG",
+    write_cache = TRUE
+  )
+  if (nrow(wr_stats) == 0) {
+    stop("WR weekly stats cache built with zero rows; ensure nflreadr returned WR rows.")
+  }
+  cat("  Built WR weekly stats cache with", nrow(wr_stats), "rows\n")
+  wr_stats
+}))
+if (refresh_mode == "daily" && !is.null(existing_wr_stats)) {
+  wr_stats <- merge_season_cache(existing_wr_stats, wr_stats, stats_seasons)
+  ensure_arrow()
+  arrow::write_parquet(wr_stats, wr_weekly_stats_path)
+  cat("  Daily mode: merged WR weekly stats with existing seasons.\n")
+}
+
+existing_te_stats <- if (refresh_mode == "daily") read_parquet_safe(te_weekly_stats_path) else NULL
+te_stats <- run_block("TE weekly stats cache", quote({
+  te_stats <- build_te_weekly_stats(
+    seasons = stats_seasons,
+    season_type = "REG",
+    write_cache = TRUE
+  )
+  if (nrow(te_stats) == 0) {
+    stop("TE weekly stats cache built with zero rows; ensure nflreadr returned TE rows.")
+  }
+  cat("  Built TE weekly stats cache with", nrow(te_stats), "rows\n")
+  te_stats
+}))
+if (refresh_mode == "daily" && !is.null(existing_te_stats)) {
+  te_stats <- merge_season_cache(existing_te_stats, te_stats, stats_seasons)
+  ensure_arrow()
+  arrow::write_parquet(te_stats, te_weekly_stats_path)
+  cat("  Daily mode: merged TE weekly stats with existing seasons.\n")
+}
+
+existing_qb_stats <- if (refresh_mode == "daily") read_parquet_safe(qb_weekly_stats_path) else NULL
+qb_stats <- run_block("QB weekly stats cache", quote({
+  qb_stats <- build_qb_weekly_stats(
+    seasons = stats_seasons,
+    season_type = "REG",
+    write_cache = TRUE
+  )
+  if (nrow(qb_stats) == 0) {
+    stop("QB weekly stats cache built with zero rows; ensure nflreadr returned QB rows.")
+  }
+  cat("  Built QB weekly stats cache with", nrow(qb_stats), "rows\n")
+  qb_stats
+}))
+if (refresh_mode == "daily" && !is.null(existing_qb_stats)) {
+  qb_stats <- merge_season_cache(existing_qb_stats, qb_stats, stats_seasons)
+  ensure_arrow()
+  arrow::write_parquet(qb_stats, qb_weekly_stats_path)
+  cat("  Daily mode: merged QB weekly stats with existing seasons.\n")
+}
+
+existing_k_stats <- if (refresh_mode == "daily") read_parquet_safe(k_weekly_stats_path) else NULL
+k_stats <- run_block("K weekly stats cache", quote({
+  k_stats <- build_k_weekly_stats(
+    seasons = stats_seasons,
+    season_type = "REG",
+    write_cache = TRUE
+  )
+  if (nrow(k_stats) == 0) {
+    stop("K weekly stats cache built with zero rows; ensure nflreadr returned K rows.")
+  }
+  cat("  Built K weekly stats cache with", nrow(k_stats), "rows\n")
+  k_stats
+}))
+if (refresh_mode == "daily" && !is.null(existing_k_stats)) {
+  k_stats <- merge_season_cache(existing_k_stats, k_stats, stats_seasons)
+  ensure_arrow()
+  arrow::write_parquet(k_stats, k_weekly_stats_path)
+  cat("  Daily mode: merged K weekly stats with existing seasons.\n")
+}
+
+player_dir <- run_block("player directory cache", quote({
+  message("Building player directory cache from player_dim...")
+  player_dir <- build_player_directory(write_cache = TRUE)
+  stopifnot(exists("player_dir"), nrow(player_dir) > 1000)
+  cat("  Built player directory cache with", nrow(player_dir), "players\n")
+  player_dir
+}))
+
+if (exists("validate_position_team_contract")) {
+  validate_position_team_contract(identity, "Player week identity cache", position_col = "position", team_col = "team")
+  if (exists("read_player_dim_cache")) {
+    dim_check <- read_player_dim_cache()
+    validate_position_team_contract(dim_check, "Player dimension cache", position_col = "position", team_col = "team")
+  }
+  validate_position_team_contract(player_dir, "Player directory cache", position_col = "position", team_col = "team")
+}
+
+if (refresh_mode == "full") {
+  # ------------------------------------------------------------------
+  # Build defensive weekly features FIRST (dependency for RB features)
+  # ------------------------------------------------------------------
+
+  def_features <- run_block("defensive weekly features", quote({
+    cat("  Computing defensive weekly features...\n")
+    def_game_stats <- build_team_defense_game_stats(seasons = seasons_to_refresh)
+    def_features <- build_team_defense_features(def_game_stats)
 
 # Rolling window diagnostics (defense)
 log_roll_window_summary(def_features, "defense_weekly_features", expected_windows = c(1, 3, 5), disallowed_windows = integer(0))
@@ -313,9 +418,11 @@ if (!requireNamespace("arrow", quietly = TRUE)) {
 
 defense_weekly_path <- file.path("data", "processed", "defense_weekly_features.parquet")
 dir.create(dirname(defense_weekly_path), recursive = TRUE, showWarnings = FALSE)
-arrow::write_parquet(def_features, defense_weekly_path)
+    arrow::write_parquet(def_features, defense_weekly_path)
 
-cat("  Built defensive weekly features cache with", nrow(def_features), "rows\n")
+    cat("  Built defensive weekly features cache with", nrow(def_features), "rows\n")
+    def_features
+  }))
 
 # Validation: Check for Week 1 leakage (diagnostic only)
 week1_def <- def_features[def_features$week == 1, ]
@@ -331,45 +438,27 @@ cat("  Validated: Week 1 defensive features are NA (leakage-safe)\n")
 # ------------------------------------------------------------------
 # Build team offense context (lagged team-level signals)
 # ------------------------------------------------------------------
-cat("  Building team offense context features...\n")
-if (!exists("build_team_offense_context")) {
-  if (file.exists("R/features/build_team_offense_context.R")) {
-    source("R/features/build_team_offense_context.R")
-  } else {
-    stop("Missing R/features/build_team_offense_context.R")
-  }
-}
-team_offense_context <- build_team_offense_context(
-  seasons = seasons_to_refresh,
-  season_type = "REG",
-  write_cache = TRUE
-)
-if (nrow(team_offense_context) == 0) {
-  stop("Team offense context cache built with zero rows; ensure nflreadr returned data.")
-}
-cat("  Built team offense context cache with", nrow(team_offense_context), "rows\n")
+  team_offense_context <- run_block("team offense context features", quote({
+    cat("  Building team offense context features...\n")
+    team_offense_context <- build_team_offense_context(
+      seasons = seasons_to_refresh,
+      season_type = "REG",
+      write_cache = TRUE
+    )
+    if (nrow(team_offense_context) == 0) {
+      stop("Team offense context cache built with zero rows; ensure nflreadr returned data.")
+    }
+    cat("  Built team offense context cache with", nrow(team_offense_context), "rows\n")
+    team_offense_context
+  }))
 
 # ------------------------------------------------------------------
 # Build QB rolling features (team-level QB context)
 # ------------------------------------------------------------------
-cat("  Building QB rolling features...\n")
-if (!exists("build_qb_game_stats")) {
-  if (file.exists("R/data/build_qb_game_stats.R")) {
-    source("R/data/build_qb_game_stats.R")
-  } else {
-    stop("Missing R/data/build_qb_game_stats.R")
-  }
-}
-if (!exists("build_qb_features")) {
-  if (file.exists("R/features/build_qb_features.R")) {
-    source("R/features/build_qb_features.R")
-  } else {
-    stop("Missing R/features/build_qb_features.R")
-  }
-}
-
-qb_game_stats <- build_qb_game_stats(seasons = seasons_to_refresh, season_type = "REG")
-qb_features <- build_qb_features(qb_game_stats)
+  qb_features <- run_block("QB rolling features (team-level)", quote({
+    cat("  Building QB rolling features...\n")
+    qb_game_stats <- build_qb_game_stats(seasons = seasons_to_refresh, season_type = "REG")
+    qb_features <- build_qb_features(qb_game_stats)
 
 required_qb_cols <- c(
   "team", "season", "week",
@@ -386,33 +475,32 @@ if (!requireNamespace("arrow", quietly = TRUE)) {
 }
 qb_weekly_features_path <- file.path("data", "processed", "qb_weekly_features.parquet")
 dir.create(dirname(qb_weekly_features_path), recursive = TRUE, showWarnings = FALSE)
-arrow::write_parquet(qb_features, qb_weekly_features_path)
-cat("  Built QB rolling features cache with", nrow(qb_features), "rows\n")
+    arrow::write_parquet(qb_features, qb_weekly_features_path)
+    cat("  Built QB rolling features cache with", nrow(qb_features), "rows\n")
+    qb_features
+  }))
 
 # ------------------------------------------------------------------
 # Build prior-season player aggregates (season - 1)
 # ------------------------------------------------------------------
-cat("  Building prior-season player stats cache...\n")
-if (!exists("build_prior_season_player_stats")) {
-  if (file.exists("R/features/build_prior_season_player_stats.R")) {
-    source("R/features/build_prior_season_player_stats.R")
-  } else {
-    stop("Missing R/features/build_prior_season_player_stats.R")
-  }
-}
-prior_season_stats <- build_prior_season_player_stats(
-  seasons = seasons_to_refresh,
-  season_type = "REG",
-  write_cache = TRUE
-)
-cat("  Built prior-season stats cache with", nrow(prior_season_stats), "rows\n")
+  prior_season_stats <- run_block("prior-season player stats cache", quote({
+    cat("  Building prior-season player stats cache...\n")
+    prior_season_stats <- build_prior_season_player_stats(
+      seasons = seasons_to_refresh,
+      season_type = "REG",
+      write_cache = TRUE
+    )
+    cat("  Built prior-season stats cache with", nrow(prior_season_stats), "rows\n")
+    prior_season_stats
+  }))
 
 # ------------------------------------------------------------------
 # NOW assemble RB rolling features (safe to depend on defense cache)
 # ------------------------------------------------------------------
 
-cat("  Computing RB rolling features...\n")
-rb_features <- assemble_rb_weekly_features(rb_stats)
+  rb_features <- run_block("RB rolling features", quote({
+    cat("  Computing RB rolling features...\n")
+    rb_features <- assemble_rb_weekly_features(rb_stats)
 
 # Rolling window diagnostics (RB)
 log_roll_window_summary(rb_features, "rb_weekly_features", expected_windows = c(1, 3, 5))
@@ -431,14 +519,17 @@ if (nrow(rb_features) == 0) {
   stop("RB weekly features cache empty after feature computation.")
 }
 
-cat("  Built RB weekly features cache with", nrow(rb_features), "rows\n")
+    cat("  Built RB weekly features cache with", nrow(rb_features), "rows\n")
+    rb_features
+  }))
 
 # ------------------------------------------------------------------
 # Build WR rolling features
 # ------------------------------------------------------------------
 
-cat("  Computing WR rolling features...\n")
-wr_features <- assemble_wr_weekly_features(wr_stats)
+  wr_features <- run_block("WR rolling features", quote({
+    cat("  Computing WR rolling features...\n")
+    wr_features <- assemble_wr_weekly_features(wr_stats)
 
 log_roll_window_summary(wr_features, "wr_weekly_features", expected_windows = c(1, 3, 5))
 validate_roll_na_weeks(wr_features, "wr_weekly_features", 1, 1)
@@ -456,14 +547,17 @@ if (nrow(wr_features) == 0) {
   stop("WR weekly features cache empty after feature computation.")
 }
 
-cat("  Built WR weekly features cache with", nrow(wr_features), "rows\n")
+    cat("  Built WR weekly features cache with", nrow(wr_features), "rows\n")
+    wr_features
+  }))
 
 # ------------------------------------------------------------------
 # Build TE rolling features
 # ------------------------------------------------------------------
 
-cat("  Computing TE rolling features...\n")
-te_features <- assemble_te_weekly_features(te_stats)
+  te_features <- run_block("TE rolling features", quote({
+    cat("  Computing TE rolling features...\n")
+    te_features <- assemble_te_weekly_features(te_stats)
 
 log_roll_window_summary(te_features, "te_weekly_features", expected_windows = c(1, 3, 5))
 validate_roll_na_weeks(te_features, "te_weekly_features", 1, 1)
@@ -481,21 +575,17 @@ if (nrow(te_features) == 0) {
   stop("TE weekly features cache empty after feature computation.")
 }
 
-cat("  Built TE weekly features cache with", nrow(te_features), "rows\n")
+    cat("  Built TE weekly features cache with", nrow(te_features), "rows\n")
+    te_features
+  }))
 
 # ------------------------------------------------------------------
 # Build QB rolling features (player-level QB modeling cache)
 # ------------------------------------------------------------------
 
-cat("  Computing QB rolling features (player-level)...\n")
-if (!exists("assemble_qb_weekly_features")) {
-  if (file.exists("R/positions/QB/assemble_qb_training_data.R")) {
-    source("R/positions/QB/assemble_qb_training_data.R")
-  } else {
-    stop("Missing R/positions/QB/assemble_qb_training_data.R")
-  }
-}
-qb_features_player <- assemble_qb_weekly_features(qb_stats)
+  qb_features_player <- run_block("QB rolling features (player-level)", quote({
+    cat("  Computing QB rolling features (player-level)...\n")
+    qb_features_player <- assemble_qb_weekly_features(qb_stats)
 
 log_roll_window_summary(qb_features_player, "qb_player_weekly_features", expected_windows = c(1, 3, 5))
 validate_roll_na_weeks(qb_features_player, "qb_player_weekly_features", 1, 1)
@@ -512,21 +602,17 @@ arrow::write_parquet(qb_features_player, qb_weekly_features_player_path)
 if (nrow(qb_features_player) == 0) {
   stop("QB weekly features cache empty after feature computation.")
 }
-cat("  Built QB weekly features cache with", nrow(qb_features_player), "rows\n")
+    cat("  Built QB weekly features cache with", nrow(qb_features_player), "rows\n")
+    qb_features_player
+  }))
 
 # ------------------------------------------------------------------
 # Build K rolling features
 # ------------------------------------------------------------------
 
-cat("  Computing K rolling features...\n")
-if (!exists("assemble_k_weekly_features")) {
-  if (file.exists("R/positions/K/assemble_k_training_data.R")) {
-    source("R/positions/K/assemble_k_training_data.R")
-  } else {
-    stop("Missing R/positions/K/assemble_k_training_data.R")
-  }
-}
-k_features <- assemble_k_weekly_features(k_stats)
+  k_features <- run_block("K rolling features", quote({
+    cat("  Computing K rolling features...\n")
+    k_features <- assemble_k_weekly_features(k_stats)
 
 log_roll_window_summary(k_features, "k_weekly_features", expected_windows = c(1, 3, 5))
 validate_roll_na_weeks(k_features, "k_weekly_features", 1, 1)
@@ -542,26 +628,133 @@ arrow::write_parquet(k_features, k_weekly_features_path)
 if (nrow(k_features) == 0) {
   stop("K weekly features cache empty after feature computation.")
 }
-cat("  Built K weekly features cache with", nrow(k_features), "rows\n")
+    cat("  Built K weekly features cache with", nrow(k_features), "rows\n")
+    k_features
+  }))
+} else {
+  cat("  Daily mode: skipping defense, team context, and rolling feature rebuilds.\n")
+}
 
-# Get cache paths for output
-player_directory_path <- file.path("data", "cache", "player_directory.parquet")
-player_week_identity_path <- file.path("data", "cache", "player_week_identity.parquet")
-rb_weekly_stats_path <- file.path("data", "cache", "rb_weekly_stats.parquet")
-rb_weekly_features_path <- file.path("data", "processed", "rb_weekly_features.parquet")
-wr_weekly_stats_path <- file.path("data", "cache", "wr_weekly_stats.parquet")
-wr_weekly_features_path <- file.path("data", "processed", "wr_weekly_features.parquet")
-te_weekly_stats_path <- file.path("data", "cache", "te_weekly_stats.parquet")
-te_weekly_features_path <- file.path("data", "processed", "te_weekly_features.parquet")
-qb_weekly_stats_path <- file.path("data", "cache", "qb_weekly_stats.parquet")
-qb_player_weekly_features_path <- file.path("data", "processed", "qb_player_weekly_features.parquet")
-k_weekly_stats_path <- file.path("data", "cache", "k_weekly_stats.parquet")
-k_weekly_features_path <- file.path("data", "processed", "k_weekly_features.parquet")
-defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
-player_dim_path <- file.path("data", "processed", "player_dim.parquet")
-team_offense_context_path <- file.path("data", "processed", "team_offense_context.parquet")
-qb_weekly_features_path <- file.path("data", "processed", "qb_weekly_features.parquet")
-prior_season_player_stats_path <- file.path("data", "processed", "prior_season_player_stats.parquet")
+validate_cache_exists <- function(path, label) {
+  if (!file.exists(path)) {
+    stop(label, " missing at ", path, ".")
+  }
+  invisible(TRUE)
+}
+
+validate_current_season <- function(path, label, season) {
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("Package 'arrow' is required to validate caches. Install with install.packages('arrow').")
+  }
+  if (!file.exists(path)) {
+    stop(label, " missing at ", path, ".")
+  }
+  df <- arrow::read_parquet(path)
+  if (is.null(df) || nrow(df) == 0) {
+    stop(label, " is empty at ", path, ".")
+  }
+  if (!"season" %in% names(df)) {
+    stop(label, " missing 'season' column at ", path, ".")
+  }
+  if (!any(as.integer(df$season) == as.integer(season))) {
+    stop(label, " has no rows for season ", season, " at ", path, ".")
+  }
+  invisible(TRUE)
+}
+
+validate_cache_exists(player_directory_path, "Player directory cache")
+validate_cache_exists(player_week_identity_path, "Player week identity cache")
+
+validate_current_season(rb_weekly_stats_path, "RB weekly stats cache", max_season)
+validate_current_season(wr_weekly_stats_path, "WR weekly stats cache", max_season)
+validate_current_season(te_weekly_stats_path, "TE weekly stats cache", max_season)
+validate_current_season(qb_weekly_stats_path, "QB weekly stats cache", max_season)
+validate_current_season(k_weekly_stats_path, "K weekly stats cache", max_season)
+
+write_cache_manifest <- function(paths, snapshot_id) {
+  if (is.null(snapshot_id) || !nzchar(snapshot_id)) {
+    snapshot_id <- format(Sys.Date(), "%Y%m%d")
+  }
+  entries <- list()
+  for (path in paths) {
+    if (!file.exists(path)) next
+    size_bytes <- file.info(path)$size
+    if (is.na(size_bytes) || size_bytes == 0) next
+    row_count <- NA_integer_
+    if (requireNamespace("arrow", quietly = TRUE) && grepl("\\.parquet$", path, ignore.case = TRUE)) {
+      df <- tryCatch(arrow::read_parquet(path), error = function(e) NULL)
+      if (!is.null(df)) row_count <- nrow(df)
+    }
+    entries[[path]] <- list(
+      md5 = unname(tools::md5sum(path)),
+      rows = row_count,
+      bytes = size_bytes
+    )
+  }
+  manifest <- list(
+    snapshot_id = snapshot_id,
+    created_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z"),
+    files = entries
+  )
+  manifest_path <- file.path("data", "cache", paste0("cache_manifest_", snapshot_id, ".rds"))
+  strict_manifest <- isTRUE(getOption("READTHEFIELD_STRICT_MANIFEST", TRUE))
+  if (file.exists(manifest_path) && strict_manifest) {
+    prior <- tryCatch(readRDS(manifest_path), error = function(e) NULL)
+    if (!is.null(prior) && !identical(prior$files, manifest$files)) {
+      stop("Cache manifest differs from existing snapshot manifest. Check reproducibility or snapshot inputs.")
+    }
+  }
+  saveRDS(manifest, manifest_path)
+  saveRDS(manifest, file.path("data", "cache", "cache_manifest_latest.rds"))
+  invisible(TRUE)
+}
+
+snapshot_id <- if (exists("get_snapshot_id")) get_snapshot_id() else format(Sys.Date(), "%Y%m%d")
+manifest_paths <- c(
+  player_directory_path,
+  player_week_identity_path,
+  rb_weekly_stats_path,
+  wr_weekly_stats_path,
+  te_weekly_stats_path,
+  qb_weekly_stats_path,
+  k_weekly_stats_path,
+  rb_weekly_features_path,
+  wr_weekly_features_path,
+  te_weekly_features_path,
+  qb_weekly_features_path,
+  qb_player_weekly_features_path,
+  k_weekly_features_path,
+  defense_weekly_features_path,
+  team_offense_context_path,
+  player_dim_path,
+  prior_season_player_stats_path
+)
+write_cache_manifest(manifest_paths, snapshot_id)
+
+audit_simulation_position_usage <- function() {
+  sim_paths <- list.files(file.path("R", "simulation"), pattern = "\\.R$", full.names = TRUE)
+  if (length(sim_paths) == 0) return(invisible(NULL))
+  files_missing_position <- character(0)
+  for (path in sim_paths) {
+    lines <- readLines(path, warn = FALSE)
+    if (!any(grepl("\\bposition\\b", lines))) {
+      files_missing_position <- c(files_missing_position, path)
+    }
+  }
+  if (length(files_missing_position) > 0) {
+    warning(
+      "Simulation position audit: position not referenced explicitly in: ",
+      paste(basename(files_missing_position), collapse = ", "),
+      ". Position may be inferred implicitly.",
+      call. = FALSE
+    )
+  } else {
+    cat("Simulation position audit: all simulation files reference position.\n")
+  }
+  invisible(TRUE)
+}
+
+audit_simulation_position_usage()
 
 cat("\nWeekly caches refreshed. Files:")
 cat("\n  -", player_directory_path)

@@ -22,6 +22,14 @@ build_te_features <- function(te_data) {
     return(empty_te_features_df())
   }
 
+  if (!exists("lagged_roll_mean")) {
+    if (file.exists("R/utils/rolling_helpers.R")) {
+      source("R/utils/rolling_helpers.R", local = TRUE)
+    } else {
+      stop("Missing R/utils/rolling_helpers.R for TE rolling features")
+    }
+  }
+
   required_cols <- c("player_id", "season", "week", "team",
                      "targets", "receptions", "receiving_yards", "air_yards")
   missing_cols <- setdiff(required_cols, names(te_data))

@@ -75,12 +75,14 @@ list(
 
 - If `seed` is provided, the same inputs return identical outputs.
 - If `seed` is NULL, outputs are non-deterministic by design.
+- Models are fit per request from cached data; cache changes will change outputs even with a fixed seed.
 
 ## Known limitations
 
 - Cache-only: simulations require cached data. Run `scripts/refresh_weekly_cache.R`.
 - Week must be 1–18; preseason and playoffs are not supported.
 - Counterfactuals depend on cache coverage and may be rejected if history is insufficient.
+- Long-running sessions should be restarted after cache refresh to avoid mixed-cache results.
 
 ## Error semantics
 

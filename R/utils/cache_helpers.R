@@ -19,12 +19,93 @@
 #' @param path Character, path to cache directory (default "data/cache")
 #' @return Character, normalized path to cache directory (invisible)
 ensure_cache_dir <- function(path = "data/cache") {
+  resolved_path <- normalizePath(path, mustWork = FALSE)
+  if (grepl("/api/data(/|$)", resolved_path)) {
+    stop(
+      "Refusing to create cache under api/. Set working directory to repo root ",
+      "so data/cache resolves correctly."
+    )
+  }
   if (!dir.exists(path)) {
     dir.create(path, recursive = TRUE, showWarnings = FALSE)
   }
-  return(invisible(normalizePath(path, mustWork = FALSE)))
+  return(invisible(resolved_path))
 }
 
+get_snapshot_id <- function() {
+  snap <- getOption("READTHEFIELD_SNAPSHOT_ID", NA_character_)
+  snap <- if (is.null(snap) || !nzchar(as.character(snap))) NA_character_ else as.character(snap)[1]
+  if (is.na(snap)) {
+    snap <- format(Sys.Date(), "%Y%m%d")
+  }
+  snap
+}
+
+get_snapshot_dir <- function(create = TRUE) {
+  dir <- file.path("data", "cache", "raw", get_snapshot_id())
+  if (create && !dir.exists(dir)) {
+    dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  dir
+}
+
+read_raw_snapshot <- function(name) {
+  path <- file.path(get_snapshot_dir(create = FALSE), name)
+  if (!file.exists(path)) return(NULL)
+  tryCatch(readRDS(path), error = function(e) NULL)
+}
+
+write_raw_snapshot <- function(obj, name) {
+  dir <- get_snapshot_dir(create = TRUE)
+  path <- file.path(dir, name)
+  tryCatch({
+    saveRDS(obj, path)
+    invisible(TRUE)
+  }, error = function(e) {
+    invisible(FALSE)
+  })
+}
+
+write_snapshot_info <- function(entries) {
+  dir <- get_snapshot_dir(create = TRUE)
+  info_path <- file.path(dir, "SNAPSHOT_INFO.txt")
+  lines <- c(
+    paste0("snapshot_id: ", get_snapshot_id()),
+    paste0("created_at: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")),
+    paste0("r_version: ", R.version.string),
+    paste0("nflreadr_version: ", if (requireNamespace("nflreadr", quietly = TRUE)) as.character(utils::packageVersion("nflreadr")) else "unavailable"),
+    entries
+  )
+  writeLines(lines, info_path)
+  invisible(TRUE)
+}
+
+.rtf_cache_state <- new.env(parent = emptyenv())
+
+get_cache_fingerprint <- function(paths) {
+  paths <- unique(paths)
+  paths <- paths[file.exists(paths)]
+  if (length(paths) == 0) return(list())
+  hashes <- tools::md5sum(paths)
+  list(
+    files = as.character(paths),
+    md5 = as.character(hashes),
+    timestamp = format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")
+  )
+}
+
+ensure_cache_fingerprint <- function(paths) {
+  fp <- get_cache_fingerprint(paths)
+  if (!exists("fingerprint", envir = .rtf_cache_state, inherits = FALSE)) {
+    assign("fingerprint", fp, envir = .rtf_cache_state)
+    return(invisible(TRUE))
+  }
+  prior <- get("fingerprint", envir = .rtf_cache_state)
+  if (!identical(prior$md5, fp$md5)) {
+    stop("Cache fingerprint changed during session. Restart API or refresh caches for a consistent run.", call. = FALSE)
+  }
+  invisible(TRUE)
+}
 
 #' Get cache file path
 #'

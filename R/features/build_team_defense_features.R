@@ -268,7 +268,7 @@ build_team_defense_features <- function(def_game_stats) {
   })
   
   if (!all(unlist(first_game_na))) {
-    warning("Some first games have non-NA rolling features. This may indicate leakage.")
+    stop("Some first games have non-NA rolling features. This indicates leakage risk.", call. = FALSE)
   }
   
   # Validation: Ensure defensive features are opponent-specific
@@ -286,8 +286,7 @@ build_team_defense_features <- function(def_game_stats) {
       )
     week1_rows <- result[result$week == 1, rolling_cols, drop = FALSE]
     if (sum(!is.na(week1_rows)) > 0) {
-      warning("Week 1 defensive rolling features contain non-NA values after season reset; forcing to NA for safety.", call. = FALSE)
-      result[result$week == 1, rolling_cols] <- NA_real_
+      stop("Week 1 defensive rolling features contain non-NA values after season reset; leakage risk.", call. = FALSE)
     }
   }
 
@@ -408,4 +407,3 @@ empty_defense_features_df <- function() {
     stringsAsFactors = FALSE
   )
 }
-

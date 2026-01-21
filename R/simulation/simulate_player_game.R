@@ -160,62 +160,15 @@ simulate_player_game <- function(gsis_id,
     }
   }
   if (nrow(dim_row) == 0) {
-    # Fallback: infer team/position from weekly stats caches when player_dim is incomplete.
-    if (file.exists("R/data/build_weekly_player_layers.R")) {
-      source("R/data/build_weekly_player_layers.R", local = TRUE)
-    }
-    stats_sources <- list(
-      QB = if (exists("read_qb_weekly_stats_cache")) read_qb_weekly_stats_cache else NULL,
-      RB = if (exists("read_rb_weekly_stats_cache")) read_rb_weekly_stats_cache else NULL,
-      WR = if (exists("read_wr_weekly_stats_cache")) read_wr_weekly_stats_cache else NULL,
-      TE = if (exists("read_te_weekly_stats_cache")) read_te_weekly_stats_cache else NULL,
-      K  = if (exists("read_k_weekly_stats_cache")) read_k_weekly_stats_cache else NULL
-    )
-    inferred <- NULL
-    for (pos in names(stats_sources)) {
-      fn <- stats_sources[[pos]]
-      if (is.null(fn)) next
-      stats_df <- tryCatch(fn(), error = function(e) NULL)
-      if (is.null(stats_df) || nrow(stats_df) == 0) next
-      match_row <- stats_df[stats_df$player_id == gsis_id & stats_df$season == season, , drop = FALSE]
-      if (nrow(match_row) > 0) {
-        inferred <- list(
-          team = match_row$team[1],
-          position = pos,
-          player_name = if ("player_name" %in% names(match_row)) match_row$player_name[1] else NA_character_
-        )
-        break
-      }
-    }
-    if (!is.null(inferred)) {
-      player_team <- inferred$team
-      player_position <- inferred$position
-      if (is.na(player_team) || player_team == "") {
-        return(make_error(
-          "INSUFFICIENT_HISTORY",
-          paste0("Player team missing for gsis_id ", gsis_id, " in season ", season, "."),
-          player_name = inferred$player_name
-        ))
-      }
-      dim_row <- data.frame(
-        gsis_id = gsis_id,
-        season = season,
-        team = player_team,
-        position = player_position,
-        full_name = inferred$player_name,
-        stringsAsFactors = FALSE
-      )
-    } else {
-      has_any_season <- any(player_dim$gsis_id == gsis_id)
-      err_type <- if (has_any_season) "PLAYER_RETIRED_OR_NO_RECENT_DATA" else "PLAYER_NOT_FOUND"
-      return(make_error(
-        err_type,
-        paste0("No player_dim row found for gsis_id ", gsis_id, " in season ", season,
-               ". Run scripts/refresh_weekly_cache.R to refresh caches."),
-        player_name = if (has_any_season) player_dim$full_name[player_dim$gsis_id == gsis_id][1] else NA_character_,
-        allow_counterfactual = err_type %in% c("PLAYER_RETIRED_OR_NO_RECENT_DATA")
-      ))
-    }
+    has_any_season <- any(player_dim$gsis_id == gsis_id)
+    err_type <- if (has_any_season) "PLAYER_RETIRED_OR_NO_RECENT_DATA" else "PLAYER_NOT_FOUND"
+    return(make_error(
+      err_type,
+      paste0("No player_dim row found for gsis_id ", gsis_id, " in season ", season,
+             ". Run scripts/refresh_weekly_cache.R to refresh caches."),
+      player_name = if (has_any_season) player_dim$full_name[player_dim$gsis_id == gsis_id][1] else NA_character_,
+      allow_counterfactual = err_type %in% c("PLAYER_RETIRED_OR_NO_RECENT_DATA")
+    ))
   }
   player_team <- dim_row$team[1]
   player_position <- toupper(as.character(dim_row$position[1]))

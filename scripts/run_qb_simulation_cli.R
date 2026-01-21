@@ -3,100 +3,29 @@
 # Usage (Rscript):
 #   Rscript scripts/run_qb_simulation_cli.R --player="Josh Allen" --season=2024 --week=10 --n_sims=5000
 
-if (file.exists("README.md") && file.exists("R") && file.exists("scripts")) {
-  cat("Working directory:", getwd(), "\n")
-  cat("Project root verified.\n\n")
-} else {
-  project_root <- NULL
-
-  tryCatch({
-    script_path <- commandArgs(trailingOnly = FALSE)
-    if (length(script_path) > 0) {
-      script_file <- sub("--file=", "", script_path[grep("--file=", script_path)])
-      if (length(script_file) > 0 && file.exists(script_file)) {
-        project_root <- dirname(dirname(normalizePath(script_file)))
-      }
-    }
-  }, silent = TRUE)
-
-  if (is.null(project_root)) {
-    if (file.exists("../README.md") && file.exists("../R") && file.exists("../scripts")) {
-      project_root <- normalizePath("..")
-    }
+get_script_path <- function() {
+  cmd_args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- "--file="
+  match <- grep(file_arg, cmd_args, value = TRUE)
+  if (length(match) > 0) {
+    return(normalizePath(sub(file_arg, "", match[1])))
   }
-
-  if (is.null(project_root)) {
-    common_paths <- c(
-      "C:/Users/vinay/ReadTheField",
-      normalizePath("C:/Users/vinay/ReadTheField", mustWork = FALSE)
-    )
-    for (path in common_paths) {
-      if (file.exists(path) &&
-          file.exists(file.path(path, "README.md")) &&
-          file.exists(file.path(path, "R")) &&
-          file.exists(file.path(path, "scripts"))) {
-        project_root <- path
-        break
-      }
-    }
+  if (!is.null(sys.frames()[[1]]$ofile)) {
+    return(normalizePath(sys.frames()[[1]]$ofile))
   }
-
-  if (is.null(project_root) || !file.exists(project_root)) {
-    cat("ERROR: Cannot automatically detect project root.\n")
-    cat("Current working directory:", getwd(), "\n")
-    cat("\nPlease run one of the following:\n")
-    cat("  1. setwd('C:/Users/vinay/ReadTheField')\n")
-    cat("  2. Or navigate to the project folder in RStudio\n")
-    cat("  3. Or run: setwd(dirname(rstudioapi::getActiveDocumentContext()$path))\n")
-    cat("\nThen run: source('scripts/run_qb_simulation_cli.R')\n")
-    stop("Project root not found. Please set working directory first.")
-  }
-
-  setwd(project_root)
-  cat("Working directory set to:", getwd(), "\n")
-  cat("Project root verified.\n\n")
+  stop("Unable to determine script path to set working directory.")
 }
+
+script_path <- get_script_path()
+repo_root <- normalizePath(file.path(dirname(script_path), ".."))
+setwd(repo_root)
+options(READTHEFIELD_REPO_ROOT = repo_root)
+
+source(file.path(repo_root, "R/simulation/bootstrap_simulation.R"))
 options(warn = 1)
 
 main <- function() {
-  cat("Loading simulation bootstrap...\n")
-
-  tryCatch({
-    source("R/simulation/bootstrap_simulation.R")
-    cat("  - bootstrap_simulation.R loaded\n")
-  }, error = function(e) {
-    stop("Failed to load simulation bootstrap: ", conditionMessage(e))
-  })
-
-  tryCatch({
-    source("R/simulation/print_player_simulation.R")
-    cat("  - print_player_simulation.R loaded\n")
-  }, error = function(e) {
-    stop("Failed to load print_player_simulation.R: ", conditionMessage(e))
-  })
-
-  tryCatch({
-    source("R/simulation/print_qb_simulation.R")
-    cat("  - print_qb_simulation.R loaded\n")
-  }, error = function(e) {
-    stop("Failed to load print_qb_simulation.R: ", conditionMessage(e))
-  })
-
-  tryCatch({
-    source("R/simulation/print_rb_simulation.R")
-    cat("  - print_rb_simulation.R loaded\n")
-  }, error = function(e) {
-    stop("Failed to load print_rb_simulation.R: ", conditionMessage(e))
-  })
-
-  tryCatch({
-    source("R/simulation/write_rb_simulation.R")
-    cat("  - write_rb_simulation.R loaded\n")
-  }, error = function(e) {
-    stop("Failed to load write_rb_simulation.R: ", conditionMessage(e))
-  })
-
-  cat("All functions loaded successfully.\n\n")
+  cat("Simulation bootstrap loaded.\n\n")
 
   target_player_query <- NA_character_
   target_player_id <- NA_character_
@@ -159,14 +88,6 @@ main <- function() {
     cat("Counterfactual roster team:", counterfactual_team, "\n")
   }
   cat("========================================\n\n")
-
-  if (!exists("read_player_directory_cache")) {
-    if (file.exists("R/data/build_weekly_player_layers.R")) {
-      source("R/data/build_weekly_player_layers.R", local = TRUE)
-    } else {
-      stop("Missing R/data/build_weekly_player_layers.R for player directory access.")
-    }
-  }
 
   player_dir <- read_player_directory_cache()
   if (nrow(player_dir) == 0) {
@@ -288,13 +209,6 @@ main <- function() {
   # ========================================================================
   # Schedule resolution (game_id/game_date/home/away/opponent)
   # ========================================================================
-  if (!exists("load_schedules")) {
-    if (file.exists("R/data/load_schedules.R")) {
-      source("R/data/load_schedules.R", local = TRUE)
-    } else {
-      stop("Missing R/data/load_schedules.R for schedule resolution.")
-    }
-  }
   schedule_team <- if (isTRUE(counterfactual_mode)) counterfactual_team else player_team
   if (is.na(schedule_team) || !nzchar(schedule_team)) {
     stop("Unable to resolve team for schedule lookup. Check player_dim or pass --counterfactual_team.")

@@ -1,6 +1,7 @@
 # Simulation Entry Point v1
 #
 # Canonical API-safe wrapper for simulation consumers (frontend/API).
+# Models are fit per request from cached data; cache changes can affect outputs.
 
 normalize_summary_stats_v1 <- function(summary_df, position, draws = NULL) {
   if (is.null(summary_df) || nrow(summary_df) == 0 || !"stat" %in% names(summary_df)) {
@@ -86,24 +87,39 @@ simulate_player_game_v1 <- function(player_id,
                                     mode = NULL,
                                     schedule_opponent = NULL,
                                     schedule_home_away = NULL) {
-  if (!exists("simulate_player_game")) {
-    if (file.exists("R/simulation/simulate_player_game.R")) {
-      source("R/simulation/simulate_player_game.R", local = TRUE)
-    } else {
-      stop("Missing R/simulation/simulate_player_game.R")
-    }
+  required_functions <- c(
+    "simulate_player_game",
+    "validate_report_schema_v1",
+    "handle_warnings_v1",
+    "validate_availability_policy",
+    "get_available_seasons_from_cache",
+    "read_player_dim_cache",
+    "build_game_key"
+  )
+  missing <- required_functions[!sapply(required_functions, exists)]
+  if (length(missing) > 0) {
+    stop(
+      "Simulation dependencies not loaded: ",
+      paste(missing, collapse = ", "),
+      ". Source R/simulation/bootstrap_simulation.R."
+    )
   }
-  if (!exists("validate_report_schema_v1")) {
-    if (file.exists("R/simulation/report_schema_v1.R")) {
-      source("R/simulation/report_schema_v1.R", local = TRUE)
-    } else {
-      stop("Missing R/simulation/report_schema_v1.R")
+
+  if (exists("ensure_cache_fingerprint")) {
+    root <- getOption("READTHEFIELD_REPO_ROOT")
+    if (is.null(root) || !nzchar(root)) {
+      root <- "."
     }
-  }
-  if (!exists("handle_warnings_v1")) {
-    if (file.exists("R/simulation/warning_policy_v1.R")) {
-      source("R/simulation/warning_policy_v1.R", local = TRUE)
-    }
+    ensure_cache_fingerprint(c(
+      file.path(root, "data", "cache", "player_directory.parquet"),
+      file.path(root, "data", "cache", "player_week_identity.parquet"),
+      file.path(root, "data", "processed", "player_dim.parquet"),
+      file.path(root, "data", "cache", "rb_weekly_stats.parquet"),
+      file.path(root, "data", "cache", "wr_weekly_stats.parquet"),
+      file.path(root, "data", "cache", "te_weekly_stats.parquet"),
+      file.path(root, "data", "cache", "qb_weekly_stats.parquet"),
+      file.path(root, "data", "cache", "k_weekly_stats.parquet")
+    ))
   }
 
   make_error_v1 <- function(error_type, error_code, message, details = list(), meta = list()) {
@@ -169,12 +185,8 @@ simulate_player_game_v1 <- function(player_id,
     }
 
     if (!exists("validate_availability_policy")) {
-      if (file.exists("R/simulation/availability_policy.R")) {
-        source("R/simulation/availability_policy.R", local = TRUE)
-      } else {
-        return(make_error_v1("internal_error", "availability_policy_missing",
-                             "Availability policy validation is unavailable."))
-      }
+      return(make_error_v1("internal_error", "availability_policy_missing",
+                           "Availability policy validation is unavailable."))
     }
     availability_policy <- tryCatch(
       validate_availability_policy(availability_policy),
@@ -186,9 +198,8 @@ simulate_player_game_v1 <- function(player_id,
     }
 
     if (!exists("get_available_seasons_from_cache")) {
-      if (file.exists("R/utils/cache_helpers.R")) {
-        source("R/utils/cache_helpers.R", local = TRUE)
-      }
+      return(make_error_v1("internal_error", "cache_helpers_missing",
+                           "Cache helpers are not loaded."))
     }
     if (exists("get_available_seasons_from_cache")) {
       available <- get_available_seasons_from_cache()
@@ -203,11 +214,6 @@ simulate_player_game_v1 <- function(player_id,
       }
     }
 
-    if (!exists("read_player_dim_cache")) {
-      if (file.exists("R/data/build_player_dim.R")) {
-        source("R/data/build_player_dim.R", local = TRUE)
-      }
-    }
     if (!exists("read_player_dim_cache")) {
       return(make_error_v1("internal_error", "player_dim_missing",
                            "Player dimension cache loader not available."))

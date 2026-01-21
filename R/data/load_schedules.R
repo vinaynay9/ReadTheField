@@ -63,9 +63,23 @@ load_schedules <- function(seasons,
   
   # Load cache helpers
   if (!exists("read_cache") || !exists("save_cache") || !exists("cache_exists") || !exists("build_game_key")) {
-    if (file.exists("R/utils/cache_helpers.R")) {
-      source("R/utils/cache_helpers.R", local = TRUE)
+    stop("Cache helpers not loaded. Source R/simulation/bootstrap_simulation.R before calling load_schedules.")
+  }
+
+  snapshot_key <- paste0("schedules_", paste(seasons, collapse = "_"), ".rds")
+  use_raw_cache <- isTRUE(getOption("READTHEFIELD_USE_RAW_CACHE", TRUE))
+  freeze_raw <- isTRUE(getOption("READTHEFIELD_FREEZE_RAW", FALSE))
+  if (exists("read_raw_snapshot") && use_raw_cache) {
+    cached_raw <- read_raw_snapshot(snapshot_key)
+    if (!is.null(cached_raw) && nrow(cached_raw) > 0) {
+      cached_filtered <- cached_raw[cached_raw$season %in% seasons, , drop = FALSE]
+      if (nrow(cached_filtered) > 0) {
+        return(cached_filtered)
+      }
     }
+  }
+  if (freeze_raw && isTRUE(cache_only)) {
+    stop("Raw snapshot missing for schedules (", snapshot_key, ") in cache_only mode.")
   }
 
   # Helper to read cached schedules flexibly (rds/parquet) without download
@@ -236,6 +250,16 @@ load_schedules <- function(seasons,
       if (write_cache && exists("save_cache")) {
         save_cache(schedules_all, cache_name)
       }
+      if (exists("write_raw_snapshot")) {
+        write_raw_snapshot(schedules_all, snapshot_key)
+      }
+      if (exists("write_snapshot_info")) {
+        write_snapshot_info(c(
+          paste0("schedules: ", snapshot_key),
+          paste0("schedule_seasons: ", paste(seasons, collapse = ",")),
+          paste0("schedule_rows: ", nrow(schedules_all))
+        ))
+      }
       
       # Filter to requested seasons for return
       schedules <- schedules_all[schedules_all$season %in% seasons, ]
@@ -320,4 +344,3 @@ empty_schedule_df <- function() {
     stringsAsFactors = FALSE
   )
 }
-

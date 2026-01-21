@@ -1,5 +1,8 @@
 # Modeling Base Schema v1
 
+**Status:** Deprecated (legacy artifact). The current pipeline does not produce `modeling_base.parquet`.
+This schema is retained for historical reference only and must not be treated as an active contract.
+
 ## Overview
 
 The `modeling_base.parquet` file is the core modeling dataset for Read the Field. It contains one row per player-game combination, with features computed strictly from information available **before** kickoff of that game. This ensures no data leakage when training models or making predictions.
@@ -578,4 +581,3 @@ Before using this dataset, verify:
 - [ ] Position features: QB features are NA for non-QB rows, WR features are NA for non-WR rows, TE features are NA for non-TE rows, etc.
 - [ ] Type consistency: Integer columns are integer, flags are 0/1, dates are Date type
 - [ ] Target completeness: Targets are populated for all rows (may be 0, but not NA)
-

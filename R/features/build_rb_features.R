@@ -43,6 +43,14 @@ build_rb_features <- function(rb_data) {
     warning("Empty rb_data provided, returning empty result")
     return(empty_rb_features_df())
   }
+
+  if (!exists("lagged_roll_mean")) {
+    if (file.exists("R/utils/rolling_helpers.R")) {
+      source("R/utils/rolling_helpers.R", local = TRUE)
+    } else {
+      stop("Missing R/utils/rolling_helpers.R for RB rolling features")
+    }
+  }
   
   required_cols <- c("player_id", "season", "week", "carries", "rush_yards", 
                      "rush_tds", "targets", "receptions", "rec_yards", "rec_tds")
@@ -200,4 +208,3 @@ empty_rb_features_df <- function() {
     stringsAsFactors = FALSE
   )
 }
-

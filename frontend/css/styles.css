@@ -621,6 +621,7 @@ body {
     min-height: 70px;
     height: 70px;
     min-width: 180px;
+    color: #ffffff;
 }
 
 .team-item:hover {
@@ -634,7 +635,7 @@ body {
 .team-name {
     font-weight: normal;
     font-size: 0.6875rem;
-    color: var(--text-primary);
+    color: inherit;
     z-index: 1;
     position: relative;
     text-align: center;
@@ -647,6 +648,19 @@ body {
 
 .team-check {
     display: none;
+}
+
+.team-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.1rem 0.35rem;
+    border-radius: 999px;
+    font-size: 0.625rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #ffffff;
+    background-color: var(--border-color);
 }
 
 /* Simulation Button */

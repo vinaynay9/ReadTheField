@@ -18,6 +18,7 @@ let teams = [];
 let playerGames = [];
 let availableSeasons = [];
 const teamNameMap = new Map();
+const teamSlugMap = new Map();
 
 async function fetchJson(path) {
     const response = await fetch(`${API_BASE_URL}${path}`);
@@ -31,9 +32,13 @@ async function fetchJson(path) {
 
 function buildTeamNameMap() {
     teamNameMap.clear();
+    teamSlugMap.clear();
     teams.forEach(team => {
         if (team.team) {
             teamNameMap.set(team.team, team.name || team.team);
+            if (team.slug) {
+                teamSlugMap.set(team.team, team.slug);
+            }
         }
     });
 }
@@ -41,6 +46,11 @@ function buildTeamNameMap() {
 function getTeamName(teamId) {
     if (!teamId) return 'Unknown Team';
     return teamNameMap.get(teamId) || teamId;
+}
+
+function getTeamSlug(teamId) {
+    if (!teamId) return '';
+    return teamSlugMap.get(teamId) || '';
 }
 
 function getPlayerInitials(name) {
@@ -164,15 +174,19 @@ function displayAutocompleteResults(players) {
         return;
     }
 
-    autocompleteResults.innerHTML = players.map(player => `
+    autocompleteResults.innerHTML = players.map(player => {
+        const teamSlug = getTeamSlug(player.team);
+        const teamClass = teamSlug ? `team-${teamSlug}` : '';
+        return `
         <div class="autocomplete-item" data-player-id="${player.player_id}">
             <div class="player-headshot">${getPlayerInitials(player.player_name)}</div>
             <div class="player-info">
                 <div class="player-name">${player.player_name}</div>
-                <div class="player-details">${player.position} • ${player.team || 'N/A'}</div>
+                <div class="player-details">${player.position} • <span class="team-badge ${teamClass}">${player.team || 'N/A'}</span></div>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     autocompleteResults.classList.add('active');
 
@@ -387,8 +401,9 @@ function renderTeamSelection(container, teamList) {
     html += '<div class="team-grid">';
 
     teamList.forEach(team => {
+        const teamClass = team.slug ? `team-${team.slug}` : '';
         html += `
-            <div class="team-item" data-team-id="${team.team}">
+            <div class="team-item ${teamClass}" data-team-id="${team.team}">
                 <span class="team-name">${team.name || team.team}</span>
             </div>
         `;
@@ -841,12 +856,12 @@ function startTerminalAnimation() {
         { text: '> Initializing simulation pipeline...', delay: 600, class: 'prompt' },
         { text: '', delay: 800, class: 'info' },
         { text: '[1/7] Loading historical NFL data...', delay: 1000, class: 'info' },
-        { text: '    Scanning data/processed/player_weekly.parquet', delay: 1200, class: 'info' },
-        { text: '    Scanning data/processed/defense_weekly.parquet', delay: 1400, class: 'info' },
-        { text: '    Scanning data/processed/game_context.parquet', delay: 1600, class: 'info' },
-        { text: '    Loaded 12,847 player-game records (2019-2024)', delay: 1800, class: 'success' },
-        { text: '    Loaded 1,536 team-defense records', delay: 2000, class: 'success' },
-        { text: '    Loaded 1,536 game context records', delay: 2200, class: 'success' },
+        { text: '    Scanning data/cache/player_week_identity.parquet', delay: 1200, class: 'info' },
+        { text: '    Scanning data/processed/defense_weekly_features.parquet', delay: 1400, class: 'info' },
+        { text: '    Scanning data/processed/team_offense_context.parquet', delay: 1600, class: 'info' },
+        { text: '    Loaded cached player-week identity', delay: 1800, class: 'success' },
+        { text: '    Loaded defensive matchup features', delay: 2000, class: 'success' },
+        { text: '    Loaded team offense context', delay: 2200, class: 'success' },
         { text: '', delay: 2400, class: 'info' },
         { text: '[2/7] Identifying target player and matchup...', delay: 2600, class: 'info' },
         { text: `    Player: ${playerName} (${playerPos})`, delay: 2800, class: 'info' },
