@@ -1,6 +1,7 @@
 # Simulate Player Game - High-Level Automated Function
 #
-# Entry point for player game simulations (gsis_id only).
+# Legacy entry point for player game simulations (internal use).
+# API entrypoint should call simulate_player_game_v1.
 # Ambiguous name handling must be resolved before calling this function.
 
 #' Simulate a player's game performance (gsis_id only)
@@ -143,12 +144,12 @@ simulate_player_game <- function(gsis_id,
       "Player dimension cache is empty. Run scripts/refresh_weekly_cache.R to populate it."
     ))
   }
-  dim_row <- player_dim[player_dim$gsis_id == gsis_id & player_dim$season == season, , drop = FALSE]
+  dim_row <- player_dim[player_dim$player_id == gsis_id & player_dim$season == season, , drop = FALSE]
   forced_counterfactual_notice <- NULL
   if (nrow(dim_row) == 0) {
-    has_any_season <- any(player_dim$gsis_id == gsis_id)
+    has_any_season <- any(player_dim$player_id == gsis_id)
     if (isTRUE(has_any_season)) {
-      last_dim_row <- player_dim[player_dim$gsis_id == gsis_id, , drop = FALSE]
+      last_dim_row <- player_dim[player_dim$player_id == gsis_id, , drop = FALSE]
       last_dim_row <- last_dim_row[order(last_dim_row$season, decreasing = TRUE), , drop = FALSE]
       dim_row <- last_dim_row[1, , drop = FALSE]
       forced_counterfactual_notice <- paste0(
@@ -160,13 +161,13 @@ simulate_player_game <- function(gsis_id,
     }
   }
   if (nrow(dim_row) == 0) {
-    has_any_season <- any(player_dim$gsis_id == gsis_id)
+    has_any_season <- any(player_dim$player_id == gsis_id)
     err_type <- if (has_any_season) "PLAYER_RETIRED_OR_NO_RECENT_DATA" else "PLAYER_NOT_FOUND"
     return(make_error(
       err_type,
       paste0("No player_dim row found for gsis_id ", gsis_id, " in season ", season,
              ". Run scripts/refresh_weekly_cache.R to refresh caches."),
-      player_name = if (has_any_season) player_dim$full_name[player_dim$gsis_id == gsis_id][1] else NA_character_,
+      player_name = if (has_any_season) player_dim$full_name[player_dim$player_id == gsis_id][1] else NA_character_,
       allow_counterfactual = err_type %in% c("PLAYER_RETIRED_OR_NO_RECENT_DATA")
     ))
   }

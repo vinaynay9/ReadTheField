@@ -1,9 +1,11 @@
 const API_BASE_URL = window.RTF_API_URL || 'http://localhost:8000';
+const NICKNAMES_URL = 'data/nicknames.json';
+console.info(`[RTF] API_BASE=${API_BASE_URL}`);
 const DEFAULT_N_SIMS = 1000;
 const DEFAULT_SEED = 4242;
 
 // State
-let simulationMode = 'historical'; // 'historical', 'this-week', 'hypothetical'
+let simulationMode = 'this-week'; // 'historical', 'this-week', 'hypothetical'
 let selectedPlayer = null;
 let selectedTeam = null;
 let selectedDate = null;
@@ -19,15 +21,98 @@ let playerGames = [];
 let availableSeasons = [];
 const teamNameMap = new Map();
 const teamSlugMap = new Map();
+const opponentCache = new Map();
+let currentOpponentSet = null;
+let nicknameMap = new Map();
+let nicknameReverseMap = new Map();
 
-async function fetchJson(path) {
-    const response = await fetch(`${API_BASE_URL}${path}`);
-    const data = await response.json();
+function buildApiUrl(path) {
+    if (!path) return API_BASE_URL;
+    if (/^https?:\/\//i.test(path)) return path;
+    if (path.startsWith('/')) return `${API_BASE_URL}${path}`;
+    return `${API_BASE_URL}/${path}`;
+}
+
+async function fetchJson(path, options = {}) {
+    const url = buildApiUrl(path);
+    const response = await fetch(url, options);
+    let data = null;
+    try {
+        data = await response.json();
+    } catch (err) {
+        data = null;
+    }
     if (!response.ok) {
-        const message = data && data.message ? data.message : 'Request failed.';
+        const message = data && data.message ? data.message : `Request failed (${response.status}).`;
+        const serialized = data ? JSON.stringify(data) : null;
+        console.error('[RTF] API error', { url, status: response.status, errorCode: data && data.error_code, message, data: serialized || data });
         throw new Error(message);
     }
-    return data;
+    if (data && data.ok === false) {
+        const message = data.message || 'Request failed.';
+        const errorCode = data.error_code || 'unknown_error';
+        const serialized = data ? JSON.stringify(data) : null;
+        console.error('[RTF] API error', { url, status: response.status, errorCode, message, data: serialized || data });
+        throw new Error(message);
+    }
+    return data && Object.prototype.hasOwnProperty.call(data, 'data') ? data.data : data;
+}
+
+function normalizeSearchToken(value) {
+    if (!value) return '';
+    return value
+        .toString()
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function buildNicknameMaps(payload) {
+    nicknameMap = new Map();
+    nicknameReverseMap = new Map();
+    if (!payload || typeof payload !== 'object') return;
+
+    Object.entries(payload).forEach(([nickname, names]) => {
+        const key = normalizeSearchToken(nickname);
+        if (!key || !Array.isArray(names)) return;
+        nicknameMap.set(key, names);
+        names.forEach((name) => {
+            const nameKey = normalizeSearchToken(name);
+            if (!nameKey) return;
+            if (!nicknameReverseMap.has(nameKey)) {
+                nicknameReverseMap.set(nameKey, new Set());
+            }
+            nicknameReverseMap.get(nameKey).add(key);
+        });
+    });
+}
+
+async function loadNicknames() {
+    try {
+        const response = await fetch(NICKNAMES_URL, { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`Nickname map missing (${response.status})`);
+        }
+        const payload = await response.json();
+        buildNicknameMaps(payload);
+    } catch (err) {
+        console.warn('[RTF] Nickname map unavailable', err);
+    }
+}
+
+function buildPlayerSearchIndex() {
+    players.forEach((player) => {
+        const tokens = new Set();
+        tokens.add(normalizeSearchToken(player.player_name));
+        tokens.add(normalizeSearchToken(player.position));
+        tokens.add(normalizeSearchToken(player.team));
+        const nameKey = normalizeSearchToken(player.player_name);
+        if (nicknameReverseMap.has(nameKey)) {
+            nicknameReverseMap.get(nameKey).forEach((nick) => tokens.add(nick));
+        }
+        player.search_tokens = Array.from(tokens).filter(Boolean);
+    });
 }
 
 function buildTeamNameMap() {
@@ -62,6 +147,7 @@ function getPlayerInitials(name) {
 
 async function loadInitialData() {
     try {
+        await loadNicknames();
         const [playersResp, teamsResp, seasonsResp] = await Promise.all([
             fetchJson('/players'),
             fetchJson('/teams'),
@@ -71,8 +157,10 @@ async function loadInitialData() {
         teams = teamsResp.teams || [];
         availableSeasons = seasonsResp.seasons || [];
         buildTeamNameMap();
+        buildPlayerSearchIndex();
         populateSeasonWeekSelects();
         initializeTeamSelection();
+        console.info(`[RTF] Loaded players=${players.length}, teams=${teams.length}`);
     } catch (err) {
         const searchInput = document.getElementById('player-search');
         if (searchInput) {
@@ -123,7 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeDateSelection();
     initializeSimulationButton();
     loadInitialData().then(() => {
-        switchMode('historical');
+        switchMode('this-week');
         updateCalculateButton();
     });
 });
@@ -147,12 +235,17 @@ function initializePlayerSearch() {
 
         // Only show offensive skilled positions: QB, RB, WR, TE, K
         const allowedPositions = ['QB', 'RB', 'WR', 'TE', 'K'];
-        const filtered = players.filter(player =>
-            allowedPositions.includes(player.position) &&
-            (player.player_name.toLowerCase().includes(query) ||
-            player.position.toLowerCase().includes(query) ||
-            (player.team || '').toLowerCase().includes(query))
-        );
+        const nicknameMatches = nicknameMap.get(normalizeSearchToken(query)) || [];
+        const nicknameMatchSet = new Set(nicknameMatches.map(name => normalizeSearchToken(name)));
+        const filtered = players.filter(player => {
+            if (!allowedPositions.includes(player.position)) return false;
+            const tokens = Array.isArray(player.search_tokens) ? player.search_tokens : [];
+            if (tokens.some(token => token.includes(query))) return true;
+            if (nicknameMatchSet.size > 0) {
+                return nicknameMatchSet.has(normalizeSearchToken(player.player_name));
+            }
+            return false;
+        });
 
         displayAutocompleteResults(filtered);
     });
@@ -182,7 +275,7 @@ function displayAutocompleteResults(players) {
             <div class="player-headshot">${getPlayerInitials(player.player_name)}</div>
             <div class="player-info">
                 <div class="player-name">${player.player_name}</div>
-                <div class="player-details">${player.position} • <span class="team-badge ${teamClass}">${player.team || 'N/A'}</span></div>
+                <div class="player-details">${player.position} • <span class="team-badge ${teamClass}">${player.team || 'N/A'}</span>${player.eligible === false ? ' • Ineligible' : ''}</div>
             </div>
         </div>
     `;
@@ -209,6 +302,7 @@ function selectPlayer(playerId) {
     selectedGame = null;
     nextGame = null;
     playerGames = [];
+    currentOpponentSet = opponentCache.get(player.player_id) || null;
     
     const searchInput = document.getElementById('player-search');
     const autocompleteResults = document.getElementById('autocomplete-results');
@@ -218,12 +312,16 @@ function selectPlayer(playerId) {
     if (autocompleteResults) autocompleteResults.classList.remove('active');
     
     if (selectedPlayerDiv) {
+        const teamSlug = getTeamSlug(player.team);
+        const teamClass = teamSlug ? `team-${teamSlug}` : '';
         selectedPlayerDiv.innerHTML = `
             <div style="display: flex; align-items: center; gap: 0.75rem;">
                 <div class="player-headshot">${getPlayerInitials(player.player_name)}</div>
                 <div style="flex: 1; min-width: 0;">
                     <div class="player-name">${player.player_name}</div>
-                    <div class="player-details">${player.position} • ${player.team || 'N/A'}</div>
+                    <div class="player-details">
+                        ${player.position} • <span class="team-badge ${teamClass}">${player.team || 'N/A'}</span>${player.eligible === false ? ' • Ineligible' : ''}
+                    </div>
                 </div>
             </div>
         `;
@@ -233,9 +331,8 @@ function selectPlayer(playerId) {
     // Mode-specific updates
     if (simulationMode === 'this-week') {
         updateThisWeekMatchup();
-    } else if (simulationMode === 'historical') {
-        loadPlayerGames();
     }
+    loadPlayerGames();
     
     updateCalculateButton();
 }
@@ -346,20 +443,23 @@ async function updateThisWeekMatchup() {
 
     try {
         const data = await fetchJson(`/player/${selectedPlayer.player_id}/next_game`);
-        nextGame = data;
-        selectedSeason = data.season;
-        selectedWeek = data.week;
-        selectedTeam = data.opponent;
-        homeAway = data.home_away === 'AWAY' ? 'away' : 'vs';
+        nextGame = data.next_game || null;
+        if (!nextGame) {
+            throw new Error(data.reason === 'season_complete' ? 'Season complete.' : 'No upcoming game found.');
+        }
+        selectedSeason = nextGame.season;
+        selectedWeek = nextGame.week;
+        selectedTeam = nextGame.opponent;
+        homeAway = nextGame.home_away === 'AWAY' ? 'away' : 'vs';
 
-        const opponentName = getTeamName(data.opponent);
+        const opponentName = getTeamName(nextGame.opponent);
         if (autoOpponent) autoOpponent.textContent = opponentName;
-        if (autoLocation) autoLocation.textContent = data.home_away === 'AWAY' ? '@ (AWAY)' : 'VS (HOME)';
+        if (autoLocation) autoLocation.textContent = nextGame.home_away === 'AWAY' ? '@ (AWAY)' : 'VS (HOME)';
 
         const seasonSelect = document.getElementById('season-select');
         const weekSelect = document.getElementById('week-select');
-        if (seasonSelect) seasonSelect.value = data.season;
-        if (weekSelect) weekSelect.value = data.week;
+        if (seasonSelect) seasonSelect.value = nextGame.season;
+        if (weekSelect) weekSelect.value = nextGame.week;
     } catch (err) {
         nextGame = null;
         selectedSeason = null;
@@ -386,8 +486,8 @@ function initializeTeamSelection() {
     if (!teamSelectionDiv) return;
 
     let teamList = teams;
-    if (simulationMode === 'historical') {
-        teamList = getOpponentTeams();
+    if (!teamList || teamList.length === 0) {
+        teamList = buildFallbackTeamsFromOpponents();
     }
 
     renderTeamSelection(teamSelectionDiv, teamList);
@@ -396,20 +496,26 @@ function initializeTeamSelection() {
 function renderTeamSelection(container, teamList) {
     if (!container) return;
 
-    let html = '<div class="division-group">';
-    html += '<div class="division-title">Teams</div>';
-    html += '<div class="team-grid">';
-
-    teamList.forEach(team => {
-        const teamClass = team.slug ? `team-${team.slug}` : '';
-        html += `
-            <div class="team-item ${teamClass}" data-team-id="${team.team}">
-                <span class="team-name">${team.name || team.team}</span>
-            </div>
-        `;
+    const grouped = groupTeamsByConference(teamList);
+    let html = '';
+    grouped.forEach(group => {
+        html += '<div class="division-group">';
+        html += `<div class="division-title">${group.label}</div>`;
+        html += '<div class="team-grid">';
+        group.teams.forEach(team => {
+            const teamClass = team.slug ? `team-${team.slug}` : '';
+            const teamId = team.team || team.abbr || team.id;
+            if (!teamId) return;
+            const disabled = shouldDisableTeam(teamId);
+            const disabledStyle = disabled ? 'opacity:0.35; filter:grayscale(1); pointer-events:none;' : '';
+            html += `
+                <div class="team-item ${teamClass}" data-team-id="${teamId}" style="${disabledStyle}">
+                    <span class="team-name">${team.name || teamId}</span>
+                </div>
+            `;
+        });
+        html += '</div></div>';
     });
-
-    html += '</div></div>';
     container.innerHTML = html;
 
     container.querySelectorAll('.team-item').forEach(item => {
@@ -434,6 +540,43 @@ function getOpponentTeams() {
         return Array.from(opponents).map(teamId => ({ team: teamId, name: teamId }));
     }
     return teams.filter(team => opponents.has(team.team));
+}
+
+function buildFallbackTeamsFromOpponents() {
+    const opponents = currentOpponentSet ? Array.from(currentOpponentSet) : [];
+    return opponents.map(teamId => ({ team: teamId, name: teamId }));
+}
+
+function shouldDisableTeam(teamId) {
+    if (!selectedPlayer) return false;
+    if (!currentOpponentSet || currentOpponentSet.size === 0) return true;
+    return !currentOpponentSet.has(teamId);
+}
+
+function groupTeamsByConference(teamList) {
+    const hasConference = teamList.some(team => team.conference && team.division);
+    if (!hasConference) {
+        return [{ label: 'Teams', teams: teamList }];
+    }
+    const conferenceOrder = ['AFC', 'NFC'];
+    const divisionOrder = ['East', 'North', 'South', 'West'];
+    const groups = [];
+    conferenceOrder.forEach(conf => {
+        divisionOrder.forEach(div => {
+            const filtered = teamList.filter(team => {
+                const teamConf = (team.conference || '').toUpperCase();
+                const teamDiv = (team.division || '').toUpperCase();
+                return teamConf === conf && teamDiv === div.toUpperCase();
+            });
+            if (filtered.length > 0) {
+                groups.push({
+                    label: `${conf} ${div}`,
+                    teams: filtered
+                });
+            }
+        });
+    });
+    return groups.length > 0 ? groups : [{ label: 'Teams', teams: teamList }];
 }
 
 function selectTeam(teamId) {
@@ -501,6 +644,9 @@ async function loadPlayerGames() {
     try {
         const data = await fetchJson(`/player/${selectedPlayer.player_id}/games`);
         playerGames = data.games || [];
+        const opponents = new Set(playerGames.map(game => game.opponent).filter(Boolean));
+        opponentCache.set(selectedPlayer.player_id, opponents);
+        currentOpponentSet = opponents;
         initializeTeamSelection();
         if (selectedTeam && !playerGames.some(game => game.opponent === selectedTeam)) {
             selectedTeam = null;
@@ -508,6 +654,7 @@ async function loadPlayerGames() {
         updateHistoricalDates();
     } catch (err) {
         playerGames = [];
+        currentOpponentSet = opponentCache.get(selectedPlayer.player_id) || null;
         selectedTeam = null;
         updateHistoricalDates();
     }
@@ -585,6 +732,9 @@ function initializeHomeAwayToggle() {
 function resolvePayload() {
     if (!selectedPlayer) {
         return { valid: false, message: 'Select a player.' };
+    }
+    if (selectedPlayer.eligible === false) {
+        return { valid: false, message: selectedPlayer.eligibility_reason || 'Player is ineligible for simulation.' };
     }
 
     let season = selectedSeason;
@@ -717,20 +867,16 @@ async function runSimulationRequest() {
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/simulate`, {
+        console.info('[RTF] simulate payload', resolved.payload);
+        window.lastSimulationPayload = resolved.payload;
+        const payload = await fetchJson('/simulate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(resolved.payload)
         });
-        const data = await response.json();
-        if (!response.ok || data.status === 'error') {
-            const message = data.message || 'Simulation failed.';
-            renderError(message);
-        } else {
-            renderResults(data);
-        }
+        renderResults(payload);
     } catch (err) {
-        renderError('Unable to reach the simulation service.');
+        renderError(err && err.message ? err.message : 'Unable to reach the simulation service.');
     } finally {
         if (simulationButton) {
             simulationButton.disabled = false;
@@ -764,6 +910,10 @@ function renderResults(result) {
 
     const summary = result.summary || [];
     const meta = result.metadata || {};
+    if (!summary || summary.length === 0) {
+        renderError('Simulation returned no summary.');
+        return;
+    }
     const header = document.createElement('div');
     header.className = 'result-row';
     header.innerHTML = `<strong>${meta.player_name || selectedPlayer.player_name}</strong> | ${meta.season} Week ${meta.week}`;

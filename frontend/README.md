@@ -56,7 +56,19 @@ The frontend follows a strict Cartridge Football aesthetic:
 
 ### Notes
 
-- Calls `POST /simulate` on the backend API
+- Calls `GET /players`, `GET /teams`, `GET /seasons`, `GET /player/:id/games`, and `POST /simulate`
+- Expects API responses in the `{ ok:true, data:{...} }` contract
 - Requires the backend running at `http://localhost:8000`
 - All pages are static HTML
 - Navigation is handled via footer links
+
+### Troubleshooting
+- If players/teams do not load, confirm `Rscript api/run_api.R` is running and `http://localhost:8000/players` returns ok:true.
+- If simulations fail, check browser console for backend `error_code` and `message`.
+- If nickname search is missing, verify `frontend/data/nicknames.json` exists.
+
+### Local Test Checklist
+1. `Rscript api/run_api.R`
+2. `curl -s http://localhost:8000/players | jq '.ok, (.data.players|length)'`
+3. `cd frontend && python3 -m http.server 5173`
+4. Open `http://localhost:5173` and verify players load and simulation results render.

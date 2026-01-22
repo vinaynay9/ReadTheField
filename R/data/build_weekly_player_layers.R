@@ -205,7 +205,9 @@ get_allowed_team_abbrs <- function() {
   teams <- character(0)
   if (file.exists(path)) {
     team_df <- read.csv(path, stringsAsFactors = FALSE)
-    if ("team" %in% names(team_df)) {
+    if ("abbr" %in% names(team_df)) {
+      teams <- toupper(as.character(team_df$abbr))
+    } else if ("team" %in% names(team_df)) {
       teams <- toupper(as.character(team_df$team))
     }
   }
@@ -331,6 +333,8 @@ build_player_week_identity <- function(seasons,
   player_names <- as.character(select_first_available(stats, c("player_name", "player_display_name", "name"), NA))
   teams <- normalize_team_abbr(select_first_available(stats, c("team", "team_abbr", "team_name"), NA), stats$season)
   opponents <- normalize_team_abbr(select_first_available(stats, c("opponent_team", "opponent", "opp_team", "defteam"), NA), stats$season)
+  teams <- canonicalize_team_abbr(teams)
+  opponents <- canonicalize_team_abbr(opponents)
   game_dates <- safe_parse_date(select_first_available(stats, c("gameday", "game_date", "date"), NA), nrow(stats))
   home_aways <- normalize_home_away(select_first_available(stats, c("home_away", "location", "game_location"), NA))
   season_types <- if ("season_type" %in% names(stats)) {
@@ -1353,57 +1357,103 @@ build_player_directory <- function(write_cache = TRUE) {
     x[nchar(x) == 0] <- NA_character_
     x
   }
-
-  player_dim <- NULL
-  if (exists("read_player_dim_cache")) {
-    player_dim <- tryCatch(read_player_dim_cache(), error = function(e) NULL)
+  build_full_name <- function(first_name, last_name) {
+    first_name <- trimws(as.character(first_name))
+    last_name <- trimws(as.character(last_name))
+    ifelse(first_name != "" & last_name != "", paste(first_name, last_name), NA_character_)
   }
-  if (is.null(player_dim) || nrow(player_dim) == 0) {
-    player_dim_path <- file.path("data", "processed", "player_dim.parquet")
-    if (file.exists(player_dim_path)) {
-      player_dim <- tryCatch(arrow::read_parquet(player_dim_path), error = function(e) NULL)
+
+  if (!exists("read_player_week_identity_cache")) {
+    stop("Player identity cache loader not available. Source R/data/build_weekly_player_layers.R.")
+  }
+  pwi <- read_player_week_identity_cache()
+  if (is.null(pwi) || nrow(pwi) == 0) {
+    stop("player_week_identity cache is required to build player_directory.")
+  }
+
+  base <- unique(pwi[, c("player_id", "position", "team"), drop = FALSE])
+  base$player_id <- as.character(base$player_id)
+  base$position <- normalize_position(base$position)
+  base$team <- toupper(trimws(as.character(base$team)))
+
+  snapshot_players <- NULL
+  snapshot_rosters <- NULL
+  snapshot_weekly <- NULL
+  if (exists("read_raw_snapshot")) {
+    snapshot_players <- read_raw_snapshot("players.rds")
+    if (is.null(snapshot_players) || nrow(snapshot_players) == 0) snapshot_players <- NULL
+    snap_dir <- get_snapshot_dir(create = FALSE)
+    if (!is.null(snap_dir) && dir.exists(snap_dir)) {
+      roster_files <- list.files(snap_dir, pattern = "^rosters_.*\\.rds$", full.names = TRUE)
+      if (length(roster_files) > 0) {
+        snapshot_rosters <- tryCatch(readRDS(roster_files[1]), error = function(e) NULL)
+      }
+      weekly_files <- list.files(snap_dir, pattern = "^weekly_player_stats_REG_.*\\.rds$", full.names = TRUE)
+      if (length(weekly_files) > 0) {
+        snapshot_weekly <- tryCatch(readRDS(weekly_files[1]), error = function(e) NULL)
+      }
     }
   }
-  if (is.null(player_dim) || nrow(player_dim) == 0) {
-    stop("player_dim cache is required to build player_directory. Run scripts/refresh_weekly_cache.R first.")
+
+  meta <- data.frame(player_id = base$player_id, stringsAsFactors = FALSE)
+
+  if (!is.null(snapshot_players) && nrow(snapshot_players) > 0) {
+    players_df <- as.data.frame(snapshot_players, stringsAsFactors = FALSE)
+    if (!("gsis_id" %in% names(players_df)) && "player_id" %in% names(players_df)) {
+      players_df$gsis_id <- players_df$player_id
+    }
+    players_df$player_id <- as.character(select_first_available(players_df, c("player_id", "gsis_id"), NA))
+    players_df$full_name <- as.character(select_first_available(players_df, c("display_name", "full_name", "name"), NA))
+    players_df$first_name <- as.character(select_first_available(players_df, c("first_name"), NA))
+    players_df$last_name <- as.character(select_first_available(players_df, c("last_name"), NA))
+    players_df$canonical_name <- canonicalize_name_local(players_df$full_name)
+    players_df$draft_round <- as.integer(select_first_available(players_df, c("draft_round"), NA))
+    players_df$draft_pick_overall <- as.integer(select_first_available(players_df, c("draft_pick_overall", "draft_pick"), NA))
+    players_df <- players_df[!is.na(players_df$player_id) & players_df$player_id != "", , drop = FALSE]
+    players_df <- players_df[!duplicated(players_df$player_id), , drop = FALSE]
+    meta <- merge(meta, players_df[, c("player_id", "full_name", "first_name", "last_name",
+                                       "canonical_name", "draft_round", "draft_pick_overall"), drop = FALSE],
+                  by = "player_id", all.x = TRUE)
   }
 
-  player_dim$player_id <- as.character(select_first_available(player_dim, c("player_id", "gsis_id"), NA))
-  player_dim$season <- as.integer(select_first_available(player_dim, c("season", "season_year"), NA))
-  player_dim$position <- normalize_position(select_first_available(player_dim, c("position"), NA))
-  player_dim$team <- normalize_team_abbr(select_first_available(player_dim, c("team", "team_abbr"), NA), player_dim$season)
-  player_dim$full_name <- as.character(select_first_available(player_dim, c("full_name", "display_name", "player_name", "name"), NA))
-  player_dim$first_name <- as.character(select_first_available(player_dim, c("first_name"), NA))
-  player_dim$last_name <- as.character(select_first_available(player_dim, c("last_name"), NA))
-  player_dim$draft_round <- as.integer(select_first_available(player_dim, c("draft_round"), NA))
-  player_dim$draft_pick_overall <- as.integer(select_first_available(player_dim, c("draft_pick_overall", "draft_pick"), NA))
-
-  player_dim <- player_dim[
-    !is.na(player_dim$player_id) & player_dim$player_id != "" &
-      !is.na(player_dim$season),
-    , drop = FALSE
-  ]
-  if (nrow(player_dim) == 0) {
-    stop("player_dim contains no valid (player_id, season) rows.")
+  if (!is.null(snapshot_weekly) && nrow(snapshot_weekly) > 0) {
+    weekly_df <- as.data.frame(snapshot_weekly, stringsAsFactors = FALSE)
+    weekly_df$player_id <- as.character(select_first_available(weekly_df, c("player_id", "gsis_id"), NA))
+    weekly_df$player_name <- as.character(select_first_available(weekly_df, c("player_name", "player_display_name", "name"), NA))
+    weekly_df <- weekly_df[!is.na(weekly_df$player_id) & weekly_df$player_id != "", , drop = FALSE]
+    weekly_df <- weekly_df[!is.na(weekly_df$player_name) & weekly_df$player_name != "", , drop = FALSE]
+    weekly_df <- weekly_df[!duplicated(weekly_df$player_id), , drop = FALSE]
+    meta <- merge(meta, weekly_df[, c("player_id", "player_name"), drop = FALSE], by = "player_id", all.x = TRUE)
   }
 
-  player_dim <- player_dim[order(player_dim$player_id, player_dim$season), ]
-  latest_rows <- player_dim[!duplicated(player_dim$player_id, fromLast = TRUE), , drop = FALSE]
+  if (!is.null(snapshot_rosters) && nrow(snapshot_rosters) > 0) {
+    roster_df <- as.data.frame(snapshot_rosters, stringsAsFactors = FALSE)
+    roster_df$player_id <- as.character(select_first_available(roster_df, c("player_id", "gsis_id"), NA))
+    roster_df$full_name_roster <- as.character(select_first_available(roster_df, c("full_name", "display_name", "name"), NA))
+    roster_df$first_name_roster <- as.character(select_first_available(roster_df, c("first_name"), NA))
+    roster_df$last_name_roster <- as.character(select_first_available(roster_df, c("last_name"), NA))
+    roster_df <- roster_df[!is.na(roster_df$player_id) & roster_df$player_id != "", , drop = FALSE]
+    roster_df <- roster_df[!duplicated(roster_df$player_id), , drop = FALSE]
+    meta <- merge(meta, roster_df[, c("player_id", "full_name_roster", "first_name_roster", "last_name_roster"), drop = FALSE],
+                  by = "player_id", all.x = TRUE)
+  }
 
-  player_dir <- data.frame(
-    player_id = as.character(latest_rows$player_id),
-    player_name = as.character(latest_rows$full_name),
-    position = as.character(latest_rows$position),
-    team = as.character(latest_rows$team),
-    full_name = as.character(latest_rows$full_name),
-    first_name = as.character(latest_rows$first_name),
-    last_name = as.character(latest_rows$last_name),
-    canonical_name = canonicalize_name_local(latest_rows$full_name),
-    draft_round = as.integer(latest_rows$draft_round),
-    draft_pick_overall = as.integer(latest_rows$draft_pick_overall),
-    stringsAsFactors = FALSE
+  meta$full_name <- dplyr::coalesce(
+    meta$full_name,
+    meta$full_name_roster
+  )
+  meta$first_name <- dplyr::coalesce(meta$first_name, meta$first_name_roster)
+  meta$last_name <- dplyr::coalesce(meta$last_name, meta$last_name_roster)
+
+  meta$player_name <- dplyr::coalesce(
+    meta$full_name,
+    meta$canonical_name,
+    build_full_name(meta$first_name, meta$last_name),
+    meta$player_name,
+    meta$player_id
   )
 
+  player_dir <- merge(base, meta, by = "player_id", all.x = TRUE)
   player_dir$player_name <- ifelse(
     is.na(player_dir$player_name) | player_dir$player_name == "",
     player_dir$player_id,
@@ -1442,6 +1492,22 @@ build_player_directory <- function(write_cache = TRUE) {
 
   player_dir <- player_dir[order(player_dir$player_name, player_dir$team), ]
   rownames(player_dir) <- NULL
+
+  missing_required <- sum(is.na(player_dir$position) | player_dir$position == "" |
+                            is.na(player_dir$team) | player_dir$team == "")
+  if (missing_required > 0) {
+    stop("Player directory validation failed: missing team/position values.")
+  }
+  if (requireNamespace("dplyr", quietly = TRUE)) {
+    orphans <- dplyr::anti_join(
+      dplyr::distinct(pwi, player_id),
+      dplyr::distinct(player_dir, player_id),
+      by = "player_id"
+    )
+    if (nrow(orphans) > 0) {
+      stop("Player directory validation failed: missing player_ids from player_week_identity.")
+    }
+  }
 
   if (write_cache) {
     dir.create(dirname(player_directory_path), recursive = TRUE, showWarnings = FALSE)

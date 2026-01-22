@@ -183,6 +183,9 @@ if (file.exists(repo_path("R/simulation/report_schema_v1.R"))) {
 if (file.exists(repo_path("R/simulation/simulate_player_game_v1.R"))) {
   source_repo("R/simulation/simulate_player_game_v1.R", local = TRUE)
 }
+if (file.exists(repo_path("R/simulation/validate_simulation_request.R"))) {
+  source_repo("R/simulation/validate_simulation_request.R", local = TRUE)
+}
 if (!exists("get_k_v1_targets")) {
   stop("K v1 schema not loaded: get_k_v1_targets() missing")
 }
@@ -813,6 +816,7 @@ required_functions <- c(
   "run_k_simulation",
   "simulate_player_game",
   "simulate_player_game_v1",
+  "validate_simulation_request",
   "compute_ppr_rb"
 )
 

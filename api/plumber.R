@@ -76,6 +76,106 @@ get_team_registry <- function() {
   TEAM_REGISTRY
 }
 
+api_ok <- function(data) {
+  list(ok = TRUE, data = data)
+}
+
+api_error <- function(res, status, error_code, message, details = list()) {
+  if (!is.null(res)) {
+    res$status <- status
+  }
+  list(ok = FALSE, error_code = error_code, message = message, details = details)
+}
+
+# api_safe behavior contract (explicit answers for audit):
+# - Can api_safe() return ok=FALSE without throwing? Yes, via api_error() on caught errors or contract violations.
+# - Does api_safe() treat NULL differently under plumber? No; NULL results always map to api_error().
+# - Is res ever NULL or malformed? res can be NULL for direct R calls; plumber passes a response object over HTTP.
+# - Is api_ok() ever skipped? Yes, if fn() errors or returns a non-contract object; api_error() is returned instead.
+# - Always returns a list with an explicit ok field (TRUE/FALSE); never returns NULL.
+api_safe <- function(res, fn, context) {
+  result <- tryCatch(
+    fn(),
+    error = function(e) {
+      tb <- utils::capture.output(sys.calls())
+      return(api_error(
+        res,
+        500L,
+        "internal_error",
+        paste0("API error in ", context, ": ", conditionMessage(e)),
+        details = list(traceback = tb)
+      ))
+    }
+  )
+  if (is.null(result)) {
+    return(api_error(
+      res,
+      500L,
+      "null_response",
+      paste0("API handler ", context, " returned NULL."),
+      details = list(context = context)
+    ))
+  }
+  if (!is.list(result) || is.null(result$ok)) {
+    return(api_error(
+      res,
+      500L,
+      "invalid_response",
+      paste0("API handler ", context, " returned non-contract response."),
+      details = list(context = context, class = class(result))
+    ))
+  }
+  result
+}
+
+map_error_status <- function(error_type, error_code) {
+  if (is.null(error_type)) return(500L)
+  error_type <- as.character(error_type)
+  error_code <- if (is.null(error_code)) "" else as.character(error_code)
+  if (error_type == "invalid_input") {
+    if (error_code %in% c("player_id_unknown")) return(404L)
+    return(400L)
+  }
+  if (error_type %in% c("data_unavailable", "player_inactive")) return(422L)
+  if (error_type == "internal_error") return(500L)
+  500L
+}
+
+validate_api_caches <- function() {
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("Package 'arrow' is required for API cache validation.")
+  }
+  required <- c(
+    "data/cache/player_directory.parquet",
+    "data/cache/player_week_identity.parquet",
+    "data/processed/player_dim.parquet",
+    "data/processed/defense_weekly_features.parquet",
+    "data/processed/rb_weekly_features.parquet",
+    "data/processed/wr_weekly_features.parquet",
+    "data/processed/te_weekly_features.parquet",
+    "data/processed/qb_weekly_features.parquet",
+    "data/processed/qb_player_weekly_features.parquet",
+    "data/processed/k_weekly_features.parquet"
+  )
+  for (path in required) {
+    full_path <- file.path(repo_root, path)
+    if (!file.exists(full_path)) {
+      stop("Required cache missing: ", path)
+    }
+    df <- arrow::read_parquet(full_path)
+    if (is.null(df) || nrow(df) == 0) {
+      stop("Required cache is empty: ", path)
+    }
+  }
+  manifest_path <- file.path(repo_root, "data", "cache", "cache_manifest_latest.rds")
+  if (!file.exists(manifest_path)) {
+    stop("Cache manifest missing: data/cache/cache_manifest_latest.rds")
+  }
+  invisible(TRUE)
+}
+
+validate_api_caches()
+
 read_player_directory_cache <- function() {
   get_player_directory()
 }
@@ -143,6 +243,26 @@ get_available_seasons <- function() {
   sort(unique(seasons))
 }
 
+safe_get_seasons <- function() {
+  seasons <- tryCatch(
+    get_available_seasons(),
+    error = function(e) NULL
+  )
+
+  if (is.null(seasons) || length(seasons) == 0) {
+    identity <- tryCatch(get_player_week_identity(), error = function(e) NULL)
+    if (!is.null(identity) && "season" %in% names(identity)) {
+      seasons <- sort(unique(identity$season))
+    }
+  }
+
+  if (is.null(seasons) || length(seasons) == 0) {
+    seasons <- integer(0)
+  }
+
+  seasons
+}
+
 get_players <- function() {
   dir <- get_player_directory()
   ids <- as.character(get_col(dir, c("player_id", "gsis_id"), ""))
@@ -166,7 +286,7 @@ get_players <- function() {
       players$team != "",
     , drop = FALSE
   ]
-  players <- players[players$position %in% c("QB", "RB", "WR", "TE", "K"), , drop = FALSE]
+  # Keep all positions; eligibility is computed separately.
 
   if ("season" %in% names(players)) {
     players <- players[order(players$player_id, -players$season), , drop = FALSE]
@@ -175,6 +295,102 @@ get_players <- function() {
   players <- players[order(players$player_name, players$team), , drop = FALSE]
   rownames(players) <- NULL
   players
+}
+
+add_player_eligibility <- function(players_df) {
+  if (!exists("evaluate_player_eligibility")) {
+    return(players_df)
+  }
+  min_games_required <- if (exists("get_min_games_required")) get_min_games_required() else 4L
+  min_train_rows <- if (exists("get_min_train_rows")) get_min_train_rows() else 200L
+
+  identity <- get_player_week_identity()
+  counts <- table(as.character(identity$player_id))
+
+  feature_ids <- list()
+  feature_rows <- list()
+  for (pos in c("RB", "WR", "TE", "QB", "K")) {
+    df <- get_feature_cache_for_position(pos)
+    feature_rows[[pos]] <- if (is.null(df)) 0L else nrow(df)
+    if (!is.null(df) && "player_id" %in% names(df)) {
+      feature_ids[[pos]] <- unique(as.character(df$player_id))
+    } else {
+      feature_ids[[pos]] <- character(0)
+    }
+  }
+
+  players_df$eligible <- TRUE
+  players_df$eligibility_reason <- NA_character_
+  for (i in seq_len(nrow(players_df))) {
+    pid <- as.character(players_df$player_id[i])
+    pos <- toupper(as.character(players_df$position[i]))
+    games <- if (pid %in% names(counts)) as.integer(counts[[pid]]) else 0L
+    if (games < min_games_required) {
+      players_df$eligible[i] <- FALSE
+      players_df$eligibility_reason[i] <- "insufficient_history"
+      next
+    }
+    if (!pos %in% names(feature_ids)) {
+      players_df$eligible[i] <- FALSE
+      players_df$eligibility_reason[i] <- "position_unsupported"
+      next
+    }
+    if (feature_rows[[pos]] < min_train_rows) {
+      players_df$eligible[i] <- FALSE
+      players_df$eligibility_reason[i] <- "insufficient_training_rows"
+      next
+    }
+    if (!pid %in% feature_ids[[pos]]) {
+      players_df$eligible[i] <- FALSE
+      players_df$eligibility_reason[i] <- "feature_rows_missing"
+      next
+    }
+  }
+  players_df
+}
+
+safe_add_player_eligibility <- function(players_df) {
+  players_df$eligible <- FALSE
+  players_df$eligibility_reason <- "eligibility_unavailable"
+
+  identity <- NULL
+  counts <- NULL
+  if (exists("get_player_week_identity")) {
+    identity <- tryCatch(get_player_week_identity(), error = function(e) NULL)
+  }
+  if (!is.null(identity) && nrow(identity) > 0 && "player_id" %in% names(identity)) {
+    counts <- table(as.character(identity$player_id))
+  }
+  min_games_required <- if (exists("get_min_games_required")) get_min_games_required() else 4L
+
+  for (i in seq_len(nrow(players_df))) {
+    res <- tryCatch(
+      {
+        pid <- as.character(players_df$player_id[i])
+        pos <- toupper(as.character(players_df$position[i]))
+        games <- if (!is.null(counts) && pid %in% names(counts)) as.integer(counts[[pid]]) else NA_integer_
+        if (is.na(games)) {
+          list(eligible = FALSE, reason = "eligibility_unavailable")
+        } else if (games < min_games_required) {
+          list(eligible = FALSE, reason = "insufficient_history")
+        } else if (!pos %in% c("QB", "RB", "WR", "TE", "K")) {
+          list(eligible = FALSE, reason = "position_unsupported")
+        } else {
+          list(eligible = TRUE, reason = NA_character_)
+        }
+      },
+      error = function(e) {
+        list(eligible = FALSE, reason = "eligibility_unavailable")
+      }
+    )
+
+    if (is.list(res) && !is.null(res$eligible)) {
+      players_df$eligible[i] <- isTRUE(res$eligible)
+      players_df$eligibility_reason[i] <- if (!is.null(res$reason)) res$reason else "unknown"
+    }
+  }
+
+  players_df
 }
 
 get_teams <- function() {
@@ -202,17 +418,17 @@ get_next_game <- function(player_id) {
   dir <- get_player_directory()
   dir$player_id <- as.character(get_col(dir, c("player_id", "gsis_id"), ""))
   rows <- dir[dir$player_id == as.character(player_id), , drop = FALSE]
-  if (nrow(rows) == 0) return(NULL)
+  if (nrow(rows) == 0) return(list(status = "player_not_found"))
 
   team <- toupper(as.character(get_col(rows, c("team", "team_abbr"), "")))
   team <- team[team != ""][1]
-  if (is.na(team) || team == "") return(NULL)
+  if (is.na(team) || team == "") return(list(status = "team_missing"))
 
   seasons <- get_available_seasons()
-  if (length(seasons) == 0) return(NULL)
+  if (length(seasons) == 0) return(list(status = "seasons_unavailable"))
   current_season <- max(seasons, na.rm = TRUE)
   sched <- load_schedules(seasons = current_season, cache_only = TRUE)
-  if (is.null(sched) || nrow(sched) == 0) return(NULL)
+  if (is.null(sched) || nrow(sched) == 0) return(list(status = "schedule_unavailable"))
 
   home_team <- toupper(as.character(get_col(sched, c("home_team", "home_team_abbr"), "")))
   away_team <- toupper(as.character(get_col(sched, c("away_team", "away_team_abbr"), "")))
@@ -221,7 +437,7 @@ get_next_game <- function(player_id) {
 
   team_mask <- home_team == team | away_team == team
   sched_team <- sched[team_mask, , drop = FALSE]
-  if (nrow(sched_team) == 0) return(NULL)
+  if (nrow(sched_team) == 0) return(list(status = "team_not_on_schedule"))
 
   sched_team$game_date <- game_date[team_mask]
   sched_team$week <- weeks[team_mask]
@@ -230,7 +446,12 @@ get_next_game <- function(player_id) {
 
   today <- as.Date(Sys.time())
   future <- sched_team[!is.na(sched_team$game_date) & sched_team$game_date >= today, , drop = FALSE]
-  if (nrow(future) == 0) return(NULL)
+  if (nrow(future) == 0) {
+    if (any(!is.na(sched_team$game_date)) && max(sched_team$game_date, na.rm = TRUE) < today) {
+      return(list(status = "season_complete"))
+    }
+    return(list(status = "no_future_games"))
+  }
 
   future <- future[order(future$game_date, future$week), , drop = FALSE]
   next_row <- future[1, , drop = FALSE]
@@ -239,12 +460,15 @@ get_next_game <- function(player_id) {
   home_away <- if (next_row$home_team == team) "HOME" else "AWAY"
 
   list(
-    season = as.integer(current_season),
-    week = as.integer(next_row$week),
-    team = team,
-    opponent = opponent,
-    home_away = home_away,
-    game_date = as.character(next_row$game_date)
+    status = "ok",
+    next_game = list(
+      season = as.integer(current_season),
+      week = as.integer(next_row$week),
+      team = team,
+      opponent = opponent,
+      home_away = home_away,
+      game_date = as.character(next_row$game_date)
+    )
   )
 }
 
@@ -263,45 +487,103 @@ cors <- function(req, res) {
 
 #* List available players
 #* @get /players
-players_endpoint <- function() {
-  list(players = get_players())
+players_endpoint <- function(res) {
+  api_safe(res, function() {
+    players <- get_players()
+    pd_path <- file.path(repo_root, "data", "cache", "player_directory.parquet")
+    if (is.null(players) || !is.data.frame(players)) {
+      message("players_endpoint: invalid players object from ", pd_path)
+      return(api_error(
+        res,
+        500L,
+        "empty_players_directory",
+        "player_directory returned no rows.",
+        details = list(path = pd_path, rows = 0L)
+      ))
+    }
+    if (nrow(players) == 0) {
+      message("players_endpoint: empty players from ", pd_path)
+      return(api_error(
+        res,
+        500L,
+        "empty_players_directory",
+        "player_directory returned no rows.",
+        details = list(path = pd_path, rows = 0L)
+      ))
+    }
+    stopifnot(is.data.frame(players))
+    stopifnot(nrow(players) > 0)
+    players <- safe_add_player_eligibility(players)
+    api_ok(list(players = players))
+  }, "players_endpoint")
 }
 
 #* List available teams
 #* @get /teams
-teams_endpoint <- function() {
-  list(teams = get_teams())
+teams_endpoint <- function(res) {
+  api_safe(res, function() {
+    api_ok(list(teams = get_teams()))
+  }, "teams_endpoint")
 }
 
 #* List available seasons
 #* @get /seasons
-seasons_endpoint <- function() {
-  list(seasons = get_available_seasons())
+seasons_endpoint <- function(res) {
+  api_safe(res, function() {
+    seasons <- safe_get_seasons()
+    api_ok(list(seasons = seasons))
+  }, "seasons_endpoint")
 }
 
 #* List historical games for a player
 #* @get /player/<player_id>/games
 player_games_endpoint <- function(player_id, res) {
-  if (is.null(player_id) || !nzchar(player_id)) {
-    res$status <- 400
-    return(list(status = "error", message = "player_id is required"))
-  }
-  list(games = get_player_games(player_id))
+  api_safe(res, function() {
+    if (is.null(player_id) || !nzchar(player_id)) {
+      return(api_error(res, 400L, "player_id_missing", "player_id is required"))
+    }
+    dir <- get_player_directory()
+    if (!any(as.character(dir$player_id) == as.character(player_id))) {
+      return(api_error(res, 404L, "player_not_found", "player_id not found"))
+    }
+    games <- get_player_games(player_id)
+    if (nrow(games) == 0) {
+      return(api_error(res, 404L, "games_not_found", "No historical games found for this player."))
+    }
+    min_games_required <- if (exists("get_min_games_required")) get_min_games_required() else 4L
+    warning <- NULL
+    if (nrow(games) < min_games_required) {
+      warning <- list(code = "insufficient_history", message = "Player has limited historical games.")
+    }
+    api_ok(list(games = games, warning = warning))
+  }, "player_games_endpoint")
 }
 
 #* Get next scheduled game for a player
 #* @get /player/<player_id>/next_game
 player_next_game_endpoint <- function(player_id, res) {
-  if (is.null(player_id) || !nzchar(player_id)) {
-    res$status <- 400
-    return(list(status = "error", message = "player_id is required"))
-  }
-  next_game <- get_next_game(player_id)
-  if (is.null(next_game)) {
-    res$status <- 404
-    return(list(status = "error", message = "No upcoming game found for this player."))
-  }
-  next_game
+  api_safe(res, function() {
+    if (is.null(player_id) || !nzchar(player_id)) {
+      return(api_error(res, 400L, "player_id_missing", "player_id is required"))
+    }
+    next_game <- get_next_game(player_id)
+    if (is.null(next_game) || is.null(next_game$status)) {
+      return(api_error(res, 500L, "next_game_error", "Unable to resolve next game."))
+    }
+    if (next_game$status == "ok") {
+      return(api_ok(list(next_game = next_game$next_game)))
+    }
+    if (next_game$status == "season_complete") {
+      return(api_ok(list(next_game = NULL, reason = "season_complete")))
+    }
+    if (next_game$status == "player_not_found") {
+      return(api_error(res, 404L, "player_not_found", "player_id not found"))
+    }
+    if (next_game$status == "schedule_unavailable") {
+      return(api_error(res, 500L, "schedule_unavailable", "Schedule data unavailable."))
+    }
+    api_error(res, 404L, "next_game_not_found", "No upcoming game found for this player.")
+  }, "player_next_game_endpoint")
 }
 
 #* Run simulation
@@ -312,8 +594,7 @@ simulate_endpoint <- function(req, res) {
     body <- tryCatch(jsonlite::fromJSON(req$postBody), error = function(e) NULL)
   }
   if (is.null(body)) {
-    res$status <- 400
-    return(list(status = "error", message = "Request body is required."))
+    return(api_error(res, 400L, "request_body_missing", "Request body is required."))
   }
 
   directory_df <- get_player_directory()
@@ -321,17 +602,35 @@ simulate_endpoint <- function(req, res) {
   if (is.null(player_id) || !nzchar(trimws(as.character(player_id)))) {
     player_id <- resolve_player_id(body$player_name, directory_df)
   }
+  if (is.null(player_id) || !nzchar(trimws(as.character(player_id)))) {
+    return(api_error(res, 404L, "player_not_found", "Player not found."))
+  }
 
-  simulate_player_game_v1(
-    player_id = player_id,
-    season = body$season,
-    week = body$week,
-    n_sims = if (!is.null(body$n_sims)) body$n_sims else 500,
-    availability_policy = if (!is.null(body$availability_policy)) body$availability_policy else "played_only",
-    seed = if (!is.null(body$seed)) body$seed else NULL,
-    schema_version = if (!is.null(body$schema_version)) body$schema_version else "v1",
-    mode = if (!is.null(body$mode)) body$mode else NULL,
-    schedule_opponent = if (!is.null(body$schedule_opponent)) body$schedule_opponent else NULL,
-    schedule_home_away = if (!is.null(body$schedule_home_away)) body$schedule_home_away else NULL
-  )
+  api_safe(res, function() {
+    result <- simulate_player_game_v1(
+      player_id = player_id,
+      season = body$season,
+      week = body$week,
+      n_sims = if (!is.null(body$n_sims)) body$n_sims else 500,
+      availability_policy = if (!is.null(body$availability_policy)) body$availability_policy else "played_only",
+      seed = if (!is.null(body$seed)) body$seed else NULL,
+      schema_version = if (!is.null(body$schema_version)) body$schema_version else "v1",
+      mode = if (!is.null(body$mode)) body$mode else NULL,
+      schedule_opponent = if (!is.null(body$schedule_opponent)) body$schedule_opponent else NULL,
+      schedule_home_away = if (!is.null(body$schedule_home_away)) body$schedule_home_away else NULL
+    )
+    if (is.null(result) || (is.list(result) && isFALSE(result$ok))) {
+      error_type <- if (!is.null(result$error_type)) result$error_type else "internal_error"
+      error_code <- if (!is.null(result$error_code)) result$error_code else "simulation_failed"
+      status <- map_error_status(error_type, error_code)
+      message <- if (!is.null(result$message)) result$message else "Simulation failed."
+      details <- if (!is.null(result$details)) result$details else list()
+      return(api_error(res, status, error_code, message, details))
+    }
+    if (is.null(result$summary) || nrow(result$summary) == 0 || is.null(result$metadata)) {
+      return(api_error(res, 500L, "simulation_invalid", "Simulation returned incomplete results."))
+    }
+    result$ok <- NULL
+    api_ok(result)
+  }, "simulate_endpoint")
 }

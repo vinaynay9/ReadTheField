@@ -98,6 +98,14 @@ python3 -m http.server 5173
 Open the UI at `http://localhost:5173` and ensure the API is reachable at
 `http://localhost:8000`.
 
+## API Endpoints (Local)
+- `GET /players` → `{ ok:true, data:{ players:[...] } }`
+- `GET /teams` → `{ ok:true, data:{ teams:[...] } }`
+- `GET /seasons` → `{ ok:true, data:{ seasons:[...] } }`
+- `GET /player/:id/games` → `{ ok:true, data:{ games:[...] } }`
+- `GET /player/:id/next_game` → `{ ok:true, data:{ next_game:null|{...} } }`
+- `POST /simulate` → `{ ok:true, data:{ summary, metadata, ... } }` or `{ ok:false, error_code, message }`
+
 Smoke test:
 ```
 Rscript scripts/smoke_test_rb_simulation.R
@@ -107,6 +115,20 @@ Run a simulation:
 ```
 Rscript scripts/run_rb_simulation_cli.R --player="Christian McCaffrey" --season=2024 --week=8 --n_sims=5000 --availability_policy=expected_active
 ```
+
+## Troubleshooting
+- **API won’t start**: ensure `READTHEFIELD_REPO_ROOT` is set (run `Rscript api/run_api.R` from repo root).
+- **/players or /seasons empty**: check `data/cache/player_directory.parquet` and `data/cache/player_week_identity.parquet` exist and are non-empty.
+- **/simulate returns ok:false**: inspect `error_code` and `message` from the API response; verify `mode`, `availability_policy`, and `schema_version` are valid.
+- **Frontend shows “Unable to load players”**: confirm API is running at `http://localhost:8000`.
+
+## Local Test Checklist
+1. `Rscript api/run_api.R`
+2. `curl -s http://localhost:8000/teams | jq '.ok, (.data.teams|length)'`
+3. `curl -s http://localhost:8000/players | jq '.ok, (.data.players|length)'`
+4. `curl -s http://localhost:8000/seasons | jq '.ok, (.data.seasons|length)'`
+5. `cd frontend && python3 -m http.server 5173`
+6. Open `http://localhost:5173` and verify player search + simulate.
 
 ## Repo Structure
 - `R/` core simulation engine, features, models, policies, and printing

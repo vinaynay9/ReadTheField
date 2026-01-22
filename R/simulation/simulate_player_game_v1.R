@@ -1,4 +1,4 @@
-# Simulation Entry Point v1
+# Simulation Entry Point v1 (API entrypoint)
 #
 # Canonical API-safe wrapper for simulation consumers (frontend/API).
 # Models are fit per request from cached data; cache changes can affect outputs.
@@ -94,6 +94,7 @@ simulate_player_game_v1 <- function(player_id,
     "validate_availability_policy",
     "get_available_seasons_from_cache",
     "read_player_dim_cache",
+    "validate_simulation_request",
     "build_game_key"
   )
   missing <- required_functions[!sapply(required_functions, exists)]
@@ -124,6 +125,7 @@ simulate_player_game_v1 <- function(player_id,
 
   make_error_v1 <- function(error_type, error_code, message, details = list(), meta = list()) {
     list(
+      ok = FALSE,
       status = "error",
       error_type = error_type,
       error_code = error_code,
@@ -224,9 +226,9 @@ simulate_player_game_v1 <- function(player_id,
                            "Player dimension cache is empty. Run refresh_weekly_cache."))
     }
     player_id <- as.character(player_id)
-    dim_row <- player_dim[player_dim$gsis_id == player_id & player_dim$season == season, , drop = FALSE]
+    dim_row <- player_dim[player_dim$player_id == player_id & player_dim$season == season, , drop = FALSE]
     if (nrow(dim_row) == 0) {
-      any_row <- player_dim[player_dim$gsis_id == player_id, , drop = FALSE]
+      any_row <- player_dim[player_dim$player_id == player_id, , drop = FALSE]
       if (nrow(any_row) == 0) {
         return(make_error_v1("invalid_input", "player_id_unknown",
                              "player_id not found in cache.",
@@ -309,6 +311,34 @@ simulate_player_game_v1 <- function(player_id,
     if (!is.null(seed)) {
       set.seed(as.integer(seed))
     }
+
+    preflight <- validate_simulation_request(
+      player_id = validated$player_id,
+      season = validated$season,
+      week = validated$week,
+      position = validated$position,
+      availability_policy = validated$availability_policy
+    )
+    if (is.list(preflight) && isFALSE(preflight$ok)) {
+      return(make_error_v1(
+        preflight$error_type,
+        preflight$error_code,
+        preflight$message,
+        preflight$details,
+        meta = list(
+          player_id = validated$player_id,
+          season = validated$season,
+          week = validated$week,
+          n_sims = validated$n_sims,
+          position = validated$position,
+          availability_policy = validated$availability_policy,
+          report_schema_version = get_report_schema_version_v1(),
+          seed = if (is.null(seed)) NA_integer_ else as.integer(seed),
+          error_code = preflight$error_code
+        )
+      ))
+    }
+
     result <- simulate_player_game(
       gsis_id = validated$player_id,
       season = validated$season,
@@ -367,7 +397,17 @@ simulate_player_game_v1 <- function(player_id,
 
     result$summary <- normalize_summary_stats_v1(result$summary, result$metadata$position, result$draws)
 
+    if (is.null(result$metadata) || length(result$metadata) == 0) {
+      return(make_error_v1("internal_error", "metadata_missing",
+                           "Simulation result missing metadata."))
+    }
+    if (is.null(result$summary) || nrow(result$summary) == 0) {
+      return(make_error_v1("internal_error", "summary_missing",
+                           "Simulation result missing summary statistics."))
+    }
+
     validate_report_schema_v1(result)
+    result$ok <- TRUE
     result
   }
 

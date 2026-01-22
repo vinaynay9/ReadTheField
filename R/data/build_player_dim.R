@@ -1,7 +1,7 @@
  # Build Player Dimension Table
  #
  # Creates a season-level player dimension cache for UI and search.
- # One row per (gsis_id, season) for offensive skill positions + kickers.
+# One row per (player_id, season) for offensive skill positions + kickers.
  #
  # Dependencies:
  #   - nflreadr
@@ -82,7 +82,7 @@ assert_required_cols <- function(df, required, context = "data frame") {
  #'
  #' @param seasons Integer vector of seasons to include
  #' @param write_cache Logical, if TRUE write to parquet cache
- #' @return data.frame with one row per (gsis_id, season)
+#' @return data.frame with one row per (player_id, season)
  build_player_dim <- function(seasons, write_cache = TRUE) {
    
    if (missing(seasons) || length(seasons) == 0) {
@@ -266,8 +266,9 @@ assert_required_cols <- function(df, required, context = "data frame") {
   player_dim$active <- TRUE
   
   # Schema normalization and validation
-  required_cols <- c("gsis_id", "season", "team", "position")
+  required_cols <- c("player_id", "season", "team", "position")
   optional_cols <- c(
+    "gsis_id",
     "full_name",
     "first_name",
     "last_name",
@@ -287,6 +288,7 @@ assert_required_cols <- function(df, required, context = "data frame") {
     rename_aliases()
   
   player_dim <- coalesce_cols(player_dim, "gsis_id", c("gsis_id"))
+  player_dim <- coalesce_cols(player_dim, "player_id", c("player_id", "gsis_id"))
   player_dim <- coalesce_cols(player_dim, "season", c("season", "year"))
   player_dim <- coalesce_cols(player_dim, "team", c("team", "team_abbr", "recent_team", "current_team"))
   player_dim <- coalesce_cols(player_dim, "position", c("position", "pos"))
@@ -315,7 +317,7 @@ assert_required_cols <- function(df, required, context = "data frame") {
         player_dim <- merge(
           player_dim,
           latest_identity,
-          by.x = c("gsis_id", "season"),
+          by.x = c("player_id", "season"),
           by.y = c("player_id", "season"),
           all.x = TRUE,
           suffixes = c("", "_identity")
@@ -361,7 +363,7 @@ assert_required_cols <- function(df, required, context = "data frame") {
   assert_required_cols(player_dim, required_cols, context = "player_dim build output")
 
   player_dim$position <- toupper(trimws(as.character(player_dim$position)))
-  player_dim$team <- toupper(trimws(as.character(player_dim$team)))
+  player_dim$team <- canonicalize_team_abbr(player_dim$team)
 
   allowed_positions <- c("QB", "RB", "WR", "TE", "K")
   invalid_pos <- setdiff(unique(player_dim$position), allowed_positions)
@@ -376,12 +378,13 @@ assert_required_cols <- function(df, required, context = "data frame") {
   allowed_teams <- character(0)
   if (file.exists(team_path)) {
     team_df <- read.csv(team_path, stringsAsFactors = FALSE)
-    if ("team" %in% names(team_df)) {
+    if ("abbr" %in% names(team_df)) {
+      allowed_teams <- toupper(as.character(team_df$abbr))
+    } else if ("team" %in% names(team_df)) {
       allowed_teams <- toupper(as.character(team_df$team))
     }
   }
-  legacy <- c("OAK", "SD", "STL", "LA", "WAS", "JAC")
-  allowed_teams <- sort(unique(c(allowed_teams, legacy)))
+  allowed_teams <- sort(unique(allowed_teams))
   if (length(allowed_teams) > 0) {
     invalid_teams <- setdiff(unique(player_dim$team), allowed_teams)
     if (length(invalid_teams) > 0) {
@@ -395,14 +398,14 @@ assert_required_cols <- function(df, required, context = "data frame") {
   player_dim <- dplyr::as_tibble(player_dim) |>
     dplyr::select(dplyr::any_of(c(required_cols, optional_cols)))
   
-  # Validation: one row per (gsis_id, season)
+  # Validation: one row per (player_id, season)
   dupes <- player_dim |>
-    dplyr::count(gsis_id, season) |>
+    dplyr::count(player_id, season) |>
     dplyr::filter(n > 1)
   if (nrow(dupes) > 0) {
     stop(
       paste(
-        "Duplicate (gsis_id, season) rows in player_dim.",
+        "Duplicate (player_id, season) rows in player_dim.",
         paste(capture.output(print(dupes)), collapse = "\n")
       ),
       call. = FALSE
@@ -416,7 +419,7 @@ assert_required_cols <- function(df, required, context = "data frame") {
     warning(
       sprintf(
         "Active players missing headshot_url: %s",
-        paste(missing_headshot$gsis_id, collapse = ", ")
+        paste(missing_headshot$player_id, collapse = ", ")
       ),
       call. = FALSE
     )

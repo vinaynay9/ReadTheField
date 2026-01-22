@@ -13,7 +13,7 @@ suppressPackageStartupMessages({
 #' @param query Character search string (e.g., "robinson")
 #' @param season Integer season to filter
 #' @param positions Character vector of positions to include
-#' @return tibble with gsis_id, full_name, position, team, headshot_url
+#' @return tibble with player_id, full_name, position, team, headshot_url
 resolve_player_search <- function(query,
                                   season,
                                   team = NULL,
@@ -64,7 +64,7 @@ resolve_player_search <- function(query,
   }
   
   matches <- matches %>%
-    select(gsis_id, full_name, position, team, headshot_url) %>%
+    select(player_id, full_name, position, team, headshot_url) %>%
     arrange(full_name, team)
   
   as_tibble(matches)

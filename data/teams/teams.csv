@@ -1,33 +1,33 @@
-team,slug,name,conference,division,color_primary,color_secondary
-BUF,buffalo,Buffalo Bills,AFC,East,#00338d,#ffffff
-MIA,miami,Miami Dolphins,AFC,East,#008e97,#ffffff
-NE,new-england,New England Patriots,AFC,East,#002244,#ffffff
-NYJ,ny-jets,New York Jets,AFC,East,#125740,#ffffff
-BAL,baltimore,Baltimore Ravens,AFC,North,#241773,#ffffff
-CIN,cincinnati,Cincinnati Bengals,AFC,North,#fb4f14,#ffffff
-CLE,cleveland,Cleveland Browns,AFC,North,#311d00,#ffffff
-PIT,pittsburgh,Pittsburgh Steelers,AFC,North,#ffb612,#ffffff
-HOU,houston,Houston Texans,AFC,South,#03202f,#ffffff
-IND,indianapolis,Indianapolis Colts,AFC,South,#002c5f,#ffffff
-JAX,jacksonville,Jacksonville Jaguars,AFC,South,#006778,#ffffff
-TEN,tennessee,Tennessee Titans,AFC,South,#0c2340,#ffffff
-DEN,denver,Denver Broncos,AFC,West,#fb4f14,#ffffff
-KC,kansas-city,Kansas City Chiefs,AFC,West,#e31837,#ffffff
-LV,las-vegas,Las Vegas Raiders,AFC,West,#000000,#ffffff
-LAC,la-chargers,Los Angeles Chargers,AFC,West,#0080c6,#ffffff
-DAL,dallas,Dallas Cowboys,NFC,East,#003594,#ffffff
-NYG,ny-giants,New York Giants,NFC,East,#0b2265,#ffffff
-PHI,philadelphia,Philadelphia Eagles,NFC,East,#004c54,#ffffff
-WAS,washington,Washington Commanders,NFC,East,#5a1414,#ffffff
-CHI,chicago,Chicago Bears,NFC,North,#0b162a,#ffffff
-DET,detroit,Detroit Lions,NFC,North,#0076b6,#ffffff
-GB,green-bay,Green Bay Packers,NFC,North,#203731,#ffffff
-MIN,minnesota,Minnesota Vikings,NFC,North,#4f2683,#ffffff
-ATL,atlanta,Atlanta Falcons,NFC,South,#a71930,#ffffff
-CAR,carolina,Carolina Panthers,NFC,South,#0085ca,#ffffff
-NO,new-orleans,New Orleans Saints,NFC,South,#d3bc8d,#ffffff
-TB,tampa-bay,Tampa Bay Buccaneers,NFC,South,#d50a0a,#ffffff
-ARI,arizona,Arizona Cardinals,NFC,West,#97233f,#ffffff
-LAR,la-rams,Los Angeles Rams,NFC,West,#003594,#ffffff
-SF,san-francisco,San Francisco 49ers,NFC,West,#aa0000,#ffffff
-SEA,seattle,Seattle Seahawks,NFC,West,#002244,#ffffff
+team,abbr,slug,name,conference,division,color_primary,color_secondary
+BUF,BUF,buffalo,Buffalo Bills,AFC,East,#00338d,#ffffff
+MIA,MIA,miami,Miami Dolphins,AFC,East,#008e97,#ffffff
+NE,NE,new-england,New England Patriots,AFC,East,#002244,#ffffff
+NYJ,NYJ,ny-jets,New York Jets,AFC,East,#125740,#ffffff
+BAL,BAL,baltimore,Baltimore Ravens,AFC,North,#241773,#ffffff
+CIN,CIN,cincinnati,Cincinnati Bengals,AFC,North,#fb4f14,#ffffff
+CLE,CLE,cleveland,Cleveland Browns,AFC,North,#311d00,#ffffff
+PIT,PIT,pittsburgh,Pittsburgh Steelers,AFC,North,#ffb612,#ffffff
+HOU,HOU,houston,Houston Texans,AFC,South,#03202f,#ffffff
+IND,IND,indianapolis,Indianapolis Colts,AFC,South,#002c5f,#ffffff
+JAX,JAX,jacksonville,Jacksonville Jaguars,AFC,South,#006778,#ffffff
+TEN,TEN,tennessee,Tennessee Titans,AFC,South,#0c2340,#ffffff
+DEN,DEN,denver,Denver Broncos,AFC,West,#fb4f14,#ffffff
+KC,KC,kansas-city,Kansas City Chiefs,AFC,West,#e31837,#ffffff
+LV,LV,las-vegas,Las Vegas Raiders,AFC,West,#000000,#ffffff
+LAC,LAC,la-chargers,Los Angeles Chargers,AFC,West,#0080c6,#ffffff
+DAL,DAL,dallas,Dallas Cowboys,NFC,East,#003594,#ffffff
+NYG,NYG,ny-giants,New York Giants,NFC,East,#0b2265,#ffffff
+PHI,PHI,philadelphia,Philadelphia Eagles,NFC,East,#004c54,#ffffff
+WAS,WAS,washington,Washington Commanders,NFC,East,#5a1414,#ffffff
+CHI,CHI,chicago,Chicago Bears,NFC,North,#0b162a,#ffffff
+DET,DET,detroit,Detroit Lions,NFC,North,#0076b6,#ffffff
+GB,GB,green-bay,Green Bay Packers,NFC,North,#203731,#ffffff
+MIN,MIN,minnesota,Minnesota Vikings,NFC,North,#4f2683,#ffffff
+ATL,ATL,atlanta,Atlanta Falcons,NFC,South,#a71930,#ffffff
+CAR,CAR,carolina,Carolina Panthers,NFC,South,#0085ca,#ffffff
+NO,NO,new-orleans,New Orleans Saints,NFC,South,#d3bc8d,#ffffff
+TB,TB,tampa-bay,Tampa Bay Buccaneers,NFC,South,#d50a0a,#ffffff
+ARI,ARI,arizona,Arizona Cardinals,NFC,West,#97233f,#ffffff
+LAR,LAR,la-rams,Los Angeles Rams,NFC,West,#003594,#ffffff
+SF,SF,san-francisco,San Francisco 49ers,NFC,West,#aa0000,#ffffff
+SEA,SEA,seattle,Seattle Seahawks,NFC,West,#002244,#ffffff

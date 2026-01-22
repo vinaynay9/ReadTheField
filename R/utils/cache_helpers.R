@@ -36,6 +36,12 @@ get_snapshot_id <- function() {
   snap <- getOption("READTHEFIELD_SNAPSHOT_ID", NA_character_)
   snap <- if (is.null(snap) || !nzchar(as.character(snap))) NA_character_ else as.character(snap)[1]
   if (is.na(snap)) {
+    env_snap <- Sys.getenv("READTHEFIELD_SNAPSHOT_ID", "")
+    if (nzchar(env_snap)) {
+      snap <- env_snap
+    }
+  }
+  if (is.na(snap)) {
     snap <- format(Sys.Date(), "%Y%m%d")
   }
   snap
@@ -105,6 +111,24 @@ ensure_cache_fingerprint <- function(paths) {
     stop("Cache fingerprint changed during session. Restart API or refresh caches for a consistent run.", call. = FALSE)
   }
   invisible(TRUE)
+}
+
+canonicalize_team_abbr <- function(team) {
+  team <- toupper(trimws(as.character(team)))
+  canonical_team_map <- c(
+    "HST" = "TEN",
+    "BLT" = "BAL",
+    "CLV" = "CLE",
+    "SL" = "LAR",
+    "ARZ" = "ARI",
+    "WSH" = "WAS",
+    "OAK" = "LV",
+    "SD" = "LAC",
+    "STL" = "LAR",
+    "LA" = "LAR",
+    "JAC" = "JAX"
+  )
+  ifelse(team %in% names(canonical_team_map), canonical_team_map[team], team)
 }
 
 #' Get cache file path

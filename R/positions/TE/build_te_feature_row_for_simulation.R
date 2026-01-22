@@ -201,7 +201,7 @@ build_te_feature_row_for_simulation <- function(te_weekly_features,
   weight <- NA_real_
   age <- NA_real_
   if (!is.null(player_dim) && nrow(player_dim) > 0) {
-    dim_row <- player_dim[player_dim$gsis_id == player_id & player_dim$season == season, , drop = FALSE]
+    dim_row <- player_dim[player_dim$player_id == player_id & player_dim$season == season, , drop = FALSE]
     if (nrow(dim_row) > 0) {
       team <- dim_row$team[1]
       position <- if (!is.na(dim_row$position[1])) dim_row$position[1] else position
@@ -214,7 +214,7 @@ build_te_feature_row_for_simulation <- function(te_weekly_features,
   }
   if (is.na(team) || team == "") {
     if (!is.null(player_dim) && nrow(player_dim) > 0) {
-      last_dim <- player_dim[player_dim$gsis_id == player_id, , drop = FALSE]
+      last_dim <- player_dim[player_dim$player_id == player_id, , drop = FALSE]
       if (nrow(last_dim) > 0) {
         last_dim <- last_dim[order(last_dim$season, decreasing = TRUE), , drop = FALSE]
         team <- last_dim$team[1]

@@ -102,7 +102,7 @@ build_k_feature_row_for_simulation <- function(k_weekly_features,
       if (nrow(history) > 0) as.character(tail(history$team, 1)) else NA_character_
     }
     if ((is.na(team_val) || team_val == "") && !is.null(player_dim) && nrow(player_dim) > 0) {
-      last_dim <- player_dim[player_dim$gsis_id == player_id, , drop = FALSE]
+      last_dim <- player_dim[player_dim$player_id == player_id, , drop = FALSE]
       if (nrow(last_dim) > 0) {
         last_dim <- last_dim[order(last_dim$season, decreasing = TRUE), , drop = FALSE]
         team_val <- as.character(last_dim$team[1])
