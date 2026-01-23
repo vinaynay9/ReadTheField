@@ -445,7 +445,15 @@ async function updateThisWeekMatchup() {
         const data = await fetchJson(`/player/${selectedPlayer.player_id}/next_game`);
         nextGame = data.next_game || null;
         if (!nextGame) {
-            throw new Error(data.reason === 'season_complete' ? 'Season complete.' : 'No upcoming game found.');
+            const fallbackMessage = data.reason === 'season_complete' ? 'Season complete.' : 'No upcoming game found.';
+            const message = data.message || fallbackMessage;
+            if (autoOpponent) autoOpponent.textContent = message;
+            if (autoLocation) autoLocation.textContent = '--';
+            selectedSeason = null;
+            selectedWeek = null;
+            selectedTeam = null;
+            updateCalculateButton();
+            return;
         }
         selectedSeason = nextGame.season;
         selectedWeek = nextGame.week;
@@ -507,9 +515,12 @@ function renderTeamSelection(container, teamList) {
             const teamId = team.team || team.abbr || team.id;
             if (!teamId) return;
             const disabled = shouldDisableTeam(teamId);
-            const disabledStyle = disabled ? 'opacity:0.35; filter:grayscale(1); pointer-events:none;' : '';
+            const disabledStyle = disabled ? 'opacity:0.35; filter:grayscale(1); cursor:not-allowed;' : '';
+            const tooltip = disabled
+                ? 'This player has never faced this team. Try a hypothetical matchup.'
+                : '';
             html += `
-                <div class="team-item ${teamClass}" data-team-id="${teamId}" style="${disabledStyle}">
+                <div class="team-item ${teamClass}" data-team-id="${teamId}" data-disabled="${disabled ? 'true' : 'false'}" style="${disabledStyle}" title="${tooltip}">
                     <span class="team-name">${team.name || teamId}</span>
                 </div>
             `;
@@ -521,6 +532,9 @@ function renderTeamSelection(container, teamList) {
     container.querySelectorAll('.team-item').forEach(item => {
         item.addEventListener('click', () => {
             const teamId = item.dataset.teamId;
+            if (item.dataset.disabled === 'true') {
+                return;
+            }
             selectTeam(teamId);
         });
     });

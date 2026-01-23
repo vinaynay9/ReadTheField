@@ -174,7 +174,39 @@ validate_api_caches <- function() {
   invisible(TRUE)
 }
 
-validate_api_caches()
+list_simulation_cache_paths <- function() {
+  c(
+    "data/processed/player_dim.parquet",
+    "data/processed/defense_weekly_features.parquet",
+    "data/processed/rb_weekly_features.parquet",
+    "data/processed/wr_weekly_features.parquet",
+    "data/processed/te_weekly_features.parquet",
+    "data/processed/qb_weekly_features.parquet",
+    "data/processed/qb_player_weekly_features.parquet",
+    "data/processed/k_weekly_features.parquet"
+  )
+}
+
+validate_simulation_caches <- function() {
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("Package 'arrow' is required for simulation cache validation.")
+  }
+  required <- list_simulation_cache_paths()
+  missing <- character(0)
+  empty <- character(0)
+  for (path in required) {
+    full_path <- file.path(repo_root, path)
+    if (!file.exists(full_path)) {
+      missing <- c(missing, path)
+      next
+    }
+    df <- arrow::read_parquet(full_path)
+    if (is.null(df) || nrow(df) == 0) {
+      empty <- c(empty, path)
+    }
+  }
+  list(missing = unique(missing), empty = unique(empty))
+}
 
 read_player_directory_cache <- function() {
   get_player_directory()
@@ -414,26 +446,109 @@ get_player_games <- function(player_id) {
   rows
 }
 
+load_schedule_for_season <- function(season) {
+  path <- file.path(repo_root, "data", "cache", "schedules.rds")
+  if (!file.exists(path)) return(data.frame())
+  sched <- tryCatch(readRDS(path), error = function(e) NULL)
+  if (is.null(sched) || nrow(sched) == 0) return(data.frame())
+  sched <- as.data.frame(sched)
+  if ("season" %in% names(sched)) {
+    sched <- sched[as.integer(sched$season) == as.integer(season), , drop = FALSE]
+  }
+  sched
+}
+
+normalize_team <- function(team) {
+  team <- toupper(trimws(as.character(team)))
+  if (exists("canonicalize_team_abbr")) {
+    team <- canonicalize_team_abbr(team)
+  }
+  team
+}
+
+detect_playoffs_started <- function(sched, today) {
+  if (is.null(sched) || nrow(sched) == 0) return(FALSE)
+  if ("game_type" %in% names(sched)) {
+    game_type <- as.character(sched$game_type)
+    return(any(!is.na(game_type) & game_type != "REG"))
+  }
+  if ("season_type" %in% names(sched)) {
+    season_type <- as.character(sched$season_type)
+    return(any(!is.na(season_type) & season_type != "REG"))
+  }
+  game_date <- as.Date(get_col(sched, c("gameday", "game_date"), NA))
+  week <- as.integer(get_col(sched, c("week"), NA))
+  if (all(is.na(game_date)) || all(is.na(week))) return(FALSE)
+  max_date <- suppressWarnings(max(game_date, na.rm = TRUE))
+  max_week <- suppressWarnings(max(week, na.rm = TRUE))
+  if (is.finite(max_date) && is.finite(max_week)) {
+    return(max_week >= 19 || (max_date < today && max_week >= 18))
+  }
+  FALSE
+}
+
+team_made_playoffs <- function(team, sched) {
+  team <- normalize_team(team)
+  if (!is.null(sched) && nrow(sched) > 0) {
+    home_team <- normalize_team(get_col(sched, c("home_team", "home_team_abbr"), ""))
+    away_team <- normalize_team(get_col(sched, c("away_team", "away_team_abbr"), ""))
+    week <- suppressWarnings(as.integer(get_col(sched, c("week"), NA)))
+    post_mask <- !is.na(week) & week >= 19
+    team_in_post <- (home_team == team | away_team == team) & post_mask
+    return(any(team_in_post))
+  }
+  NA
+}
+
+playoff_round_label <- function(row) {
+  if (!is.null(row$game_type)) {
+    gt <- toupper(as.character(row$game_type))
+    if (gt %in% c("WC", "WILD", "WILD_CARD")) return("Wild Card")
+    if (gt %in% c("DIV", "DIVISIONAL")) return("Divisional")
+    if (gt %in% c("CONF", "CONFERENCE")) return("Conference")
+    if (gt %in% c("SB", "SUPERBOWL", "SUPER_BOWL")) return("Super Bowl")
+  }
+  if (!is.null(row$week)) {
+    wk <- suppressWarnings(as.integer(row$week))
+    if (is.finite(wk)) {
+      if (wk == 19) return("Wild Card")
+      if (wk == 20) return("Divisional")
+      if (wk == 21) return("Conference")
+      if (wk >= 22) return("Super Bowl")
+    }
+  }
+  "Playoffs"
+}
+
 get_next_game <- function(player_id) {
   dir <- get_player_directory()
   dir$player_id <- as.character(get_col(dir, c("player_id", "gsis_id"), ""))
   rows <- dir[dir$player_id == as.character(player_id), , drop = FALSE]
   if (nrow(rows) == 0) return(list(status = "player_not_found"))
 
-  team <- toupper(as.character(get_col(rows, c("team", "team_abbr"), "")))
+  team <- normalize_team(get_col(rows, c("team", "team_abbr"), ""))
   team <- team[team != ""][1]
   if (is.na(team) || team == "") return(list(status = "team_missing"))
 
   seasons <- get_available_seasons()
   if (length(seasons) == 0) return(list(status = "seasons_unavailable"))
   current_season <- max(seasons, na.rm = TRUE)
-  sched <- load_schedules(seasons = current_season, cache_only = TRUE)
+  identity <- get_player_week_identity()
+  identity <- identity[as.integer(identity$season) == as.integer(current_season), , drop = FALSE]
+  if (nrow(identity) == 0) return(list(status = "season_unavailable"))
+  if (!any(as.character(identity$player_id) == as.character(player_id))) {
+    return(list(status = "not_in_current_season"))
+  }
+
+  sched <- load_schedule_for_season(current_season)
   if (is.null(sched) || nrow(sched) == 0) return(list(status = "schedule_unavailable"))
 
-  home_team <- toupper(as.character(get_col(sched, c("home_team", "home_team_abbr"), "")))
-  away_team <- toupper(as.character(get_col(sched, c("away_team", "away_team_abbr"), "")))
+  home_team <- normalize_team(get_col(sched, c("home_team", "home_team_abbr"), ""))
+  away_team <- normalize_team(get_col(sched, c("away_team", "away_team_abbr"), ""))
   game_date <- as.Date(get_col(sched, c("gameday", "game_date"), NA))
   weeks <- as.integer(get_col(sched, c("week"), NA))
+  game_type <- if ("game_type" %in% names(sched)) as.character(sched$game_type) else NULL
+  season_type <- if ("season_type" %in% names(sched)) as.character(sched$season_type) else NULL
 
   team_mask <- home_team == team | away_team == team
   sched_team <- sched[team_mask, , drop = FALSE]
@@ -443,8 +558,51 @@ get_next_game <- function(player_id) {
   sched_team$week <- weeks[team_mask]
   sched_team$home_team <- home_team[team_mask]
   sched_team$away_team <- away_team[team_mask]
+  if (!is.null(game_type)) sched_team$game_type <- game_type[team_mask]
+  if (!is.null(season_type)) sched_team$season_type <- season_type[team_mask]
 
   today <- as.Date(Sys.time())
+  playoffs_started <- detect_playoffs_started(sched, today)
+  if (playoffs_started) {
+    made_playoffs <- team_made_playoffs(team, sched)
+    if (isTRUE(made_playoffs)) {
+      post_mask <- rep(TRUE, nrow(sched_team))
+      if ("game_type" %in% names(sched_team)) {
+        post_mask <- !is.na(sched_team$game_type) & sched_team$game_type != "REG"
+      } else if ("season_type" %in% names(sched_team)) {
+        post_mask <- !is.na(sched_team$season_type) & sched_team$season_type != "REG"
+      } else if ("week" %in% names(sched_team)) {
+        post_mask <- !is.na(sched_team$week) & as.integer(sched_team$week) >= 19
+      }
+      post_games <- sched_team[post_mask, , drop = FALSE]
+      future <- post_games[!is.na(post_games$game_date) & post_games$game_date >= today, , drop = FALSE]
+      if (nrow(future) == 0) {
+        return(list(status = "season_complete"))
+      }
+      future <- future[order(future$game_date, future$week), , drop = FALSE]
+      next_row <- future[1, , drop = FALSE]
+      opponent <- if (next_row$home_team == team) next_row$away_team else next_row$home_team
+      home_away <- if (next_row$home_team == team) "HOME" else "AWAY"
+      round_label <- playoff_round_label(next_row)
+      return(list(
+        status = "playoffs_upcoming",
+        next_game = list(
+          season = as.integer(current_season),
+          week = as.integer(next_row$week),
+          team = team,
+          opponent = opponent,
+          home_away = home_away,
+          game_date = as.character(next_row$game_date),
+          round = round_label
+        )
+      ))
+    }
+    if (identical(made_playoffs, FALSE)) {
+      return(list(status = "playoffs_not_qualified"))
+    }
+    return(list(status = "playoffs_unknown"))
+  }
+
   future <- sched_team[!is.na(sched_team$game_date) & sched_team$game_date >= today, , drop = FALSE]
   if (nrow(future) == 0) {
     if (any(!is.na(sched_team$game_date)) && max(sched_team$game_date, na.rm = TRUE) < today) {
@@ -566,6 +724,14 @@ player_next_game_endpoint <- function(player_id, res) {
     if (is.null(player_id) || !nzchar(player_id)) {
       return(api_error(res, 400L, "player_id_missing", "player_id is required"))
     }
+    schedule_path <- file.path(repo_root, "data", "cache", "schedules.rds")
+    if (!file.exists(schedule_path)) {
+      return(api_error(res, 500L, "schedule_unavailable", "Schedule cache missing."))
+    }
+    identity_path <- file.path(repo_root, "data", "cache", "player_week_identity.parquet")
+    if (!file.exists(identity_path)) {
+      return(api_error(res, 500L, "player_week_identity_missing", "player_week_identity cache missing."))
+    }
     next_game <- get_next_game(player_id)
     if (is.null(next_game) || is.null(next_game$status)) {
       return(api_error(res, 500L, "next_game_error", "Unable to resolve next game."))
@@ -573,8 +739,32 @@ player_next_game_endpoint <- function(player_id, res) {
     if (next_game$status == "ok") {
       return(api_ok(list(next_game = next_game$next_game)))
     }
+    if (next_game$status == "playoffs_upcoming") {
+      return(api_ok(list(
+        next_game = next_game$next_game,
+        reason = "playoffs_upcoming",
+        message = "Playoffs have started."
+      )))
+    }
+    if (next_game$status == "playoffs_not_qualified") {
+      return(api_ok(list(
+        next_game = NULL,
+        reason = "playoffs_no_qualify",
+        message = "Playoffs have started. This player did not make the playoffs."
+      )))
+    }
+    if (next_game$status == "playoffs_unknown") {
+      return(api_ok(list(
+        next_game = NULL,
+        reason = "playoffs_unknown",
+        message = "Playoffs have started."
+      )))
+    }
     if (next_game$status == "season_complete") {
       return(api_ok(list(next_game = NULL, reason = "season_complete")))
+    }
+    if (next_game$status == "not_in_current_season") {
+      return(api_ok(list(next_game = NULL, reason = "not_in_current_season")))
     }
     if (next_game$status == "player_not_found") {
       return(api_error(res, 404L, "player_not_found", "player_id not found"))
@@ -607,6 +797,32 @@ simulate_endpoint <- function(req, res) {
   }
 
   api_safe(res, function() {
+    if (is.null(repo_root) || !nzchar(repo_root) || !dir.exists(repo_root)) {
+      return(api_error(res, 500L, "repo_root_invalid", "API repo root is invalid."))
+    }
+    pd_path <- file.path(repo_root, "data", "cache", "player_directory.parquet")
+    pwi_path <- file.path(repo_root, "data", "cache", "player_week_identity.parquet")
+    if (!file.exists(pd_path)) {
+      return(api_error(res, 500L, "player_directory_missing", "player_directory cache missing."))
+    }
+    if (!file.exists(pwi_path)) {
+      return(api_error(res, 500L, "player_week_identity_missing", "player_week_identity cache missing."))
+    }
+    cache_status <- validate_simulation_caches()
+    if (length(cache_status$missing) > 0 || length(cache_status$empty) > 0) {
+      return(api_error(
+        res,
+        500L,
+        "simulation_cache_missing",
+        "Required simulation caches are missing or empty.",
+        details = list(missing = cache_status$missing, empty = cache_status$empty)
+      ))
+    }
+    old_opts <- options(
+      READTHEFIELD_FREEZE_RAW = TRUE,
+      READTHEFIELD_USE_RAW_CACHE = TRUE
+    )
+    on.exit(options(old_opts), add = TRUE)
     result <- simulate_player_game_v1(
       player_id = player_id,
       season = body$season,

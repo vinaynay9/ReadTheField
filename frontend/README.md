@@ -5,6 +5,7 @@ This directory contains the frontend implementation for Read the Field, a probab
 ## Localhost Testing
 
 The frontend is a static HTML/CSS/JavaScript application that can be run locally without any build process. It expects the backend API to be running on `http://localhost:8000`.
+You can override the API base with `window.RTF_API_URL` if needed.
 
 ### Quick Start
 
@@ -56,11 +57,14 @@ The frontend follows a strict Cartridge Football aesthetic:
 
 ### Notes
 
-- Calls `GET /players`, `GET /teams`, `GET /seasons`, `GET /player/:id/games`, and `POST /simulate`
+- Calls `GET /players`, `GET /teams`, `GET /seasons`, `GET /player/:id/games`, `GET /player/:id/next_game`, and `POST /simulate`
 - Expects API responses in the `{ ok:true, data:{...} }` contract
 - Requires the backend running at `http://localhost:8000`
 - All pages are static HTML
 - Navigation is handled via footer links
+- Team tiles are grouped by conference/division when available
+- Opponent tiles are greyed out when the player has never faced that team
+- Mode order: Upcoming Game → Hypothetical Matchup → Historical Matchup
 
 ### Troubleshooting
 - If players/teams do not load, confirm `Rscript api/run_api.R` is running and `http://localhost:8000/players` returns ok:true.

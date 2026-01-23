@@ -8,6 +8,13 @@
 </head>
 <body>
     <header class="main-header">
+        <div class="top-nav">
+            <a href="index.html" class="footer-link active">HOME</a>
+            <a href="about.html" class="footer-link">ABOUT</a>
+            <a href="recent-predictions.html" class="footer-link">RECENT RUNS</a>
+            <a href="contact.html" class="footer-link">CONTACT</a>
+            <a href="https://github.com/vinaynay9/ReadTheField" class="footer-link" target="_blank" rel="noopener noreferrer">GITHUB</a>
+        </div>
         <h1 class="project-title">READ THE FIELD</h1>
     </header>
 
@@ -22,14 +29,14 @@
             <!-- Mode Toggle -->
             <div class="mode-toggle-container">
                 <div class="mode-toggle">
-                    <button class="mode-toggle-btn active" data-mode="this-week" id="mode-this-week">
-                        <span class="mode-toggle-label">THIS WEEK'S GAME</span>
+                    <button class="mode-toggle-btn active" data-mode="this-week" id="mode-this-week" title="Best for real games this week or playoffs">
+                        <span class="mode-toggle-label">UPCOMING GAME</span>
                     </button>
-                    <button class="mode-toggle-btn" data-mode="historical" id="mode-historical">
-                        <span class="mode-toggle-label">HISTORICAL REPLAY</span>
-                    </button>
-                    <button class="mode-toggle-btn" data-mode="hypothetical" id="mode-hypothetical">
+                    <button class="mode-toggle-btn" data-mode="hypothetical" id="mode-hypothetical" title="Explore matchups that have never happened">
                         <span class="mode-toggle-label">HYPOTHETICAL MATCHUP</span>
+                    </button>
+                    <button class="mode-toggle-btn" data-mode="historical" id="mode-historical" title="Replay real past games">
+                        <span class="mode-toggle-label">HISTORICAL MATCHUP</span>
                     </button>
                 </div>
             </div>

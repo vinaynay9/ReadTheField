@@ -12,28 +12,22 @@ get_script_path <- function() {
   stop("Unable to determine script path to set working directory.")
 }
 
-script_path <- get_script_path()
-repo_root <- normalizePath(file.path(dirname(script_path), ".."))
+repo_root <- Sys.getenv("READTHEFIELD_REPO_ROOT", "")
+if (!nzchar(repo_root)) {
+  script_path <- get_script_path()
+  repo_root <- normalizePath(file.path(dirname(script_path), ".."))
+}
+repo_root <- normalizePath(repo_root, mustWork = TRUE)
 setwd(repo_root)
 options(READTHEFIELD_REPO_ROOT = repo_root)
 
-message("Resolved working directory: ", normalizePath(getwd()))
-sanity_files <- c(
-  "data/cache/player_directory.parquet",
-  "data/cache/player_week_identity.parquet"
-)
-sanity_exists <- file.exists(sanity_files)
-names(sanity_exists) <- sanity_files
-message("Cache sanity check:")
-for (path in names(sanity_exists)) {
-  message("  ", path, ": ", ifelse(sanity_exists[[path]], "OK", "MISSING"))
+message("Resolved repo root: ", repo_root)
+message("Working directory: ", normalizePath(getwd()))
+cache_dir <- file.path(repo_root, "data", "cache")
+if (!dir.exists(cache_dir)) {
+  stop("Required cache directory missing: ", cache_dir)
 }
-if (any(!sanity_exists)) {
-  warning(
-    "Missing required caches. Run scripts/refresh_weekly_cache.R from repo root.",
-    call. = FALSE
-  )
-}
+message("Cache directory OK: ", cache_dir)
 
 if (!requireNamespace("plumber", quietly = TRUE)) {
   stop("Package 'plumber' is required. Install with install.packages('plumber').")

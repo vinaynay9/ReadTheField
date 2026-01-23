@@ -8,43 +8,114 @@
 </head>
 <body>
     <header class="main-header">
+        <div class="top-nav">
+            <a href="index.html" class="footer-link">HOME</a>
+            <a href="about.html" class="footer-link active">ABOUT</a>
+            <a href="recent-predictions.html" class="footer-link">RECENT RUNS</a>
+            <a href="contact.html" class="footer-link">CONTACT</a>
+            <a href="https://github.com/vinaynay9/ReadTheField" class="footer-link" target="_blank" rel="noopener noreferrer">GITHUB</a>
+        </div>
         <h1 class="project-title">READ THE FIELD</h1>
     </header>
 
     <main class="main-content">
         <div class="content-container">
             <section class="page-section">
-                <h2>About Read the Field</h2>
-                <p>Read the Field is a probabilistic NFL player projection system that focuses on offensive skill positions and kickers. Instead of emitting a single point estimate, it produces distributional outcomes so you can see ranges, percentiles, and risk.</p>
-                <p>Today the system supports matchup-aware simulations for historical replays, upcoming games, and hypothetical scenarios. Every run is grounded in leakage-safe features built from data available before kickoff.</p>
+                <h2>High-Level Overview</h2>
+                <p>Read the Field is a Monte Carlo NFL player simulation engine built on nflreadr. It focuses on uncertainty, distributions, and variance — not single-point predictions.</p>
             </section>
 
             <section class="page-section">
-                <h2>What You Can Do</h2>
+                <h2>Why NFL Outcomes Are Random</h2>
+                <p>Game script, matchups, coaching decisions, and randomness all shape player outcomes. The signal is real, but the noise is strong — so a distribution is the only honest answer.</p>
+            </section>
+
+            <section class="page-section">
+                <h2>Models Used</h2>
                 <ul>
-                    <li>Explore player outcome distributions for specific matchups.</li>
-                    <li>Compare historical matchups vs. counterfactual opponents.</li>
-                    <li>See uncertainty bands instead of a single prediction.</li>
+                    <li title="Stochastic simulation that generates full outcome distributions.">Monte Carlo simulation</li>
+                    <li title="Baseline linear regression for comparison and interpretability.">Linear regression baseline</li>
+                    <li title="Planned future track for nonlinear pattern capture.">Neural networks (future)</li>
                 </ul>
             </section>
 
             <section class="page-section">
-                <h2>Future Iterations</h2>
-                <ul>
-                    <li>Fantasy lineup inputs with full-week distributions.</li>
-                    <li>True odds vs. betting lines and market comparisons.</li>
-                    <li>Expanded feature engineering and richer context layers.</li>
-                    <li>Model comparisons (neural nets vs. Monte Carlo vs. linear models).</li>
-                </ul>
+                <h2>Variables (Collapsible)</h2>
+                <details>
+                    <summary>Game Context</summary>
+                    <ul>
+                        <li>Home/away</li>
+                        <li>Opponent strength</li>
+                        <li>Season and week context</li>
+                    </ul>
+                </details>
+                <details>
+                    <summary>Position Stats</summary>
+                    <ul>
+                        <li>Usage metrics</li>
+                        <li>Efficiency and scoring rates</li>
+                    </ul>
+                </details>
+                <details>
+                    <summary>Defensive Stats</summary>
+                    <ul>
+                        <li>Opponent defensive form</li>
+                        <li>Allowed yards and scores</li>
+                    </ul>
+                </details>
+                <details>
+                    <summary>Rolling Windows (1 / 3 / 5)</summary>
+                    <ul>
+                        <li>Short, medium, and trend-stable rolling profiles</li>
+                    </ul>
+                </details>
+                <details>
+                    <summary>Feature Engineered Variables</summary>
+                    <ul>
+                        <li>Leakage-safe lags</li>
+                        <li>V2 will test polynomial terms</li>
+                    </ul>
+                </details>
             </section>
 
             <section class="page-section">
-                <h2>About Me</h2>
+                <h2>Dataset</h2>
+                <p>Live counts are pulled from the cached parquet data.</p>
+                <ul id="dataset-counts">
+                    <li>QB: <span data-position="QB">--</span></li>
+                    <li>RB: <span data-position="RB">--</span></li>
+                    <li>WR: <span data-position="WR">--</span></li>
+                    <li>TE: <span data-position="TE">--</span></li>
+                    <li>K: <span data-position="K">--</span></li>
+                </ul>
+                <p>Eligibility rule: ≥ 1 recorded NFL game with stats.</p>
+                <p>Data range: 1999–present.</p>
+            </section>
+
+            <section class="page-section">
+                <h2>Future Roadmap</h2>
+                <details>
+                    <summary>V2 Enhancements</summary>
+                    <ul>
+                        <li>Fantasy lineup optimization</li>
+                        <li>Betting odds and true probabilities</li>
+                        <li>Model comparisons (MC vs NN vs linear)</li>
+                        <li>Expanded feature engineering</li>
+                    </ul>
+                </details>
+            </section>
+
+            <section class="page-section">
+                <h2>About the Creator</h2>
                 <div style="display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start;">
                     <img src="../docs/vinay_pixelized.png" alt="Vinay pixel portrait" style="max-width: 220px; border: 3px solid var(--border-color);" />
                     <div style="flex: 1; min-width: 240px;">
-                        <p>I'm Vinay Govindaraju, an MS Analytics student at Georgia Tech. I'm a big sports fan (Go Yellow Jackets, Go Giants) and I built Read the Field to combine football intuition with finance-style probabilistic thinking.</p>
-                        <p>This project is my way of exploring how uncertainty can be modeled explicitly—so decisions are informed by distributions, not just averages.</p>
+                        <p>Vinay Govindaraju — MS Analytics at Georgia Tech. Big sports fan (Go Yellow Jackets, Go Giants). I built Read the Field to merge football intuition with finance-style probabilistic thinking.</p>
+                        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.75rem;">
+                            <a href="https://linkedin.com/in/vinaygovindaraju9/" target="_blank" rel="noopener noreferrer">⬜ LinkedIn</a>
+                            <a href="https://github.com/vinaynay9" target="_blank" rel="noopener noreferrer">⬜ GitHub</a>
+                            <a href="https://www.instagram.com/vinaynay9" target="_blank" rel="noopener noreferrer">⬜ Instagram</a>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -57,10 +128,36 @@
             <a href="about.html" class="footer-link active">ABOUT</a>
             <a href="recent-predictions.html" class="footer-link">RECENT RUNS</a>
             <a href="mailto:vinaysgovindaraju@gmail.com" class="footer-link">CONTACT THE MAKER</a>
-            <a href="#" class="footer-link">GITHUB</a>
+            <a href="https://github.com/vinaynay9/ReadTheField" class="footer-link" target="_blank" rel="noopener noreferrer">GITHUB</a>
         </nav>
     </footer>
 
-    <script src="js/app.js"></script>
+    <script>
+        (function () {
+            const API_BASE = window.RTF_API_URL || 'http://localhost:8000';
+            const url = `${API_BASE}/players`;
+            fetch(url)
+                .then(resp => resp.json())
+                .then(payload => {
+                    if (!payload || payload.ok !== true || !payload.data || !Array.isArray(payload.data.players)) {
+                        throw new Error('Players unavailable');
+                    }
+                    const counts = {};
+                    payload.data.players.forEach(player => {
+                        const pos = player.position || 'UNK';
+                        counts[pos] = (counts[pos] || 0) + 1;
+                    });
+                    document.querySelectorAll('[data-position]').forEach(el => {
+                        const pos = el.getAttribute('data-position');
+                        el.textContent = counts[pos] || 0;
+                    });
+                })
+                .catch(() => {
+                    document.querySelectorAll('[data-position]').forEach(el => {
+                        el.textContent = 'N/A';
+                    });
+                });
+        })();
+    </script>
 </body>
 </html>
