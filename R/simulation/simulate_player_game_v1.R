@@ -7,6 +7,7 @@ normalize_summary_stats_v1 <- function(summary_df, position, draws = NULL) {
   if (is.null(summary_df) || nrow(summary_df) == 0 || !"stat" %in% names(summary_df)) {
     return(summary_df)
   }
+  summary_df$stat <- trimws(as.character(summary_df$stat))
   position <- toupper(as.character(position))
   rename_map <- list()
   if (position %in% c("RB", "WR", "TE")) {
@@ -19,14 +20,22 @@ normalize_summary_stats_v1 <- function(summary_df, position, draws = NULL) {
   } else if (position == "QB") {
     rename_map <- c(
       target_pass_attempts_qb = "passing_attempts",
+      pass_attempts = "passing_attempts",
       target_completions_qb = "passing_completions",
       target_pass_yards_qb = "passing_yards",
+      pass_yards = "passing_yards",
       target_pass_tds_qb = "passing_tds",
+      pass_tds = "passing_tds",
       target_interceptions_qb_thrown = "interceptions_thrown",
+      interceptions = "interceptions_thrown",
       target_sacks_qb_taken = "qb_sacks_taken",
+      sacks_taken = "qb_sacks_taken",
       target_qb_rush_attempts = "qb_rush_attempts",
+      rush_attempts = "qb_rush_attempts",
       target_qb_rush_yards = "qb_rush_yards",
-      target_qb_rush_tds = "qb_rush_tds"
+      rush_yards = "qb_rush_yards",
+      target_qb_rush_tds = "qb_rush_tds",
+      rush_tds = "qb_rush_tds"
     )
   } else if (position == "K") {
     rename_map <- c(
@@ -87,6 +96,8 @@ simulate_player_game_v1 <- function(player_id,
                                     mode = NULL,
                                     schedule_opponent = NULL,
                                     schedule_home_away = NULL) {
+  # Wrap entire simulation in tryCatch to ensure structured errors.
+  tryCatch({
   required_functions <- c(
     "simulate_player_game",
     "validate_report_schema_v1",
@@ -199,21 +210,23 @@ simulate_player_game_v1 <- function(player_id,
                            conditionMessage(availability_policy)))
     }
 
-    if (!exists("get_available_seasons_from_cache")) {
+    if (!exists("get_available_seasons_from_pwi") && !exists("get_available_seasons_from_cache")) {
       return(make_error_v1("internal_error", "cache_helpers_missing",
                            "Cache helpers are not loaded."))
     }
-    if (exists("get_available_seasons_from_cache")) {
+    if (exists("get_available_seasons_from_pwi")) {
+      available <- get_available_seasons_from_pwi()
+    } else {
       available <- get_available_seasons_from_cache()
-      if (length(available) == 0) {
-        return(make_error_v1("data_unavailable", "seasons_unavailable",
-                             "No seasons available in cache. Run refresh_weekly_cache."))
-      }
-      if (!season %in% available) {
-        return(make_error_v1("data_unavailable", "season_not_available",
-                             "Requested season is not available in cache.",
-                             list(season = season)))
-      }
+    }
+    if (length(available) == 0) {
+      return(make_error_v1("data_unavailable", "seasons_unavailable",
+                           "No seasons available in cache. Run refresh_weekly_cache."))
+    }
+    if (!season %in% available) {
+      return(make_error_v1("data_unavailable", "season_not_available",
+                           "Requested season is not available in cache.",
+                           list(season = season)))
     }
 
     if (!exists("read_player_dim_cache")) {
@@ -242,6 +255,41 @@ simulate_player_game_v1 <- function(player_id,
                            "Player position is missing in cache.",
                            list(player_id = player_id)))
     }
+    if (exists("resolve_schema_path")) {
+      schema_path <- resolve_schema_path(position, "v1")
+      source(schema_path, local = TRUE)
+    }
+    if (exists("resolve_regime_path")) {
+      regime_path <- resolve_regime_path(position, "v1")
+      source(regime_path, local = TRUE)
+    }
+    if (identical(position, "WR")) {
+      if (!exists("read_wr_weekly_features_cache")) {
+        return(make_error_v1("data_unavailable", "missing_wr_features",
+                             "WR feature cache loader not available.",
+                             list(player_id = player_id)))
+      }
+      wr_features <- read_wr_weekly_features_cache()
+      if (is.null(wr_features) || nrow(wr_features) == 0) {
+        return(make_error_v1("data_unavailable", "missing_wr_features",
+                             "WR feature cache is empty.",
+                             list(player_id = player_id)))
+      }
+    }
+
+    get_min_sims <- function() {
+      val <- getOption("READTHEFIELD_MIN_SIMS", NA_integer_)
+      if (is.null(val) || is.na(val) || val < 1) {
+        env_val <- Sys.getenv("READTHEFIELD_MIN_SIMS", "")
+        if (nzchar(env_val)) {
+          val <- suppressWarnings(as.integer(env_val))
+        }
+      }
+      if (is.null(val) || is.na(val) || val < 1) {
+        val <- 100L
+      }
+      as.integer(val)
+    }
 
     limits <- list(
       RB = list(default = 1000L, max = 20000L),
@@ -256,10 +304,11 @@ simulate_player_game_v1 <- function(player_id,
                            list(position = position)))
     }
     n_sims_val <- if (is.null(n_sims) || is.na(n_sims)) limits[[position]]$default else as.integer(n_sims)
-    if (!is.finite(n_sims_val) || n_sims_val < 100L) {
+    min_sims <- get_min_sims()
+    if (!is.finite(n_sims_val) || n_sims_val < min_sims) {
       return(make_error_v1("invalid_input", "n_sims_too_small",
-                           "n_sims must be at least 100.",
-                           list(n_sims = n_sims_val)))
+                           paste0("n_sims must be at least ", min_sims, "."),
+                           list(n_sims = n_sims_val, min_sims = min_sims)))
     }
     if (n_sims_val > limits[[position]]$max) {
       return(make_error_v1("invalid_input", "n_sims_too_large",
@@ -406,9 +455,43 @@ simulate_player_game_v1 <- function(player_id,
                            "Simulation result missing summary statistics."))
     }
 
+    # Build summary_tables from summary stats using report schema targets.
+    if (is.null(result$summary_tables) || length(result$summary_tables) == 0) {
+      target_stats <- get_report_required_summary_v1(result$metadata$position)
+      summary_tables <- list()
+      for (stat in target_stats) {
+        rows <- result$summary[result$summary$stat == stat, , drop = FALSE]
+        if (nrow(rows) > 0) {
+          summary_tables[[stat]] <- rows
+        }
+      }
+      result$summary_tables <- summary_tables
+    }
+    if (length(result$summary_tables) == 0) {
+      return(make_error_v1(
+        "report_error",
+        "no_reportable_stats",
+        "Simulation ran but produced no reportable statistics.",
+        details = list(reason = "No targets matched simulated outputs.")
+      ))
+    }
+
     validate_report_schema_v1(result)
     result$ok <- TRUE
-    result
+    result$metadata$simulation_function <- "simulate_player_game_v1"
+    result$metadata$mode <- validated$mode
+    list(
+      ok = TRUE,
+      data = result,
+      metadata = list(
+        player_id = validated$player_id,
+        position = validated$position,
+        season = validated$season,
+        week = validated$week,
+        mode = validated$mode,
+        simulation_function = "simulate_player_game_v1"
+      )
+    )
   }
 
   safe_runner <- function() {
@@ -425,4 +508,49 @@ simulate_player_game_v1 <- function(player_id,
   } else {
     safe_runner()
   }
+  }, error = function(e) {
+    list(
+      ok = FALSE,
+      error_code = "simulation_failed",
+      message = conditionMessage(e),
+      metadata = list(
+        player_id = player_id,
+        position = NA_character_,
+        season = season,
+        week = week,
+        mode = mode
+      )
+    )
+  })
+}
+
+# Minimal WR smoke test helper (manual use; not executed automatically).
+smoke_test_wr_simulate_player_game_v1 <- function() {
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("arrow required for WR smoke test.")
+  }
+  pwi_path <- file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "data", "cache", "player_week_identity.parquet")
+  pwi <- as.data.frame(arrow::read_parquet(pwi_path))
+  wr_rows <- pwi[pwi$position == "WR", , drop = FALSE]
+  if (nrow(wr_rows) == 0) {
+    stop("No WR rows found in player_week_identity.")
+  }
+  wr_rows <- wr_rows[order(wr_rows$season, wr_rows$week, decreasing = TRUE), , drop = FALSE]
+  pid <- wr_rows$player_id[1]
+  season <- wr_rows$season[1]
+  week <- wr_rows$week[1]
+  resp <- simulate_player_game_v1(
+    player_id = pid,
+    season = season,
+    week = week,
+    mode = "historical_replay",
+    availability_policy = "played_only",
+    schema_version = "v1",
+    n_sims = 500,
+    seed = 4242
+  )
+  if (is.null(resp) || isFALSE(resp$ok) || is.null(resp$data$summary) || nrow(resp$data$summary) == 0) {
+    stop("WR smoke test failed.")
+  }
+  invisible(TRUE)
 }

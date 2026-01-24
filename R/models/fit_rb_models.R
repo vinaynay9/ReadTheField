@@ -298,10 +298,15 @@ fit_rb_models <- function(training_data, min_rows = 200) {
   }
   
   # Load schema validation and regime system
-  if (file.exists("R/utils/rb_schema_v1.R")) {
-    source("R/utils/rb_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("RB", "v1")
   } else {
-    stop("Missing R/utils/rb_schema_v1.R — cannot load RB v1 schema")
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+  } else {
+    stop("Missing RB schema at ", schema_path)
   }
   
   # CRITICAL: Hard dependency check for get_rb_v1_targets
@@ -309,8 +314,13 @@ fit_rb_models <- function(training_data, min_rows = 200) {
     stop("Missing get_rb_v1_targets function. Cannot load RB v1 schema.")
   }
   
-  if (file.exists("R/utils/rb_regime_v1.R")) {
-    source("R/utils/rb_regime_v1.R", local = TRUE)
+  regime_path <- if (exists("resolve_regime_path")) {
+    resolve_regime_path("RB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_regime_v1.R")
+  }
+  if (file.exists(regime_path)) {
+    source(regime_path, local = TRUE)
     # Ensure get_rb_features_by_week is available for time-aware feature selection
     if (!exists("get_rb_features_by_week")) {
       stop("get_rb_features_by_week function not found. Time-aware feature contracts require this function.")
@@ -323,7 +333,7 @@ fit_rb_models <- function(training_data, min_rows = 200) {
       stop("get_model_key function not found. Model key generation requires this function.")
     }
   } else {
-    stop("Missing R/utils/rb_regime_v1.R — cannot load RB v1 regime system")
+    stop("Missing RB regime at ", regime_path)
   }
   
   # Initialize result structure
@@ -752,11 +762,25 @@ validate_rb_models <- function(rb_models, regime = NULL) {
   }
   
   # Load regime system if needed
-  if (file.exists("R/utils/rb_regime_v1.R")) {
-    source("R/utils/rb_regime_v1.R", local = TRUE)
+  regime_path <- if (exists("resolve_regime_path")) {
+    resolve_regime_path("RB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_regime_v1.R")
   }
-  if (file.exists("R/utils/rb_schema_v1.R")) {
-    source("R/utils/rb_schema_v1.R", local = TRUE)
+  if (file.exists(regime_path)) {
+    source(regime_path, local = TRUE)
+  } else {
+    stop("Missing RB regime at ", regime_path)
+  }
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("RB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+  } else {
+    stop("Missing RB schema at ", schema_path)
   }
   
   # Check if using new regime-based structure

@@ -152,12 +152,26 @@ fit_qb_models <- function(training_data, min_rows = 200) {
   if (!"qb_regime" %in% names(training_data)) {
     stop("Missing qb_regime column in training data. Regime-based modeling requires qb_regime.")
   }
-  if (file.exists("R/positions/QB/qb_schema_v1.R")) {
-    source("R/positions/QB/qb_schema_v1.R", local = TRUE)
-    validate_qb_v1_target_schema(training_data, strict = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("QB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "QB", "qb_schema_v1.R")
   }
-  if (file.exists("R/positions/QB/qb_regime_v1.R")) {
-    source("R/positions/QB/qb_regime_v1.R", local = TRUE)
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+    validate_qb_v1_target_schema(training_data, strict = TRUE)
+  } else {
+    stop("Missing QB schema at ", schema_path)
+  }
+  regime_path <- if (exists("resolve_regime_path")) {
+    resolve_regime_path("QB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "QB", "qb_regime_v1.R")
+  }
+  if (file.exists(regime_path)) {
+    source(regime_path, local = TRUE)
+  } else {
+    stop("Missing QB regime at ", regime_path)
   }
 
   if (any(is.na(training_data$qb_regime))) {

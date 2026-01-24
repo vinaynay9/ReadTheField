@@ -77,7 +77,8 @@ assemble_qb_weekly_features <- function(qb_weekly_stats) {
     left_join(prev_season_stats, by = c("player_id", "season"))
 
   # Join player static attributes
-  dim_path <- file.path("data", "processed", "player_dim.parquet")
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
+  dim_path <- file.path(repo_root, "data", "processed", "player_dim.parquet")
   if (file.exists(dim_path)) {
     player_dim <- arrow::read_parquet(dim_path)
     dim_cols <- intersect(c("gsis_id", "season", "height", "weight", "age"), names(player_dim))
@@ -93,7 +94,7 @@ assemble_qb_weekly_features <- function(qb_weekly_stats) {
   }
 
   # Join defensive features (opponent context)
-  defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
+  defense_weekly_features_path <- file.path(repo_root, "data", "processed", "defense_weekly_features.parquet")
   if (!file.exists(defense_weekly_features_path)) {
     stop("Missing defensive weekly features file: ", defense_weekly_features_path)
   }
@@ -112,7 +113,7 @@ assemble_qb_weekly_features <- function(qb_weekly_stats) {
   )
 
   # Team offensive context (lag-1, prior week)
-  team_offense_context_path <- file.path("data", "processed", "team_offense_context.parquet")
+  team_offense_context_path <- file.path(repo_root, "data", "processed", "team_offense_context.parquet")
   if (!file.exists(team_offense_context_path)) {
     stop("Missing team offense context file: ", team_offense_context_path)
   }
@@ -151,7 +152,7 @@ assemble_qb_weekly_features <- function(qb_weekly_stats) {
           "target_qb_rush_td_rate_roll5_x_team_redzone_td_rate")
 
   # Optional draft metadata (non-imputing; NA when unavailable)
-  draft_path <- file.path("data", "external", "player_metadata.parquet")
+  draft_path <- file.path(repo_root, "data", "external", "player_metadata.parquet")
   draft_meta <- NULL
   if (file.exists(draft_path) && file.info(draft_path)$size > 0) {
     draft_meta <- tryCatch(arrow::read_parquet(draft_path), error = function(e) NULL)
@@ -213,9 +214,16 @@ assemble_qb_weekly_features <- function(qb_weekly_stats) {
     features <- features[!bad_rows, , drop = FALSE]
   }
 
-  if (file.exists("R/positions/QB/qb_schema_v1.R")) {
-    source("R/positions/QB/qb_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("QB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "QB", "qb_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
     validate_qb_v1_target_schema(features, strict = TRUE)
+  } else {
+    stop("Missing QB schema at ", schema_path)
   }
 
   features

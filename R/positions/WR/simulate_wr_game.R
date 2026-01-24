@@ -11,10 +11,15 @@ simulate_wr_game <- function(feature_row, wr_models, n_sims = 5000, availability
     cat(paste(...), "\n", file = log_file, append = TRUE)
   }
 
-  if (file.exists("R/positions/WR/wr_schema_v1.R")) {
-    source("R/positions/WR/wr_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("WR", "v1")
   } else {
-    stop("Missing R/positions/WR/wr_schema_v1.R")
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "WR", "wr_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+  } else {
+    stop("Missing WR schema at ", schema_path)
   }
   if (!exists("get_wr_v1_targets")) {
     stop("get_wr_v1_targets not loaded")
@@ -33,13 +38,18 @@ simulate_wr_game <- function(feature_row, wr_models, n_sims = 5000, availability
     stop("Multiple feature rows provided to simulate_wr_game.")
   }
 
-  if (file.exists("R/positions/WR/wr_regime_v1.R")) {
-    source("R/positions/WR/wr_regime_v1.R", local = TRUE)
+  regime_path <- if (exists("resolve_regime_path")) {
+    resolve_regime_path("WR", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "WR", "wr_regime_v1.R")
+  }
+  if (file.exists(regime_path)) {
+    source(regime_path, local = TRUE)
     if (!exists("get_wr_features_by_week")) {
       stop("get_wr_features_by_week function not found.")
     }
   } else {
-    stop("Missing R/positions/WR/wr_regime_v1.R")
+    stop("Missing WR regime at ", regime_path)
   }
 
   if (exists("validate_availability_policy")) {

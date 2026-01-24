@@ -325,7 +325,8 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
   
   # Join defensive features (opponent context)
   # Load cached defensive features (weekly, lagged)
-  defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
+  defense_weekly_features_path <- file.path(repo_root, "data", "processed", "defense_weekly_features.parquet")
   
   if (!file.exists(defense_weekly_features_path)) {
     stop("Missing defensive weekly features file: ", defense_weekly_features_path,
@@ -391,7 +392,7 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
   }
   
   # Join teammate context (team-level offense, lagged roll1)
-  team_offense_context_path <- file.path("data", "processed", "team_offense_context.parquet")
+  team_offense_context_path <- file.path(repo_root, "data", "processed", "team_offense_context.parquet")
   if (!file.exists(team_offense_context_path)) {
     stop("Missing team offense context file: ", team_offense_context_path,
          ". Run team offense context build before assembling RB weekly features.")
@@ -410,7 +411,7 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
     # Join QB rolling context features (roll1/roll3/roll5) for all positions.
     # QB weekly features are built from nflreadr player stats and use the
     # highest-attempts QB per team-week (starter proxy).
-    qb_features_path <- file.path("data", "processed", "qb_weekly_features.parquet")
+    qb_features_path <- file.path(repo_root, "data", "processed", "qb_weekly_features.parquet")
     if (!file.exists(qb_features_path)) {
       stop("Missing QB weekly features file: ", qb_features_path)
     }
@@ -436,7 +437,7 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
       left_join(qb_features[, qb_cols, drop = FALSE], by = c("team", "season", "week"))
   
   # Join prior-season cumulative stats (season - 1 aggregates)
-  prior_season_stats_path <- file.path("data", "processed", "prior_season_player_stats.parquet")
+  prior_season_stats_path <- file.path(repo_root, "data", "processed", "prior_season_player_stats.parquet")
   if (!file.exists(prior_season_stats_path)) {
     stop("Missing prior-season player stats file: ", prior_season_stats_path,
          ". Run prior-season stats build before assembling RB weekly features.")
@@ -457,7 +458,7 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
     left_join(prior_season_stats, by = c("player_id", "season"))
 
   # Optional draft metadata (non-imputing; NA when unavailable)
-  draft_path <- file.path("data", "external", "player_metadata.parquet")
+  draft_path <- file.path(repo_root, "data", "external", "player_metadata.parquet")
   draft_meta <- NULL
   if (file.exists(draft_path) && file.info(draft_path)$size > 0) {
     draft_meta <- tryCatch(arrow::read_parquet(draft_path), error = function(e) NULL)
@@ -615,9 +616,16 @@ assemble_rb_weekly_features <- function(rb_weekly_stats) {
   }
   
   # Validate RB v1 target schema
-  if (file.exists("R/utils/rb_schema_v1.R")) {
-    source("R/utils/rb_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("RB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
     validate_rb_v1_target_schema(features, strict = TRUE)
+  } else {
+    stop("Missing RB schema at ", schema_path)
   }
   
   # Guardrail: ensure rb_regime column exists before returning
@@ -886,7 +894,7 @@ assemble_rb_training_data <- function(seasons) {
     left_join(prev_season_priors, by = c("player_id", "season"))
 
   # Optional draft metadata (non-imputing; NA when unavailable)
-  draft_path <- file.path("data", "external", "player_metadata.parquet")
+  draft_path <- file.path(repo_root, "data", "external", "player_metadata.parquet")
   draft_meta <- NULL
   if (file.exists(draft_path) && file.info(draft_path)$size > 0) {
     draft_meta <- tryCatch(arrow::read_parquet(draft_path), error = function(e) NULL)
@@ -1054,8 +1062,13 @@ assemble_rb_training_data <- function(seasons) {
   # Yardage should be derived downstream if needed (e.g., carries * YPC)
   
   # Add RB v1 regime column based on week
-  if (file.exists("R/utils/rb_regime_v1.R")) {
-    source("R/utils/rb_regime_v1.R", local = TRUE)
+  regime_path <- if (exists("resolve_regime_path")) {
+    resolve_regime_path("RB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_regime_v1.R")
+  }
+  if (file.exists(regime_path)) {
+    source(regime_path, local = TRUE)
     rb_data$rb_regime <- determine_rb_regime(rb_data$week)
   } else {
     # Fallback regime assignment
@@ -1170,9 +1183,16 @@ assemble_rb_training_data <- function(seasons) {
   rownames(rb_data) <- NULL
   
   # Validate RB v1 target schema
-  if (file.exists("R/utils/rb_schema_v1.R")) {
-    source("R/utils/rb_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("RB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
     validate_rb_v1_target_schema(rb_data, strict = TRUE)
+  } else {
+    stop("Missing RB schema at ", schema_path)
   }
   
   # FINAL VALIDATION: Ensure dataset is not empty and has valid structure

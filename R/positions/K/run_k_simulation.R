@@ -84,9 +84,10 @@ run_k_simulation <- function(gsis_id,
     stop("K weekly features cache is empty.")
   }
 
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
   if (!exists("read_k_weekly_stats_cache")) {
-    if (file.exists("R/data/build_weekly_player_layers.R")) {
-      source("R/data/build_weekly_player_layers.R", local = TRUE)
+    if (file.exists(file.path(repo_root, "R", "data", "build_weekly_player_layers.R"))) {
+      source(file.path(repo_root, "R", "data", "build_weekly_player_layers.R"), local = TRUE)
     } else {
       stop("Simulation bootstrap incomplete: read_k_weekly_stats_cache not loaded.")
     }
@@ -191,8 +192,30 @@ run_k_simulation <- function(gsis_id,
   k_data_pre <- k_data_pre[!(k_data_pre$player_id == player_id &
                                k_data_pre$season == season &
                                k_data_pre$week == week), , drop = FALSE]
+  if (isTRUE(getOption("READTHEFIELD_DEBUG")) || identical(Sys.getenv("READTHEFIELD_DEBUG"), "1")) {
+    message("K training rows after filters: ", nrow(k_data_pre))
+  }
+  if (nrow(k_data_pre) == 0) {
+    stop("K training data collapsed to 0 rows after filters.")
+  }
   if (nrow(k_data_pre) < 500) {
     stop("Training data collapsed: only ", nrow(k_data_pre), " rows remain before model fitting.")
+  }
+
+  if ((isTRUE(getOption("READTHEFIELD_DEBUG")) || identical(Sys.getenv("READTHEFIELD_DEBUG"), "1")) &&
+      exists("get_k_v1_targets")) {
+    k_targets_diag <- get_k_v1_targets()
+    for (tgt in k_targets_diag) {
+      if (!tgt %in% names(k_data_pre)) {
+        message("K target missing: ", tgt)
+      } else {
+        vals <- k_data_pre[[tgt]]
+        message("K target stats ", tgt, ": min=", suppressWarnings(min(vals, na.rm = TRUE)),
+                " max=", suppressWarnings(max(vals, na.rm = TRUE)),
+                " na=", sum(is.na(vals)),
+                " all_na=", all(is.na(vals)))
+      }
+    }
   }
 
   if (!exists("fit_k_models")) {
@@ -213,10 +236,15 @@ run_k_simulation <- function(gsis_id,
     }
   }
   if (!exists("get_k_features_by_week")) {
-    if (file.exists("R/positions/K/k_regime_v1.R")) {
-      source("R/positions/K/k_regime_v1.R", local = TRUE)
+    regime_path <- if (exists("resolve_regime_path")) {
+      resolve_regime_path("K", "v1")
     } else {
-      stop("Missing R/positions/K/k_regime_v1.R")
+      file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "K", "k_regime_v1.R")
+    }
+    if (file.exists(regime_path)) {
+      source(regime_path, local = TRUE)
+    } else {
+      stop("Missing K regime at ", regime_path)
     }
   }
 
@@ -283,8 +311,15 @@ run_k_simulation <- function(gsis_id,
     result$diagnostics$regime_selection <- sim_result$diagnostics
   }
 
-  if (file.exists("R/positions/K/k_schema_v1.R")) {
-    source("R/positions/K/k_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("K", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "K", "k_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+  } else {
+    stop("Missing K schema at ", schema_path)
   }
   if (exists("resolve_k_simulation_schema")) {
     result$draws <- resolve_k_simulation_schema(result$draws)

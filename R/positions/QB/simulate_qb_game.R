@@ -13,10 +13,15 @@ simulate_qb_game <- function(feature_row,
     stop("qb_models missing required model objects.")
   }
   if (!exists("determine_qb_regime")) {
-    if (file.exists("R/positions/QB/qb_regime_v1.R")) {
-      source("R/positions/QB/qb_regime_v1.R", local = TRUE)
+    regime_path <- if (exists("resolve_regime_path")) {
+      resolve_regime_path("QB", "v1")
     } else {
-      stop("Missing R/positions/QB/qb_regime_v1.R")
+      file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "QB", "qb_regime_v1.R")
+    }
+    if (file.exists(regime_path)) {
+      source(regime_path, local = TRUE)
+    } else {
+      stop("Missing QB regime at ", regime_path)
     }
   }
 

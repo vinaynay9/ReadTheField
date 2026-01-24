@@ -6,18 +6,19 @@
 # Internal env for caching nflreadr downloads within a session.
 .weekly_player_stats_env <- new.env(parent = emptyenv())
 
-player_week_identity_path <- file.path("data", "cache", "player_week_identity.parquet")
-rb_weekly_stats_path <- file.path("data", "cache", "rb_weekly_stats.parquet")
-rb_weekly_features_path <- file.path("data", "processed", "rb_weekly_features.parquet")
-wr_weekly_stats_path <- file.path("data", "cache", "wr_weekly_stats.parquet")
-wr_weekly_features_path <- file.path("data", "processed", "wr_weekly_features.parquet")
-te_weekly_stats_path <- file.path("data", "cache", "te_weekly_stats.parquet")
-te_weekly_features_path <- file.path("data", "processed", "te_weekly_features.parquet")
-qb_weekly_stats_path <- file.path("data", "cache", "qb_weekly_stats.parquet")
-qb_weekly_features_path <- file.path("data", "processed", "qb_player_weekly_features.parquet")
-k_weekly_stats_path <- file.path("data", "cache", "k_weekly_stats.parquet")
-k_weekly_features_path <- file.path("data", "processed", "k_weekly_features.parquet")
-player_directory_path <- file.path("data", "cache", "player_directory.parquet")
+repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
+player_week_identity_path <- file.path(repo_root, "data", "cache", "player_week_identity.parquet")
+rb_weekly_stats_path <- file.path(repo_root, "data", "cache", "rb_weekly_stats.parquet")
+rb_weekly_features_path <- file.path(repo_root, "data", "processed", "rb_weekly_features.parquet")
+wr_weekly_stats_path <- file.path(repo_root, "data", "cache", "wr_weekly_stats.parquet")
+wr_weekly_features_path <- file.path(repo_root, "data", "processed", "wr_weekly_features.parquet")
+te_weekly_stats_path <- file.path(repo_root, "data", "cache", "te_weekly_stats.parquet")
+te_weekly_features_path <- file.path(repo_root, "data", "processed", "te_weekly_features.parquet")
+qb_weekly_stats_path <- file.path(repo_root, "data", "cache", "qb_weekly_stats.parquet")
+qb_weekly_features_path <- file.path(repo_root, "data", "processed", "qb_player_weekly_features.parquet")
+k_weekly_stats_path <- file.path(repo_root, "data", "cache", "k_weekly_stats.parquet")
+k_weekly_features_path <- file.path(repo_root, "data", "processed", "k_weekly_features.parquet")
+player_directory_path <- file.path(repo_root, "data", "cache", "player_directory.parquet")
 
 # Ensure cache helpers are available for build_game_key
 if (!exists("build_game_key")) {

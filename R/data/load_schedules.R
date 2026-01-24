@@ -84,7 +84,7 @@ load_schedules <- function(seasons,
 
   # Helper to read cached schedules flexibly (rds/parquet) without download
   read_cached_schedules <- function() {
-    cache_dir <- "data/cache"
+    cache_dir <- if (exists("resolve_cache_dir")) resolve_cache_dir("data/cache") else "data/cache"
     candidates <- c(cache_path(cache_name), list.files(cache_dir, pattern = "schedule", full.names = TRUE))
     candidates <- unique(candidates[file.exists(candidates)])
     

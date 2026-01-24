@@ -239,9 +239,10 @@ run_rb_simulation <- function(gsis_id,
     stop("No RB training rows available for seasons: ", paste(seasons_train, collapse = ", "))
   }
 
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
   if (!exists("read_rb_weekly_stats_cache")) {
-    if (file.exists("R/data/build_weekly_player_layers.R")) {
-      source("R/data/build_weekly_player_layers.R", local = TRUE)
+    if (file.exists(file.path(repo_root, "R", "data", "build_weekly_player_layers.R"))) {
+      source(file.path(repo_root, "R", "data", "build_weekly_player_layers.R"), local = TRUE)
     } else {
       stop("Simulation bootstrap incomplete: read_rb_weekly_stats_cache not loaded.")
     }
@@ -270,16 +271,17 @@ run_rb_simulation <- function(gsis_id,
     player_dim <- tryCatch(read_player_dim_cache(), error = function(e) NULL)
   }
 
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
   prior_season_stats <- read_optional_parquet(
-    file.path("data", "processed", "prior_season_player_stats.parquet"),
+    file.path(repo_root, "data", "processed", "prior_season_player_stats.parquet"),
     "prior season player stats"
   )
   team_offense_context <- read_optional_parquet(
-    file.path("data", "processed", "team_offense_context.parquet"),
+    file.path(repo_root, "data", "processed", "team_offense_context.parquet"),
     "team offense context"
   )
   defense_weekly_features <- read_optional_parquet(
-    file.path("data", "processed", "defense_weekly_features.parquet"),
+    file.path(repo_root, "data", "processed", "defense_weekly_features.parquet"),
     "defense weekly features"
   )
   schedule <- NULL
@@ -665,11 +667,33 @@ run_rb_simulation <- function(gsis_id,
             " gameday_nonNA=", sum(!is.na(rb_data_pre$gameday)))
   }
 
+  if (isTRUE(getOption("READTHEFIELD_DEBUG")) || identical(Sys.getenv("READTHEFIELD_DEBUG"), "1")) {
+    message("RB training rows after filters: ", nrow(rb_data_pre))
+  }
+  if (nrow(rb_data_pre) == 0) {
+    stop("RB training data collapsed to 0 rows after filters.")
+  }
   if (nrow(rb_data_pre) < 1000) {
     stop("Training data collapsed: only ", nrow(rb_data_pre), " rows remain before model fitting.")
   }
   if (length(unique(rb_data_pre$player_id)) < 50) {
     stop("Training data collapsed: only ", length(unique(rb_data_pre$player_id)), " unique players remain before model fitting.")
+  }
+
+  if ((isTRUE(getOption("READTHEFIELD_DEBUG")) || identical(Sys.getenv("READTHEFIELD_DEBUG"), "1")) &&
+      exists("get_rb_v1_targets")) {
+    rb_targets_diag <- get_rb_v1_targets()
+    for (tgt in rb_targets_diag) {
+      if (!tgt %in% names(rb_data_pre)) {
+        message("RB target missing: ", tgt)
+      } else {
+        vals <- rb_data_pre[[tgt]]
+        message("RB target stats ", tgt, ": min=", suppressWarnings(min(vals, na.rm = TRUE)),
+                " max=", suppressWarnings(max(vals, na.rm = TRUE)),
+                " na=", sum(is.na(vals)),
+                " all_na=", all(is.na(vals)))
+      }
+    }
   }
   
   # Extract metadata from the single row
@@ -724,7 +748,8 @@ run_rb_simulation <- function(gsis_id,
   
   # Recent games should reflect actual stat lines, not feature rows
   recent_games <- data.frame()
-  stats_path <- file.path("data", "cache", "rb_weekly_stats.parquet")
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
+  stats_path <- file.path(repo_root, "data", "cache", "rb_weekly_stats.parquet")
   if (file.exists(stats_path) && requireNamespace("arrow", quietly = TRUE)) {
     rb_stats <- tryCatch(
       arrow::read_parquet(stats_path),
@@ -1010,8 +1035,15 @@ run_rb_simulation <- function(gsis_id,
   # The simulation will select the appropriate model based on the game's regime
   if (!is.null(rb_models$models)) {
     # New regime-based structure: check that at least one model exists per target
-    if (file.exists("R/utils/rb_regime_v1.R")) {
-      source("R/utils/rb_regime_v1.R", local = TRUE)
+    regime_path <- if (exists("resolve_regime_path")) {
+      resolve_regime_path("RB", "v1")
+    } else {
+      file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_regime_v1.R")
+    }
+    if (file.exists(regime_path)) {
+      source(regime_path, local = TRUE)
+    } else {
+      stop("Missing RB regime at ", regime_path)
     }
     rb_targets <- get_rb_v1_targets()
     rb_regimes <- get_rb_regimes()
@@ -1132,8 +1164,15 @@ run_rb_simulation <- function(gsis_id,
   # Resolve simulation schema to canonical names
   # This standardizes column names (rush_yards -> rushing_yards, etc.)
   # and creates derived columns (total_touchdowns, total_yards)
-  if (file.exists("R/utils/rb_schema_v1.R")) {
-    source("R/utils/rb_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("RB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+  } else {
+    stop("Missing RB schema at ", schema_path)
   }
   if (exists("resolve_rb_simulation_schema")) {
     result$draws <- resolve_rb_simulation_schema(result$draws)
@@ -1305,4 +1344,3 @@ run_rb_simulation <- function(gsis_id,
   
   return(result)
 }
-

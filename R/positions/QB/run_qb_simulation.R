@@ -84,9 +84,10 @@ run_qb_simulation <- function(gsis_id,
     stop("QB weekly features cache is empty.")
   }
 
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
   if (!exists("read_qb_weekly_stats_cache")) {
-    if (file.exists("R/data/build_weekly_player_layers.R")) {
-      source("R/data/build_weekly_player_layers.R", local = TRUE)
+    if (file.exists(file.path(repo_root, "R", "data", "build_weekly_player_layers.R"))) {
+      source(file.path(repo_root, "R", "data", "build_weekly_player_layers.R"), local = TRUE)
     } else {
       stop("Simulation bootstrap incomplete: read_qb_weekly_stats_cache not loaded.")
     }
@@ -191,8 +192,30 @@ run_qb_simulation <- function(gsis_id,
   qb_data_pre <- qb_data_pre[!(qb_data_pre$player_id == player_id &
                                  qb_data_pre$season == season &
                                  qb_data_pre$week == week), , drop = FALSE]
+  if (isTRUE(getOption("READTHEFIELD_DEBUG")) || identical(Sys.getenv("READTHEFIELD_DEBUG"), "1")) {
+    message("QB training rows after filters: ", nrow(qb_data_pre))
+  }
+  if (nrow(qb_data_pre) == 0) {
+    stop("QB training data collapsed to 0 rows after filters.")
+  }
   if (nrow(qb_data_pre) < 1000) {
     stop("Training data collapsed: only ", nrow(qb_data_pre), " rows remain before model fitting.")
+  }
+
+  if ((isTRUE(getOption("READTHEFIELD_DEBUG")) || identical(Sys.getenv("READTHEFIELD_DEBUG"), "1")) &&
+      exists("get_qb_v1_targets")) {
+    qb_targets_diag <- get_qb_v1_targets()
+    for (tgt in qb_targets_diag) {
+      if (!tgt %in% names(qb_data_pre)) {
+        message("QB target missing: ", tgt)
+      } else {
+        vals <- qb_data_pre[[tgt]]
+        message("QB target stats ", tgt, ": min=", suppressWarnings(min(vals, na.rm = TRUE)),
+                " max=", suppressWarnings(max(vals, na.rm = TRUE)),
+                " na=", sum(is.na(vals)),
+                " all_na=", all(is.na(vals)))
+      }
+    }
   }
 
   if (!exists("fit_qb_models")) {
@@ -213,10 +236,15 @@ run_qb_simulation <- function(gsis_id,
     }
   }
   if (!exists("get_qb_features_by_week")) {
-    if (file.exists("R/positions/QB/qb_regime_v1.R")) {
-      source("R/positions/QB/qb_regime_v1.R", local = TRUE)
+    regime_path <- if (exists("resolve_regime_path")) {
+      resolve_regime_path("QB", "v1")
     } else {
-      stop("Missing R/positions/QB/qb_regime_v1.R")
+      file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "QB", "qb_regime_v1.R")
+    }
+    if (file.exists(regime_path)) {
+      source(regime_path, local = TRUE)
+    } else {
+      stop("Missing QB regime at ", regime_path)
     }
   }
 
@@ -293,8 +321,15 @@ run_qb_simulation <- function(gsis_id,
     result$diagnostics$regime_selection <- sim_result$diagnostics
   }
 
-  if (file.exists("R/positions/QB/qb_schema_v1.R")) {
-    source("R/positions/QB/qb_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("QB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "QB", "qb_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+  } else {
+    stop("Missing QB schema at ", schema_path)
   }
   if (exists("resolve_qb_simulation_schema")) {
     result$draws <- resolve_qb_simulation_schema(result$draws)

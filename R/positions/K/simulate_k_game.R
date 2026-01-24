@@ -13,10 +13,15 @@ simulate_k_game <- function(feature_row,
     stop("k_models missing required model objects.")
   }
   if (!exists("determine_k_regime")) {
-    if (file.exists("R/positions/K/k_regime_v1.R")) {
-      source("R/positions/K/k_regime_v1.R", local = TRUE)
+    regime_path <- if (exists("resolve_regime_path")) {
+      resolve_regime_path("K", "v1")
     } else {
-      stop("Missing R/positions/K/k_regime_v1.R")
+      file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "K", "k_regime_v1.R")
+    }
+    if (file.exists(regime_path)) {
+      source(regime_path, local = TRUE)
+    } else {
+      stop("Missing K regime at ", regime_path)
     }
   }
 

@@ -18,16 +18,21 @@ if (!nzchar(repo_root)) {
   repo_root <- normalizePath(file.path(dirname(script_path), ".."))
 }
 repo_root <- normalizePath(repo_root, mustWork = TRUE)
-setwd(repo_root)
 options(READTHEFIELD_REPO_ROOT = repo_root)
+Sys.setenv(READTHEFIELD_REPO_ROOT = repo_root)
 
 message("Resolved repo root: ", repo_root)
 message("Working directory: ", normalizePath(getwd()))
 cache_dir <- file.path(repo_root, "data", "cache")
+processed_dir <- file.path(repo_root, "data", "processed")
 if (!dir.exists(cache_dir)) {
   stop("Required cache directory missing: ", cache_dir)
 }
+if (!dir.exists(processed_dir)) {
+  stop("Required processed directory missing: ", processed_dir)
+}
 message("Cache directory OK: ", cache_dir)
+message("Processed directory OK: ", processed_dir)
 
 if (!requireNamespace("plumber", quietly = TRUE)) {
   stop("Package 'plumber' is required. Install with install.packages('plumber').")

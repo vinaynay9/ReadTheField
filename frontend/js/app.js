@@ -14,6 +14,7 @@ let selectedWeek = null;
 let selectedGame = null;
 let nextGame = null;
 let homeAway = 'vs'; // 'vs' or 'away'
+let pendingRunId = null;
 
 let players = [];
 let teams = [];
@@ -153,9 +154,15 @@ async function loadInitialData() {
             fetchJson('/teams'),
             fetchJson('/seasons')
         ]);
-        players = playersResp.players || [];
-        teams = teamsResp.teams || [];
-        availableSeasons = seasonsResp.seasons || [];
+        const playersPayload = playersResp && playersResp.result ? playersResp.result : playersResp;
+        const teamsPayload = teamsResp && teamsResp.result ? teamsResp.result : teamsResp;
+        const seasonsPayload = seasonsResp && seasonsResp.result ? seasonsResp.result : seasonsResp;
+        players = (playersPayload && playersPayload.players) || [];
+        teams = (teamsPayload && teamsPayload.teams) || [];
+        availableSeasons = (seasonsPayload && seasonsPayload.seasons) || [];
+        if (!Array.isArray(players) || players.length === 0) {
+            console.warn('[RTF] Player list empty after load');
+        }
         buildTeamNameMap();
         buildPlayerSearchIndex();
         populateSeasonWeekSelects();
@@ -210,9 +217,14 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeHomeAwayToggle();
     initializeDateSelection();
     initializeSimulationButton();
+    const params = new URLSearchParams(window.location.search);
+    pendingRunId = params.get('run_id');
     loadInitialData().then(() => {
         switchMode('this-week');
         updateCalculateButton();
+        if (pendingRunId) {
+            loadRunFromStorage(pendingRunId);
+        }
     });
 });
 
@@ -563,6 +575,7 @@ function buildFallbackTeamsFromOpponents() {
 
 function shouldDisableTeam(teamId) {
     if (!selectedPlayer) return false;
+    if (simulationMode === 'hypothetical') return false;
     if (!currentOpponentSet || currentOpponentSet.size === 0) return true;
     return !currentOpponentSet.has(teamId);
 }
@@ -695,8 +708,8 @@ function updateHistoricalDates() {
         return;
     }
 
-    dateSelect.innerHTML = '<option value="">-- SELECT DATE --</option>';
-    games.forEach(game => {
+    dateSelect.innerHTML = '';
+    games.forEach((game, idx) => {
         const option = document.createElement('option');
         option.value = `${game.season}-wk${game.week}-${game.opponent}`;
         option.dataset.season = game.season;
@@ -708,16 +721,27 @@ function updateHistoricalDates() {
         const dateObj = game.game_date ? new Date(game.game_date) : null;
         const formattedDate = dateObj && !isNaN(dateObj.getTime())
             ? dateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-            : 'Date unavailable';
+            : null;
         const opponentName = getTeamName(game.opponent);
         const location = game.home_away === 'AWAY' ? '@' : 'vs';
-        option.textContent = `${game.season} Week ${game.week} ${location} ${opponentName} (${formattedDate})`;
+        option.textContent = formattedDate
+            ? `${game.season} Week ${game.week} ${location} ${opponentName} (${formattedDate})`
+            : `${game.season} Week ${game.week} ${location} ${opponentName}`;
         dateSelect.appendChild(option);
+        if (idx == 0) {
+            dateSelect.value = option.value;
+            selectedDate = option.value;
+            selectedGame = {
+                season: option.dataset.season ? parseInt(option.dataset.season, 10) : null,
+                week: option.dataset.week ? parseInt(option.dataset.week, 10) : null,
+                opponent: option.dataset.opponent || null,
+                home_away: option.dataset.homeAway || null,
+                game_date: option.dataset.gameDate || null
+            };
+            selectedSeason = selectedGame.season;
+            selectedWeek = selectedGame.week;
+        }
     });
-
-    selectedDate = null;
-    selectedGame = null;
-    dateSelect.value = '';
     updateCalculateButton();
 }
 
@@ -760,7 +784,7 @@ function resolvePayload() {
 
     if (simulationMode === 'historical') {
         if (!selectedGame || !selectedGame.season || !selectedGame.week) {
-            return { valid: false, message: 'Select a historical game.' };
+            return { valid: false, message: 'Select a valid historical game to continue.' };
         }
         season = selectedGame.season;
         week = selectedGame.week;
@@ -779,9 +803,6 @@ function resolvePayload() {
         scheduleOpponent = nextGame.opponent || null;
         scheduleHomeAway = nextGame.home_away || null;
     } else if (simulationMode === 'hypothetical') {
-        if (!season || !week) {
-            return { valid: false, message: 'Select a season and week.' };
-        }
         if (!selectedTeam) {
             return { valid: false, message: 'Select an opponent.' };
         }
@@ -789,6 +810,14 @@ function resolvePayload() {
         mode = 'hypothetical_matchup';
         scheduleOpponent = selectedTeam;
         scheduleHomeAway = homeAway === 'away' ? 'AWAY' : 'HOME';
+    }
+
+    if (simulationMode === 'hypothetical') {
+        if (!selectedSeason && !selectedWeek) {
+            // Let backend resolve latest season/week from player history.
+            season = null;
+            week = null;
+        }
     }
 
     return {
@@ -807,6 +836,86 @@ function resolvePayload() {
             schedule_home_away: scheduleHomeAway
         }
     };
+}
+
+function findSummaryValue(summary, names) {
+    if (!Array.isArray(summary)) return null;
+    const list = Array.isArray(names) ? names : [names];
+    for (const name of list) {
+        const row = summary.find(item => item.stat === name);
+        if (row && typeof row.p50 !== 'undefined') {
+            return row.p50;
+        }
+    }
+    return null;
+}
+
+function buildRunStats(position, summary) {
+    const pos = (position || '').toUpperCase();
+    const stats = {};
+    stats.fantasy_points = findSummaryValue(summary, ['fantasy_points', 'fantasy_ppr', 'ppr_points']);
+
+    if (pos === 'QB') {
+        stats.passing_yards = findSummaryValue(summary, 'passing_yards');
+        stats.passing_tds = findSummaryValue(summary, 'passing_tds');
+        stats.rush_yards = findSummaryValue(summary, ['qb_rush_yards', 'rushing_yards']);
+        stats.rush_tds = findSummaryValue(summary, ['qb_rush_tds', 'rushing_tds']);
+        stats.pass_attempts = findSummaryValue(summary, ['passing_attempts', 'target_pass_attempts_qb']);
+        stats.completions = findSummaryValue(summary, ['passing_completions', 'target_completions_qb']);
+        stats.rush_attempts = findSummaryValue(summary, ['qb_rush_attempts', 'rush_attempts', 'carries']);
+    } else if (pos === 'RB' || pos === 'WR' || pos === 'TE') {
+        stats.rushing_yards = findSummaryValue(summary, 'rushing_yards');
+        stats.receiving_yards = findSummaryValue(summary, 'receiving_yards');
+        stats.rushing_tds = findSummaryValue(summary, 'rushing_tds');
+        stats.receiving_tds = findSummaryValue(summary, 'receiving_tds');
+        stats.targets = findSummaryValue(summary, 'targets');
+        stats.receptions = findSummaryValue(summary, 'receptions');
+        stats.carries = findSummaryValue(summary, ['rush_attempts', 'carries']);
+    } else if (pos === 'K') {
+        stats.fg_made = findSummaryValue(summary, ['fg_made', 'field_goals_made']);
+        stats.fg_attempts = findSummaryValue(summary, ['fg_attempts', 'field_goal_attempts']);
+        stats.xp_made = findSummaryValue(summary, ['pat_made', 'extra_points_made']);
+        stats.xp_attempts = findSummaryValue(summary, ['pat_attempts', 'extra_point_attempts']);
+    }
+    return stats;
+}
+
+function saveRunToStorage(payload, report) {
+    if (!report || !report.metadata) return;
+    const stats = buildRunStats(report.metadata.position, report.summary);
+    const runId = `run_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const entry = {
+        run_id: runId,
+        run_date: new Date().toISOString(),
+        player_name: report.metadata.player_name || payload.player_name || '',
+        player_id: report.metadata.player_id || payload.player_id || '',
+        position: report.metadata.position || '',
+        opponent: report.metadata.opponent || payload.schedule_opponent || '',
+        season: report.metadata.season || payload.season,
+        week: report.metadata.week || payload.week,
+        mode: payload.mode,
+        stats: stats,
+        fantasy_points: stats.fantasy_points || null
+    };
+    const existing = JSON.parse(localStorage.getItem('rtf_runs_v1') || '[]');
+    existing.unshift(entry);
+    localStorage.setItem('rtf_runs_v1', JSON.stringify(existing.slice(0, 200)));
+    localStorage.setItem(`rtf_run_${runId}`, JSON.stringify(report));
+}
+
+function loadRunFromStorage(runId) {
+    const reportRaw = localStorage.getItem(`rtf_run_${runId}`);
+    if (!reportRaw) return;
+    try {
+        const report = JSON.parse(reportRaw);
+        if (report && report.summary && report.metadata) {
+            const resultsPanel = document.getElementById('results-panel');
+            if (resultsPanel) resultsPanel.style.display = 'block';
+            renderResults(report);
+        }
+    } catch (err) {
+        console.error('[RTF] Failed to load run', err);
+    }
 }
 
 // Update Calculate Button State
@@ -888,6 +997,7 @@ async function runSimulationRequest() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(resolved.payload)
         });
+        saveRunToStorage(resolved.payload, payload);
         renderResults(payload);
     } catch (err) {
         renderError(err && err.message ? err.message : 'Unable to reach the simulation service.');

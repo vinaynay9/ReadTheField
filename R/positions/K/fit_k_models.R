@@ -77,12 +77,26 @@ fit_k_models <- function(training_data, min_rows = 200) {
   if (!"k_regime" %in% names(training_data)) {
     stop("Missing k_regime column in training data. Regime-based modeling requires k_regime.")
   }
-  if (file.exists("R/positions/K/k_schema_v1.R")) {
-    source("R/positions/K/k_schema_v1.R", local = TRUE)
-    validate_k_v1_target_schema(training_data, strict = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("K", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "K", "k_schema_v1.R")
   }
-  if (file.exists("R/positions/K/k_regime_v1.R")) {
-    source("R/positions/K/k_regime_v1.R", local = TRUE)
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+    validate_k_v1_target_schema(training_data, strict = TRUE)
+  } else {
+    stop("Missing K schema at ", schema_path)
+  }
+  regime_path <- if (exists("resolve_regime_path")) {
+    resolve_regime_path("K", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "K", "k_regime_v1.R")
+  }
+  if (file.exists(regime_path)) {
+    source(regime_path, local = TRUE)
+  } else {
+    stop("Missing K regime at ", regime_path)
   }
 
   if (any(is.na(training_data$k_regime))) {

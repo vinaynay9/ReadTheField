@@ -37,13 +37,12 @@ simulation_mode_policy <- function(mode = c("upcoming_game", "hypothetical_match
     stop("target_season is required for simulation mode policy")
   }
   
-  # Get available seasons from cache if not provided
+  # Get available seasons from cache if not provided (canonical: PWI parquet)
   if (is.null(available_seasons) || length(available_seasons) == 0) {
-    if (exists("get_available_seasons_from_cache")) {
-      available_seasons <- unique(c(
-        get_available_seasons_from_cache("rb_stats"),
-        get_available_seasons_from_cache("player_stats")
-      ))
+    if (exists("get_available_seasons_from_pwi")) {
+      available_seasons <- get_available_seasons_from_pwi()
+    } else if (exists("get_available_seasons_from_cache")) {
+      available_seasons <- get_available_seasons_from_cache("player_stats")
     } else {
       # Fallback: assume target season and previous season
       available_seasons <- sort(unique(c(target_season - 1L, target_season)))
@@ -171,4 +170,3 @@ detect_in_progress_season <- function(available_seasons, cache_only = TRUE) {
   }
   NA_integer_
 }
-

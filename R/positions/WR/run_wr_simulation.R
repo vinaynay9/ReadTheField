@@ -156,9 +156,10 @@ run_wr_simulation <- function(gsis_id,
     stop("No WR training rows available for seasons: ", paste(seasons_train, collapse = ", "))
   }
 
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
   if (!exists("read_wr_weekly_stats_cache")) {
-    if (file.exists("R/data/build_weekly_player_layers.R")) {
-      source("R/data/build_weekly_player_layers.R", local = TRUE)
+    if (file.exists(file.path(repo_root, "R", "data", "build_weekly_player_layers.R"))) {
+      source(file.path(repo_root, "R", "data", "build_weekly_player_layers.R"), local = TRUE)
     } else {
       stop("Simulation bootstrap incomplete: read_wr_weekly_stats_cache not loaded.")
     }
@@ -187,16 +188,17 @@ run_wr_simulation <- function(gsis_id,
     player_dim <- tryCatch(read_player_dim_cache(), error = function(e) NULL)
   }
 
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
   prior_season_stats <- read_optional_parquet(
-    file.path("data", "processed", "prior_season_player_stats.parquet"),
+    file.path(repo_root, "data", "processed", "prior_season_player_stats.parquet"),
     "prior season player stats"
   )
   team_offense_context <- read_optional_parquet(
-    file.path("data", "processed", "team_offense_context.parquet"),
+    file.path(repo_root, "data", "processed", "team_offense_context.parquet"),
     "team offense context"
   )
   defense_weekly_features <- read_optional_parquet(
-    file.path("data", "processed", "defense_weekly_features.parquet"),
+    file.path(repo_root, "data", "processed", "defense_weekly_features.parquet"),
     "defense weekly features"
   )
   schedule <- NULL
@@ -353,13 +355,36 @@ run_wr_simulation <- function(gsis_id,
     wr_data_pre <- wr_data_pre[is.na(wr_data_pre$game_id) | wr_data_pre$game_id != game_id, ]
   }
 
+  if (isTRUE(getOption("READTHEFIELD_DEBUG")) || identical(Sys.getenv("READTHEFIELD_DEBUG"), "1")) {
+    message("WR training rows after filters: ", nrow(wr_data_pre))
+  }
+  if (nrow(wr_data_pre) == 0) {
+    stop("WR training data collapsed to 0 rows after filters.")
+  }
   if (nrow(wr_data_pre) < 1000) {
     stop("Training data collapsed: only ", nrow(wr_data_pre), " rows remain before model fitting.")
   }
 
+  if ((isTRUE(getOption("READTHEFIELD_DEBUG")) || identical(Sys.getenv("READTHEFIELD_DEBUG"), "1")) &&
+      exists("get_wr_v1_targets")) {
+    wr_targets_diag <- get_wr_v1_targets()
+    for (tgt in wr_targets_diag) {
+      if (!tgt %in% names(wr_data_pre)) {
+        message("WR target missing: ", tgt)
+      } else {
+        vals <- wr_data_pre[[tgt]]
+        message("WR target stats ", tgt, ": min=", suppressWarnings(min(vals, na.rm = TRUE)),
+                " max=", suppressWarnings(max(vals, na.rm = TRUE)),
+                " na=", sum(is.na(vals)),
+                " all_na=", all(is.na(vals)))
+      }
+    }
+  }
+
   # Recent performance: strictly prior games ordered by (season DESC, week DESC)
   recent_games <- data.frame()
-  stats_path <- file.path("data", "cache", "wr_weekly_stats.parquet")
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
+  stats_path <- file.path(repo_root, "data", "cache", "wr_weekly_stats.parquet")
   if (file.exists(stats_path) && requireNamespace("arrow", quietly = TRUE)) {
     wr_stats <- tryCatch(
       arrow::read_parquet(stats_path),
@@ -513,8 +538,15 @@ run_wr_simulation <- function(gsis_id,
     result$diagnostics$regime_selection <- sim_result$diagnostics
   }
 
-  if (file.exists("R/positions/WR/wr_schema_v1.R")) {
-    source("R/positions/WR/wr_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("WR", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "WR", "wr_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+  } else {
+    stop("Missing WR schema at ", schema_path)
   }
   if (exists("resolve_wr_simulation_schema")) {
     result$draws <- resolve_wr_simulation_schema(result$draws)

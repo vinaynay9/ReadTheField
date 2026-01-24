@@ -168,17 +168,27 @@ fit_te_models <- function(training_data, min_rows = 200) {
     cat(paste(...), "\n", file = log_file, append = TRUE)
   }
 
-  if (file.exists("R/positions/TE/te_schema_v1.R")) {
-    source("R/positions/TE/te_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("TE", "v1")
   } else {
-    stop("Missing R/positions/TE/te_schema_v1.R - cannot load TE schema")
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "TE", "te_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+  } else {
+    stop("Missing TE schema at ", schema_path)
   }
   if (!exists("get_te_v1_targets")) {
     stop("Missing get_te_v1_targets function. Cannot load TE schema.")
   }
 
-  if (file.exists("R/positions/TE/te_regime_v1.R")) {
-    source("R/positions/TE/te_regime_v1.R", local = TRUE)
+  regime_path <- if (exists("resolve_regime_path")) {
+    resolve_regime_path("TE", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "TE", "te_regime_v1.R")
+  }
+  if (file.exists(regime_path)) {
+    source(regime_path, local = TRUE)
     if (!exists("get_te_features_by_week")) {
       stop("get_te_features_by_week function not found. Time-aware feature contracts require this function.")
     }
@@ -189,7 +199,7 @@ fit_te_models <- function(training_data, min_rows = 200) {
       stop("get_te_model_key function not found. Model key generation requires this function.")
     }
   } else {
-    stop("Missing R/positions/TE/te_regime_v1.R - cannot load TE regime system")
+    stop("Missing TE regime at ", regime_path)
   }
 
   result <- list(

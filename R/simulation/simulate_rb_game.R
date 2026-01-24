@@ -53,10 +53,15 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000, availability
   }
   
   # CRITICAL: Load schema validation first
-  if (file.exists("R/utils/rb_schema_v1.R")) {
-    source("R/utils/rb_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("RB", "v1")
   } else {
-    error_msg <- "Missing R/utils/rb_schema_v1.R"
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+  } else {
+    error_msg <- paste0("Missing RB schema at ", schema_path)
     log_msg("FATAL:", error_msg)
     stop(error_msg)
   }
@@ -88,8 +93,13 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000, availability
   }
   
   # Load regime system
-  if (file.exists("R/utils/rb_regime_v1.R")) {
-    source("R/utils/rb_regime_v1.R", local = TRUE)
+  regime_path <- if (exists("resolve_regime_path")) {
+    resolve_regime_path("RB", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_regime_v1.R")
+  }
+  if (file.exists(regime_path)) {
+    source(regime_path, local = TRUE)
     # Ensure get_rb_features_by_week is available for time-aware feature selection
     if (!exists("get_rb_features_by_week")) {
       error_msg <- "get_rb_features_by_week function not found. Time-aware feature contracts require this function."
@@ -97,7 +107,7 @@ simulate_rb_game <- function(feature_row, rb_models, n_sims = 5000, availability
       stop(error_msg)
     }
   } else {
-    error_msg <- "Missing R/utils/rb_regime_v1.R"
+    error_msg <- paste0("Missing RB regime at ", regime_path)
     log_msg("FATAL:", error_msg)
     stop(error_msg)
   }
@@ -585,8 +595,13 @@ prepare_prediction_data <- function(feature_row, week = NULL, required_features 
     }
   } else if (!is.null(regime)) {
     # Legacy fallback: regime-based features
-    if (file.exists("R/utils/rb_regime_v1.R")) {
-      source("R/utils/rb_regime_v1.R", local = TRUE)
+    regime_path <- if (exists("resolve_regime_path")) {
+      resolve_regime_path("RB", "v1")
+    } else {
+      file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "utils", "rb_regime_v1.R")
+    }
+    if (file.exists(regime_path)) {
+      source(regime_path, local = TRUE)
       feature_contracts <- get_rb_features_by_regime()
       required_features <- feature_contracts[[regime]]
       
@@ -611,6 +626,8 @@ prepare_prediction_data <- function(feature_row, week = NULL, required_features 
                paste(strict_features[na_features], collapse = ", "))
         }
       }
+    } else {
+      stop("Missing RB regime at ", regime_path)
     }
   }
   

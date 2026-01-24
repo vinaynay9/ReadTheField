@@ -66,7 +66,8 @@ assemble_te_weekly_features <- function(te_weekly_stats) {
   features$is_rookie <- as.logical(features$is_rookie)
 
   # Join defensive features (opponent context)
-  defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
+  defense_weekly_features_path <- file.path(repo_root, "data", "processed", "defense_weekly_features.parquet")
   if (!file.exists(defense_weekly_features_path)) {
     stop("Missing defensive weekly features file: ", defense_weekly_features_path)
   }
@@ -106,7 +107,7 @@ assemble_te_weekly_features <- function(te_weekly_stats) {
   )
 
   # Join team offense context (lagged roll1)
-  team_offense_context_path <- file.path("data", "processed", "team_offense_context.parquet")
+  team_offense_context_path <- file.path(repo_root, "data", "processed", "team_offense_context.parquet")
   if (!file.exists(team_offense_context_path)) {
     stop("Missing team offense context file: ", team_offense_context_path)
   }
@@ -127,7 +128,7 @@ assemble_te_weekly_features <- function(te_weekly_stats) {
               by = c("team", "season", "week"))
 
   # Join QB rolling context features (roll1/roll3/roll5)
-  qb_features_path <- file.path("data", "processed", "qb_weekly_features.parquet")
+  qb_features_path <- file.path(repo_root, "data", "processed", "qb_weekly_features.parquet")
   if (!file.exists(qb_features_path)) {
     stop("Missing QB weekly features file: ", qb_features_path)
   }
@@ -168,7 +169,7 @@ assemble_te_weekly_features <- function(te_weekly_stats) {
   message("Added TE interaction feature: redzone_targets_roll5_x_team_points_roll5")
 
   # Join prior-season cumulative stats (season - 1 aggregates)
-  prior_season_stats_path <- file.path("data", "processed", "prior_season_player_stats.parquet")
+  prior_season_stats_path <- file.path(repo_root, "data", "processed", "prior_season_player_stats.parquet")
   if (!file.exists(prior_season_stats_path)) {
     stop("Missing prior-season player stats file: ", prior_season_stats_path)
   }
@@ -203,7 +204,7 @@ assemble_te_weekly_features <- function(te_weekly_stats) {
   }
 
   # Optional draft metadata (non-imputing; NA when unavailable)
-  draft_path <- file.path("data", "external", "player_metadata.parquet")
+  draft_path <- file.path(repo_root, "data", "external", "player_metadata.parquet")
   draft_meta <- NULL
   if (file.exists(draft_path) && file.info(draft_path)$size > 0) {
     draft_meta <- tryCatch(arrow::read_parquet(draft_path), error = function(e) NULL)
@@ -246,8 +247,13 @@ assemble_te_weekly_features <- function(te_weekly_stats) {
   if (!is.numeric(features$week)) {
     features$week <- as.integer(features$week)
   }
-  if (file.exists("R/positions/TE/te_regime_v1.R")) {
-    source("R/positions/TE/te_regime_v1.R", local = TRUE)
+  regime_path <- if (exists("resolve_regime_path")) {
+    resolve_regime_path("TE", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "TE", "te_regime_v1.R")
+  }
+  if (file.exists(regime_path)) {
+    source(regime_path, local = TRUE)
     features$te_regime <- determine_te_regime(features$week)
   } else {
     features$te_regime <- ifelse(features$week <= 3, "early",
@@ -303,9 +309,16 @@ assemble_te_weekly_features <- function(te_weekly_stats) {
   features <- features[order(features$season, features$week, features$gameday, features$player_id), ]
   rownames(features) <- NULL
 
-  if (file.exists("R/positions/TE/te_schema_v1.R")) {
-    source("R/positions/TE/te_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("TE", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "TE", "te_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
     validate_te_v1_target_schema(features, strict = TRUE)
+  } else {
+    stop("Missing TE schema at ", schema_path)
   }
 
   if (nrow(features) == 0) {

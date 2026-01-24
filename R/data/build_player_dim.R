@@ -10,7 +10,8 @@
  # Usage:
  #   player_dim <- build_player_dim(seasons = 2021:2024, write_cache = TRUE)
  
-player_dim_path <- file.path("data", "processed", "player_dim.parquet")
+repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
+player_dim_path <- file.path(repo_root, "data", "processed", "player_dim.parquet")
 
 # Schema utilities
 canonicalize_names <- function(df) {
@@ -293,7 +294,7 @@ assert_required_cols <- function(df, required, context = "data frame") {
   player_dim <- coalesce_cols(player_dim, "team", c("team", "team_abbr", "recent_team", "current_team"))
   player_dim <- coalesce_cols(player_dim, "position", c("position", "pos"))
 
-  identity_path <- file.path("data", "cache", "player_week_identity.parquet")
+  identity_path <- file.path(repo_root, "data", "cache", "player_week_identity.parquet")
   if (file.exists(identity_path)) {
     identity <- tryCatch(arrow::read_parquet(identity_path), error = function(e) NULL)
     if (!is.null(identity) && nrow(identity) > 0) {
@@ -374,7 +375,7 @@ assert_required_cols <- function(df, required, context = "data frame") {
     stop("player_dim contains missing positions.", call. = FALSE)
   }
 
-  team_path <- file.path("data", "teams", "teams.csv")
+  team_path <- file.path(repo_root, "data", "teams", "teams.csv")
   allowed_teams <- character(0)
   if (file.exists(team_path)) {
     team_df <- read.csv(team_path, stringsAsFactors = FALSE)

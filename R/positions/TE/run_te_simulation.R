@@ -156,9 +156,10 @@ run_te_simulation <- function(gsis_id,
     stop("No TE training rows available for seasons: ", paste(seasons_train, collapse = ", "))
   }
 
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
   if (!exists("read_te_weekly_stats_cache")) {
-    if (file.exists("R/data/build_weekly_player_layers.R")) {
-      source("R/data/build_weekly_player_layers.R", local = TRUE)
+    if (file.exists(file.path(repo_root, "R", "data", "build_weekly_player_layers.R"))) {
+      source(file.path(repo_root, "R", "data", "build_weekly_player_layers.R"), local = TRUE)
     } else {
       stop("Simulation bootstrap incomplete: read_te_weekly_stats_cache not loaded.")
     }
@@ -187,16 +188,17 @@ run_te_simulation <- function(gsis_id,
     player_dim <- tryCatch(read_player_dim_cache(), error = function(e) NULL)
   }
 
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
   prior_season_stats <- read_optional_parquet(
-    file.path("data", "processed", "prior_season_player_stats.parquet"),
+    file.path(repo_root, "data", "processed", "prior_season_player_stats.parquet"),
     "prior season player stats"
   )
   team_offense_context <- read_optional_parquet(
-    file.path("data", "processed", "team_offense_context.parquet"),
+    file.path(repo_root, "data", "processed", "team_offense_context.parquet"),
     "team offense context"
   )
   defense_weekly_features <- read_optional_parquet(
-    file.path("data", "processed", "defense_weekly_features.parquet"),
+    file.path(repo_root, "data", "processed", "defense_weekly_features.parquet"),
     "defense weekly features"
   )
   schedule <- NULL
@@ -353,13 +355,36 @@ run_te_simulation <- function(gsis_id,
     te_data_pre <- te_data_pre[is.na(te_data_pre$game_id) | te_data_pre$game_id != game_id, ]
   }
 
+  if (isTRUE(getOption("READTHEFIELD_DEBUG")) || identical(Sys.getenv("READTHEFIELD_DEBUG"), "1")) {
+    message("TE training rows after filters: ", nrow(te_data_pre))
+  }
+  if (nrow(te_data_pre) == 0) {
+    stop("TE training data collapsed to 0 rows after filters.")
+  }
   if (nrow(te_data_pre) < 1000) {
     stop("Training data collapsed: only ", nrow(te_data_pre), " rows remain before model fitting.")
   }
 
+  if ((isTRUE(getOption("READTHEFIELD_DEBUG")) || identical(Sys.getenv("READTHEFIELD_DEBUG"), "1")) &&
+      exists("get_te_v1_targets")) {
+    te_targets_diag <- get_te_v1_targets()
+    for (tgt in te_targets_diag) {
+      if (!tgt %in% names(te_data_pre)) {
+        message("TE target missing: ", tgt)
+      } else {
+        vals <- te_data_pre[[tgt]]
+        message("TE target stats ", tgt, ": min=", suppressWarnings(min(vals, na.rm = TRUE)),
+                " max=", suppressWarnings(max(vals, na.rm = TRUE)),
+                " na=", sum(is.na(vals)),
+                " all_na=", all(is.na(vals)))
+      }
+    }
+  }
+
   # Recent performance: strictly prior games ordered by (season DESC, week DESC)
   recent_games <- data.frame()
-  stats_path <- file.path("data", "cache", "te_weekly_stats.parquet")
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
+  stats_path <- file.path(repo_root, "data", "cache", "te_weekly_stats.parquet")
   if (file.exists(stats_path) && requireNamespace("arrow", quietly = TRUE)) {
     te_stats <- tryCatch(
       arrow::read_parquet(stats_path),
@@ -513,8 +538,15 @@ run_te_simulation <- function(gsis_id,
     result$diagnostics$regime_selection <- sim_result$diagnostics
   }
 
-  if (file.exists("R/positions/TE/te_schema_v1.R")) {
-    source("R/positions/TE/te_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("TE", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "TE", "te_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
+  } else {
+    stop("Missing TE schema at ", schema_path)
   }
   if (exists("resolve_te_simulation_schema")) {
     result$draws <- resolve_te_simulation_schema(result$draws)

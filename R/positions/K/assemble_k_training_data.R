@@ -32,7 +32,8 @@ assemble_k_weekly_features <- function(k_weekly_stats) {
   features$is_rookie <- as.logical(features$is_rookie)
 
   # Join player static attributes
-  dim_path <- file.path("data", "processed", "player_dim.parquet")
+  repo_root <- if (exists("resolve_repo_root")) resolve_repo_root() else "."
+  dim_path <- file.path(repo_root, "data", "processed", "player_dim.parquet")
   if (file.exists(dim_path)) {
     player_dim <- arrow::read_parquet(dim_path)
     dim_cols <- intersect(c("gsis_id", "season", "height", "weight", "age"), names(player_dim))
@@ -48,7 +49,7 @@ assemble_k_weekly_features <- function(k_weekly_stats) {
   }
 
   # Join defensive context (sacks/points allowed)
-  defense_weekly_features_path <- file.path("data", "processed", "defense_weekly_features.parquet")
+  defense_weekly_features_path <- file.path(repo_root, "data", "processed", "defense_weekly_features.parquet")
   if (!file.exists(defense_weekly_features_path)) {
     stop("Missing defensive weekly features file: ", defense_weekly_features_path)
   }
@@ -86,7 +87,7 @@ assemble_k_weekly_features <- function(k_weekly_stats) {
           "team_points_roll5_x_target_fg_pct_k_roll5")
 
   # Optional draft metadata (non-imputing; NA when unavailable)
-  draft_path <- file.path("data", "external", "player_metadata.parquet")
+  draft_path <- file.path(repo_root, "data", "external", "player_metadata.parquet")
   draft_meta <- NULL
   if (file.exists(draft_path) && file.info(draft_path)$size > 0) {
     draft_meta <- tryCatch(arrow::read_parquet(draft_path), error = function(e) NULL)
@@ -132,9 +133,16 @@ assemble_k_weekly_features <- function(k_weekly_stats) {
     features <- features[!bad_rows, , drop = FALSE]
   }
 
-  if (file.exists("R/positions/K/k_schema_v1.R")) {
-    source("R/positions/K/k_schema_v1.R", local = TRUE)
+  schema_path <- if (exists("resolve_schema_path")) {
+    resolve_schema_path("K", "v1")
+  } else {
+    file.path(getOption("READTHEFIELD_REPO_ROOT", "."), "R", "positions", "K", "k_schema_v1.R")
+  }
+  if (file.exists(schema_path)) {
+    source(schema_path, local = TRUE)
     validate_k_v1_target_schema(features, strict = TRUE)
+  } else {
+    stop("Missing K schema at ", schema_path)
   }
 
   features
