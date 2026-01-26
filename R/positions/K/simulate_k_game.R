@@ -222,20 +222,36 @@ simulate_k_game <- function(feature_row,
 
 compute_k_percentiles <- function(draws) {
   stats <- c("target_fg_attempts_k", "target_fg_made_k", "target_pat_made_k")
+  aliases <- list(
+    target_fg_attempts_k = c("target_fg_attempts_k", "fg_attempts", "field_goal_attempts"),
+    target_fg_made_k = c("target_fg_made_k", "fg_made", "field_goals_made"),
+    target_pat_made_k = c("target_pat_made_k", "pat_made", "extra_points_made")
+  )
   result <- data.frame(
     stat = stats,
+    p10 = NA_real_,
     p25 = NA_real_,
+    p40 = NA_real_,
     p50 = NA_real_,
+    p60 = NA_real_,
     p75 = NA_real_,
+    p90 = NA_real_,
     stringsAsFactors = FALSE
   )
+  probs <- c(0.10, 0.25, 0.40, 0.50, 0.60, 0.75, 0.90)
   for (i in seq_along(stats)) {
     stat <- stats[i]
-    if (stat %in% names(draws)) {
-      vals <- draws[[stat]]
-      result$p25[i] <- quantile(vals, 0.25, na.rm = TRUE)
-      result$p50[i] <- quantile(vals, 0.50, na.rm = TRUE)
-      result$p75[i] <- quantile(vals, 0.75, na.rm = TRUE)
+    vals <- NULL
+    candidates <- aliases[[stat]]
+    for (candidate in candidates) {
+      if (candidate %in% names(draws)) {
+        vals <- draws[[candidate]]
+        break
+      }
+    }
+    if (!is.null(vals)) {
+      q <- quantile(vals, probs, na.rm = TRUE)
+      result[i, c("p10", "p25", "p40", "p50", "p60", "p75", "p90")] <- as.numeric(q)
     }
   }
   result

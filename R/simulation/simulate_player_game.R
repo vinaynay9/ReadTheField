@@ -363,6 +363,18 @@ simulate_player_game <- function(gsis_id,
       resolved_opponent <- sched_row$home_team
       resolved_home_away <- "AWAY"
     }
+    if (!is.null(schedule_opponent) && nzchar(as.character(schedule_opponent))) {
+      resolved_opponent <- as.character(schedule_opponent)
+    }
+    if (!is.null(schedule_home_away) && nzchar(as.character(schedule_home_away))) {
+      resolved_home_away <- toupper(as.character(schedule_home_away))
+      if (resolved_home_away == "VS") {
+        resolved_home_away <- "HOME"
+      }
+      if (!resolved_home_away %in% c("HOME", "AWAY")) {
+        resolved_home_away <- "HOME"
+      }
+    }
     
     synthetic_feature_row <- switch(
       player_position,

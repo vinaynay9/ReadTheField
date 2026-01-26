@@ -66,6 +66,22 @@ assert_report <- function(res, position) {
   if (length(missing) > 0) {
     stop("Missing summary_tables for position ", position, ": ", paste(missing, collapse = ", "))
   }
+  forbidden <- c("rushing_tds", "receiving_tds")
+  present_forbidden <- intersect(forbidden, names(payload$summary_tables))
+  if (length(present_forbidden) > 0) {
+    stop("Forbidden summary_tables present for position ", position, ": ", paste(present_forbidden, collapse = ", "))
+  }
+  percentile_cols <- c("p10", "p25", "p40", "p50", "p60", "p75", "p90")
+  for (stat in required) {
+    rows <- payload$summary_tables[[stat]]
+    if (is.null(rows) || !is.data.frame(rows)) {
+      stop("summary_tables entry missing for stat ", stat, " position ", position)
+    }
+    missing_cols <- setdiff(percentile_cols, names(rows))
+    if (length(missing_cols) > 0) {
+      stop("summary_tables stat ", stat, " missing columns: ", paste(missing_cols, collapse = ", "))
+    }
+  }
   TRUE
 }
 

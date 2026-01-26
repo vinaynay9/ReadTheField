@@ -7,21 +7,56 @@
     <link rel="stylesheet" href="css/styles.css">
     <style>
         .about-page .page-section {
-            margin-top: 3rem;
+            margin-top: 2.5rem;
         }
         .about-page .rtf-label {
-            font-size: 1.6rem;
+            font-size: 1.45rem;
             margin-bottom: 1.6rem;
             padding-bottom: 0.85rem;
             border-bottom: 3px solid var(--border-color);
         }
         .about-page .rtf-body {
-            font-size: 1.05rem;
-            line-height: 1.9;
+            font-size: 0.98rem;
+            line-height: 1.85;
         }
         .about-page .rtf-subtext {
-            font-size: 0.95rem;
-            line-height: 1.85;
+            font-size: 0.9rem;
+            line-height: 1.8;
+        }
+        .about-page .rtf-subheading {
+            font-size: 1.05rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--accent-gold);
+            margin: 1.5rem 0 0.75rem;
+        }
+        .about-page .content-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .about-page .system-architecture {
+            display: flex;
+            gap: 2rem;
+            align-items: flex-start;
+        }
+        .about-page .system-text {
+            flex: 1 1 50%;
+        }
+        .about-page .system-diagram {
+            flex: 1 1 50%;
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            padding: 1rem;
+        }
+        .about-page .system-diagram svg {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        @media (max-width: 900px) {
+            .about-page .system-architecture {
+                flex-direction: column;
+            }
         }
         .about-page .rtf-collapsible summary {
             cursor: pointer;
@@ -96,6 +131,24 @@
             height: 26px;
             image-rendering: pixelated;
         }
+        .about-page .creator-logos {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            align-items: center;
+            margin-top: 1.25rem;
+        }
+        .about-page .creator-logos img {
+            max-height: 58px;
+            width: auto;
+            opacity: 0.8;
+            image-rendering: pixelated;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+        .about-page .creator-logos img:hover {
+            transform: scale(1.04);
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -113,245 +166,83 @@
     <main class="main-content about-page">
         <div class="content-container">
             <section class="page-section">
-                <h2 class="rtf-label">High-Level Overview</h2>
-                <p class="rtf-body">Read the Field is a Monte Carlo NFL player simulation engine built on the nflreadr ecosystem. It focuses on uncertainty, outcome distributions, and variance — not single-point predictions.</p>
+                <h2 class="rtf-label">Current System Architecture</h2>
+                <div class="system-architecture">
+                    <div class="system-text">
+                        <p class="rtf-body">Read the Field operates as a full lifecycle system — not a single model. Data is ingested from nflreadr, normalized and cached (parquet/RDS), then transformed into weekly feature layers that are consistent across positions. Simulation requests pull the latest cached features, run a Monte Carlo engine, and produce a report layer that is deterministic under seed control.</p>
+                        <p class="rtf-subtext">The pipeline is intentionally separated into data, features, simulation, and reporting. This keeps the system reproducible, debuggable, and extensible — whether you’re experimenting with new features, new model families, or new evaluation workflows.</p>
+                    </div>
+                    <div class="system-diagram" aria-label="System architecture diagram">
+                        <svg viewBox="0 0 520 280" role="img" aria-labelledby="archTitle">
+                            <title id="archTitle">Read the Field system flow</title>
+                            <rect x="10" y="20" width="140" height="48" rx="6" fill="#1f1f1f" stroke="#4a4a4a" stroke-width="2"/>
+                            <text x="80" y="50" fill="#d2d2d2" font-size="12" text-anchor="middle">nflreadr data</text>
+                            <rect x="190" y="20" width="140" height="48" rx="6" fill="#1f1f1f" stroke="#4a4a4a" stroke-width="2"/>
+                            <text x="260" y="50" fill="#d2d2d2" font-size="12" text-anchor="middle">cache (parquet/RDS)</text>
+                            <rect x="370" y="20" width="140" height="48" rx="6" fill="#1f1f1f" stroke="#4a4a4a" stroke-width="2"/>
+                            <text x="440" y="50" fill="#d2d2d2" font-size="12" text-anchor="middle">feature engineering</text>
+                            <rect x="110" y="120" width="140" height="48" rx="6" fill="#1f1f1f" stroke="#4a4a4a" stroke-width="2"/>
+                            <text x="180" y="150" fill="#d2d2d2" font-size="12" text-anchor="middle">simulation engine</text>
+                            <rect x="300" y="120" width="180" height="48" rx="6" fill="#1f1f1f" stroke="#4a4a4a" stroke-width="2"/>
+                            <text x="390" y="150" fill="#d2d2d2" font-size="12" text-anchor="middle">report + diagnostics</text>
+                            <rect x="200" y="210" width="120" height="42" rx="6" fill="#1f1f1f" stroke="#4a4a4a" stroke-width="2"/>
+                            <text x="260" y="236" fill="#d2d2d2" font-size="12" text-anchor="middle">frontend UI</text>
+                            <line x1="150" y1="44" x2="190" y2="44" stroke="#7cb342" stroke-width="2"/>
+                            <line x1="330" y1="44" x2="370" y2="44" stroke="#7cb342" stroke-width="2"/>
+                            <line x1="440" y1="68" x2="180" y2="120" stroke="#7cb342" stroke-width="2"/>
+                            <line x1="250" y1="144" x2="300" y2="144" stroke="#7cb342" stroke-width="2"/>
+                            <line x1="240" y1="168" x2="240" y2="210" stroke="#7cb342" stroke-width="2"/>
+                            <line x1="350" y1="168" x2="320" y2="210" stroke="#7cb342" stroke-width="2"/>
+                        </svg>
+                    </div>
+                </div>
             </section>
 
             <section class="page-section">
-                <h2 class="rtf-label">Why NFL Outcomes Are Random</h2>
-                <p class="rtf-body">NFL performance is shaped by game script, matchups, coaching decisions, injuries, and randomness. The signal is real — but the noise is strong. A distribution is the only honest answer.</p>
-            </section>
+                <h2 class="rtf-label">About the Model</h2>
+                <h3 class="rtf-subheading">High-Level Overview</h3>
+                <p class="rtf-body">Read the Field is a Monte Carlo NFL player simulation engine built on the nflreadr ecosystem. Instead of producing a single stat line, it generates thousands of plausible outcomes and reports a distribution. This is more honest than a point estimate because football performance is inherently noisy, with outcomes shaped by game flow, usage variability, and matchup context.</p>
+                <p class="rtf-subtext">This approach differs from rankings or deterministic projections. Rather than a single “expected” outcome, the system surfaces median, downside, and upside ranges so you can reason about risk, volatility, and true uncertainty.</p>
 
-            <section class="page-section">
-                <h2 class="rtf-label">Models Used</h2>
-                <ul class="rtf-body">
-                    <li title="Resamples historical player-games under similar conditions">Monte Carlo simulation (current)</li>
-                </ul>
-                <p class="rtf-subtext">Only Monte Carlo simulation is currently implemented.</p>
-            </section>
+                <h3 class="rtf-subheading">Why NFL Outcomes Are Random</h3>
+                <p class="rtf-body">NFL production is volatile: playcalling shifts with game script, coaching decisions evolve within a game, matchups change as defenses adjust, and injuries can swing usage instantly. The season sample size is also small, and many player outcomes are shaped by high-variance events (long touchdowns, turnovers, or red zone usage).</p>
+                <p class="rtf-subtext">Variance is unavoidable. A single predicted stat line is misleading. A distribution is the only honest answer.</p>
 
-            <section class="page-section">
                 <details class="rtf-collapsible">
-                    <summary>Variables ▼</summary>
+                    <summary>Model Variables (by position) ▼</summary>
                     <div class="rtf-collapsible-content">
-                        <details class="rtf-variable-section">
-                            <summary>CORE IDENTIFIERS / CONTEXT</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>player_id — QB, RB, WR, TE, K</li>
-                                    <li>player_name — QB, RB, WR, TE, K</li>
-                                    <li>position — QB, RB, WR, TE, K</li>
-                                    <li>team — QB, RB, WR, TE, K</li>
-                                    <li>opponent — QB, RB, WR, TE, K</li>
-                                    <li>season — QB, RB, WR, TE, K</li>
-                                    <li>week — QB, RB, WR, TE, K</li>
-                                    <li>game_id — QB, RB, WR, TE, K</li>
-                                    <li>game_date — QB, RB, WR, TE, K</li>
-                                    <li>season_type — QB, RB, WR, TE, K</li>
-                                    <li>home_away — QB, RB, WR, TE, K</li>
-                                    <li>is_home — QB, RB, WR, TE, K</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>YARDAGE (OUTCOMES, DISPLAYED)</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>passing_yards — QB</li>
-                                    <li>rushing_yards — RB, QB</li>
-                                    <li>receiving_yards — WR, TE, RB</li>
-                                    <li>(notes)</li>
-                                    <li>- Displayed values are clamped to &gt;= 0</li>
-                                    <li>- Simulation draws may be negative internally</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>VOLUME / OPPORTUNITY STATS</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>pass_attempts — QB</li>
-                                    <li>completions — QB</li>
-                                    <li>rush_attempts (carries) — RB, QB</li>
-                                    <li>targets — WR, TE, RB</li>
-                                    <li>receptions — WR, TE, RB</li>
-                                    <li>field_goal_attempts — K</li>
-                                    <li>extra_point_attempts — K</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>TOUCHDOWNS</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>passing_tds — QB</li>
-                                    <li>rushing_tds — RB, QB</li>
-                                    <li>receiving_tds — WR, TE, RB</li>
-                                    <li>total_tds — QB, RB, WR, TE</li>
-                                    <li>field_goals_made — K</li>
-                                    <li>extra_points_made — K</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>NEGATIVE / FAILURE EVENTS</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>interceptions_thrown — QB</li>
-                                    <li>sacks_taken — QB</li>
-                                    <li>(notes)</li>
-                                    <li>- Used in fantasy scoring and efficiency modeling</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>ROLLING PLAYER USAGE FEATURES (leakage-safe, player-level)</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>- - Rolling rush usage</li>
-                                    <li>carries_roll1 — RB, QB</li>
-                                    <li>carries_roll3 — RB, QB</li>
-                                    <li>carries_roll5 — RB, QB</li>
-                                    <li>carries_roll7 — RB</li>
-                                    <li>carries_roll10 — RB</li>
-                                    <li>- - Rolling receiving usage</li>
-                                    <li>targets_roll1 — WR, TE, RB</li>
-                                    <li>targets_roll3 — WR, TE, RB</li>
-                                    <li>targets_roll5 — WR, TE, RB</li>
-                                    <li>receptions_roll1 — WR, TE, RB</li>
-                                    <li>receptions_roll3 — WR, TE, RB</li>
-                                    <li>receptions_roll5 — WR, TE, RB</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>ROLLING PLAYER PRODUCTION</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>rushing_yards_roll1 — RB, QB</li>
-                                    <li>rushing_yards_roll3 — RB, QB</li>
-                                    <li>rushing_yards_roll5 — RB, QB</li>
-                                    <li>receiving_yards_roll1 — WR, TE, RB</li>
-                                    <li>receiving_yards_roll3 — WR, TE, RB</li>
-                                    <li>receiving_yards_roll5 — WR, TE, RB</li>
-                                    <li>passing_yards_roll1 — QB</li>
-                                    <li>passing_yards_roll3 — QB</li>
-                                    <li>passing_yards_roll5 — QB</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>ROLLING TOUCHDOWN FEATURES</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>rushing_tds_roll5 — RB, QB</li>
-                                    <li>receiving_tds_roll5 — WR, TE, RB</li>
-                                    <li>passing_tds_roll5 — QB</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>ROLLING QB CONTEXT FEATURES</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>target_pass_attempts_qb_roll5 — WR, TE, RB</li>
-                                    <li>qb_rush_attempts_roll5 — QB</li>
-                                    <li>qb_rush_yards_roll5 — QB</li>
-                                    <li>qb_rush_tds_roll5 — QB</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>SHARE / RATE FEATURES</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>air_yards — WR, TE</li>
-                                    <li>air_yards_share_roll1 — WR, TE</li>
-                                    <li>air_yards_share_roll3 — WR, TE</li>
-                                    <li>air_yards_share_roll5 — WR, TE</li>
-                                    <li>catch_rate_roll5 — WR, TE, RB</li>
-                                    <li>yards_per_target_roll5 — WR, TE, RB</li>
-                                    <li>yards_per_carry_roll5 — RB, QB</li>
-                                    <li>touchdown_rate_roll5 — QB, RB, WR, TE</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>DEFENSIVE CONTEXT (OPPONENT)</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>def_pass_yards_defense_allowed_roll1 — QB, WR, TE</li>
-                                    <li>def_pass_yards_defense_allowed_roll3 — QB, WR, TE</li>
-                                    <li>def_pass_yards_defense_allowed_roll5 — QB, WR, TE</li>
-                                    <li>def_rush_yards_defense_allowed_roll1 — RB, QB</li>
-                                    <li>def_rush_yards_defense_allowed_roll3 — RB, QB</li>
-                                    <li>def_rush_yards_defense_allowed_roll5 — RB, QB</li>
-                                    <li>def_points_defense_allowed_roll1 — QB, RB, WR, TE, K</li>
-                                    <li>def_points_defense_allowed_roll3 — QB, RB, WR, TE, K</li>
-                                    <li>def_points_defense_allowed_roll5 — QB, RB, WR, TE, K</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>INTERACTION FEATURES</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>targets_roll5_x_def_pass_yards_defense_allowed_roll5 — WR, TE</li>
-                                    <li>air_yards_share_roll1_x_target_pass_attempts_qb_roll5 — WR, TE</li>
-                                    <li>target_qb_rush_attempts_roll5_x_def_points_defense_allowed_roll5 — QB</li>
-                                    <li>target_qb_rush_attempts_roll5_x_team_points_roll5 — QB</li>
-                                    <li>target_fg_attempts_k_roll5_x_def_points_defense_allowed_roll5 — K</li>
-                                    <li>team_points_roll5_x_target_fg_pct_k_roll5 — K</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>TEAM OFFENSE CONTEXT</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>team_points_roll1 — QB, RB, WR, TE, K</li>
-                                    <li>team_points_roll3 — QB, RB, WR, TE, K</li>
-                                    <li>team_points_roll5 — QB, RB, WR, TE, K</li>
-                                    <li>team_redzone_td_rate — QB, RB, WR, TE</li>
-                                    <li>team_redzone_td_rate_roll5 — QB, RB, WR, TE</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>PRIOR SEASON FEATURES</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>prior_season_games_played — QB, RB, WR, TE, K</li>
-                                    <li>prior_season_rushing_yards — RB, QB</li>
-                                    <li>prior_season_receiving_yards — WR, TE, RB</li>
-                                    <li>prior_season_passing_yards — QB</li>
-                                    <li>prior_season_total_tds — QB, RB, WR, TE</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>FANTASY OUTPUTS (DERIVED)</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>fantasy_points — QB, RB, WR, TE, K</li>
-                                    <li>ppr_points — RB, WR, TE</li>
-                                </ul>
-                            </div>
-                        </details>
-                        <details class="rtf-variable-section">
-                            <summary>AVAILABILITY / REGIME FLAGS</summary>
-                            <div class="rtf-variable-content">
-                                <ul>
-                                    <li>played_flag — QB, RB, WR, TE, K</li>
-                                    <li>availability_policy — QB, RB, WR, TE, K</li>
-                                    <li>counterfactual_prior — QB, RB, WR, TE, K</li>
-                                    <li>early_season_window — QB, RB, WR, TE, K</li>
-                                </ul>
-                            </div>
-                        </details>
+                        <div class="rtf-variable-content">
+                            <h4 class="rtf-subheading">QB</h4>
+                            <ul>
+                                <li>passing_attempts, passing_completions, passing_yards</li>
+                                <li>passing_tds, interceptions_thrown, qb_sacks_taken</li>
+                                <li>qb_rush_attempts, qb_rush_yards, qb_rush_tds</li>
+                            </ul>
+                            <h4 class="rtf-subheading">RB</h4>
+                            <ul>
+                                <li>carries, rushing_yards</li>
+                                <li>targets, receptions, receiving_yards</li>
+                                <li>total_touchdowns</li>
+                            </ul>
+                            <h4 class="rtf-subheading">WR</h4>
+                            <ul>
+                                <li>targets, receptions, receiving_yards</li>
+                                <li>total_touchdowns</li>
+                            </ul>
+                            <h4 class="rtf-subheading">TE</h4>
+                            <ul>
+                                <li>targets, receptions, receiving_yards</li>
+                                <li>total_touchdowns</li>
+                            </ul>
+                            <h4 class="rtf-subheading">K</h4>
+                            <ul>
+                                <li>fg_attempts, fg_made</li>
+                                <li>xp_attempts, xp_made</li>
+                            </ul>
+                            <p class="rtf-subtext">Skill-position touchdowns are reported as total_touchdowns.</p>
+                        </div>
                     </div>
                 </details>
-                <div class="rtf-divider"></div>
             </section>
 
             <section class="page-section">
@@ -388,9 +279,9 @@
                 <div class="creator-block">
                     <img src="assets/vinay_pixelized.png" alt="Vinay Govindaraju pixel portrait" />
                     <div>
-                        <p class="rtf-body">Vinay Govindaraju — MS Analytics at Georgia Tech.</p>
-                        <p class="rtf-subtext">Big sports fan (Go Yellow Jackets, Go Giants).</p>
-                        <p class="rtf-subtext">Read the Field blends football intuition with finance-style probabilistic modeling, built from a desire to understand player performance as distributions rather than guesses.</p>
+                        <p class="rtf-body">Vinay Govindaraju is pursuing a Master of Science in Analytics, focused on machine learning, simulation techniques, and probabilistic modeling. Read the Field was built to practice Monte Carlo simulation in a real-world sports context and to serve as a testbed for future ML systems that blend data engineering, statistical rigor, and reporting clarity.</p>
+                        <p class="rtf-subtext">A lifelong New York Giants fan and Georgia Tech Yellow Jackets fan — a Double Jacket who graduated twice from Georgia Tech — he built this project to combine a builder mindset with football intuition and a rigorous uncertainty-first worldview.</p>
+                        <p class="rtf-subtext">Always happy to hear suggestions, collaborate on interesting ideas, or learn about new projects and startups. If you’re building something cool or exploring novel approaches to analytics, feel free to reach out.</p>
                         <div class="creator-links">
                             <a href="https://linkedin.com/in/vinaygovindaraju9/" target="_blank" rel="noopener noreferrer">
                                 <img src="assets/icons/linkedin.svg" alt="LinkedIn">
@@ -401,6 +292,10 @@
                             <a href="https://www.instagram.com/vinaynay9" target="_blank" rel="noopener noreferrer">
                                 <img src="assets/icons/instagram.svg" alt="Instagram">
                             </a>
+                        </div>
+                        <div class="creator-logos">
+                            <img src="assets/icons/gt-buzz.svg" alt="Georgia Tech Yellow Jackets logo">
+                            <img src="assets/icons/ny-giants.svg" alt="New York Giants logo">
                         </div>
                     </div>
                 </div>

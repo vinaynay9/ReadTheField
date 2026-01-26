@@ -14,8 +14,7 @@ const positionColumns = {
     RB: [
         { key: 'rushing_yards', label: 'RUSH YDS' },
         { key: 'receiving_yards', label: 'REC YDS' },
-        { key: 'rushing_tds', label: 'RUSH TD' },
-        { key: 'receiving_tds', label: 'REC TD' },
+        { key: 'total_touchdowns', label: 'TOTAL TD' },
         { key: 'targets', label: 'TGT' },
         { key: 'receptions', label: 'REC' },
         { key: 'carries', label: 'CAR' },
@@ -23,14 +22,14 @@ const positionColumns = {
     ],
     WR: [
         { key: 'receiving_yards', label: 'REC YDS' },
-        { key: 'receiving_tds', label: 'REC TD' },
+        { key: 'total_touchdowns', label: 'TOTAL TD' },
         { key: 'targets', label: 'TGT' },
         { key: 'receptions', label: 'REC' },
         { key: 'fantasy_points', label: 'FANTASY' }
     ],
     TE: [
         { key: 'receiving_yards', label: 'REC YDS' },
-        { key: 'receiving_tds', label: 'REC TD' },
+        { key: 'total_touchdowns', label: 'TOTAL TD' },
         { key: 'targets', label: 'TGT' },
         { key: 'receptions', label: 'REC' },
         { key: 'fantasy_points', label: 'FANTASY' }

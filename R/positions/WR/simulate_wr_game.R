@@ -484,29 +484,44 @@ get_residual_sd_wr <- function(model) {
 }
 
 compute_wr_percentiles <- function(draws) {
-  stats <- c("targets", "receptions", "rec_yards", "rec_tds")
+  stats <- c("targets", "receptions", "receiving_yards", "total_touchdowns")
+  probs <- c(0.10, 0.25, 0.40, 0.50, 0.60, 0.75, 0.90)
   result <- data.frame(
     stat = stats,
+    p10 = NA_real_,
     p25 = NA_real_,
+    p40 = NA_real_,
     p50 = NA_real_,
+    p60 = NA_real_,
     p75 = NA_real_,
+    p90 = NA_real_,
     stringsAsFactors = FALSE
   )
 
   for (i in seq_along(stats)) {
     stat <- stats[i]
+    vals <- NULL
     if (stat %in% names(draws)) {
       vals <- draws[[stat]]
-      result$p25[i] <- quantile(vals, 0.25, na.rm = TRUE)
-      result$p50[i] <- quantile(vals, 0.50, na.rm = TRUE)
-      result$p75[i] <- quantile(vals, 0.75, na.rm = TRUE)
+    } else if (stat == "receiving_yards" && "rec_yards" %in% names(draws)) {
+      vals <- draws$rec_yards
+    } else if (stat == "total_touchdowns") {
+      if ("total_touchdowns" %in% names(draws)) {
+        vals <- draws$total_touchdowns
+      } else if ("receiving_tds" %in% names(draws)) {
+        vals <- draws$receiving_tds
+      } else if ("rec_tds" %in% names(draws)) {
+        vals <- draws$rec_tds
+      }
+    }
+    if (!is.null(vals)) {
+      q <- quantile(vals, probs, na.rm = TRUE)
+      result[i, c("p10", "p25", "p40", "p50", "p60", "p75", "p90")] <- as.numeric(q)
     }
   }
 
-  for (i in seq_len(nrow(result))) {
-    result$p25[i] <- round(result$p25[i])
-    result$p50[i] <- round(result$p50[i])
-    result$p75[i] <- round(result$p75[i])
+  for (col in c("p10", "p25", "p40", "p50", "p60", "p75", "p90")) {
+    result[[col]] <- round(result[[col]])
   }
 
   return(result)

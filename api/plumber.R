@@ -1069,6 +1069,29 @@ simulate_endpoint <- function(req, res) {
         ))
       }
     }
+
+    postseason_fallback <- NULL
+    if (identical(mode_val, "upcoming_game") && !is.null(body$season) && !is.null(body$week) &&
+        exists("resolve_postseason_fallback")) {
+      schedules <- NULL
+      if (exists("load_schedules")) {
+        schedules <- tryCatch(
+          load_schedules(seasons = unique(c(as.integer(body$season), as.integer(body$season) - 1L)), cache_only = TRUE),
+          error = function(e) NULL
+        )
+      }
+      fallback <- resolve_postseason_fallback(
+        mode = mode_val,
+        target_season = body$season,
+        target_week = body$week,
+        schedules = schedules
+      )
+      if (is.list(fallback) && isTRUE(fallback$apply)) {
+        body$season <- fallback$effective_season
+        body$week <- fallback$effective_week
+        postseason_fallback <- fallback
+      }
+    }
     # Route by player_directory position (source of truth); do not guess from feature availability.
     dir <- get_player_directory()
     dir_row <- dir[as.character(dir$player_id) == as.character(player_id), , drop = FALSE]
@@ -1230,6 +1253,50 @@ simulate_endpoint <- function(req, res) {
         assign("validate_simulation_request", original_validate, envir = .GlobalEnv)
       }
     }, add = TRUE)
+    attach_postseason_fallback <- function(result_obj, fallback) {
+      if (is.null(fallback) || !isTRUE(fallback$apply)) return(result_obj)
+      event <- list(
+        code = "postseason_upcoming_fallback",
+        message = "Postseason upcoming; using regular-season context for simulation.",
+        requested_season = fallback$requested_season,
+        requested_week = fallback$requested_week,
+        effective_season = fallback$effective_season,
+        effective_week = fallback$effective_week,
+        note = "postseason_games_unavailable_using_reg_season_only"
+      )
+      apply_event <- function(payload) {
+        if (is.null(payload$diagnostics) || !is.list(payload$diagnostics)) {
+          payload$diagnostics <- list()
+        }
+        events <- payload$diagnostics$terminal_events
+        if (is.null(events) || !is.list(events)) events <- list()
+        payload$diagnostics$terminal_events <- c(events, list(event))
+        if (is.null(payload$metadata) || !is.list(payload$metadata)) {
+          payload$metadata <- list()
+        }
+        payload$metadata$requested_season <- fallback$requested_season
+        payload$metadata$requested_week <- fallback$requested_week
+        payload$metadata$effective_season <- fallback$effective_season
+        payload$metadata$effective_week <- fallback$effective_week
+        payload$metadata$season <- fallback$requested_season
+        payload$metadata$week <- fallback$requested_week
+        payload
+      }
+      if (!is.null(result_obj$data) && is.list(result_obj$data)) {
+        result_obj$data <- apply_event(result_obj$data)
+      } else {
+        result_obj <- apply_event(result_obj)
+      }
+      if (!is.null(result_obj$metadata) && is.list(result_obj$metadata)) {
+        result_obj$metadata$requested_season <- fallback$requested_season
+        result_obj$metadata$requested_week <- fallback$requested_week
+        result_obj$metadata$effective_season <- fallback$effective_season
+        result_obj$metadata$effective_week <- fallback$effective_week
+        result_obj$metadata$season <- fallback$requested_season
+        result_obj$metadata$week <- fallback$requested_week
+      }
+      result_obj
+    }
     result <- NULL
     if (identical(position, "RB")) {
       # RB routing uses the RB simulation path (run_rb_simulation -> simulate_rb_game).
@@ -1330,6 +1397,9 @@ simulate_endpoint <- function(req, res) {
         return(api_error(res, 200L, "no_reportable_stats", message, details))
       }
       return(api_error(res, 500L, "simulation_failed", message, details))
+    }
+    if (!is.null(postseason_fallback)) {
+      result <- attach_postseason_fallback(result, postseason_fallback)
     }
     payload <- if (!is.null(result$data)) result$data else result
     payload <- ensure_report_v1_structure(payload)

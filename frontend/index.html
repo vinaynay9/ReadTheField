@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Read the Field</title>
-    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/styles.css?v=20260124_1439">
 </head>
 <body>
     <header class="main-header">
@@ -20,10 +23,26 @@
 
     <main class="main-content">
         <section class="home-section">
-            <!-- Simulation Mode Header -->
-            <div class="simulation-header">
-                <h1 class="simulation-title">SIMULATION MODE</h1>
-                <p class="simulation-subtitle" id="mode-subtitle">Project performance for this week's scheduled matchup.</p>
+            <div class="home-intro">
+                <div class="simulation-header">
+                    <h1 class="simulation-title">SIMULATION MODE</h1>
+                    <p class="simulation-subtitle" id="mode-subtitle">Project performance for this week's scheduled matchup.</p>
+                </div>
+
+                <div class="intro-grid">
+                    <div class="intro-card">
+                        <h3>Monte Carlo</h3>
+                        <p>Run thousands of probabilistic simulations to see realistic outcome ranges, not just a single point estimate.</p>
+                    </div>
+                    <div class="intro-card">
+                        <h3>Simulation Types</h3>
+                        <p>This Week: upcoming matchup. Historical: replay a real game. Hypothetical: explore never-played matchups.</p>
+                    </div>
+                    <div class="intro-card">
+                        <h3>How To Use</h3>
+                        <p>Select a player, choose opponent context, pick home/away, then simulate to view percentiles and distributions.</p>
+                    </div>
+                </div>
             </div>
 
             <!-- Mode Toggle -->
@@ -130,22 +149,33 @@
                 </button>
             </div>
 
-            <!-- Terminal Container (hidden until CALCULATE is pressed) -->
-            <div id="terminal-container" class="embedded-terminal-container" style="display: none;">
-                <div class="terminal-output" id="terminalOutput">
-                    <div class="terminal-line-wrapper">
-                        <span class="terminal-cursor" id="terminalCursor">_</span>
-                    </div>
-                </div>
+            <div class="section-block instructions-panel">
+                <h2 class="section-title">HOW TO INTERPRET OUTPUTS</h2>
+                <p>Monte Carlo simulations replay the matchup thousands of times using historical context and uncertainty to produce a distribution of outcomes. These are probabilistic ranges, not single-point predictions or guarantees.</p>
+                <p><strong>P10</strong> is the downside (floor), <strong>P50</strong> is the median (most likely outcome), and <strong>P90</strong> is the upside (ceiling). Use the tables for exact percentile values and the charts to see the full shape of the distribution.</p>
+                <p>Wide distributions imply volatility, narrow distributions imply stability. For RB/WR/TE, touchdowns are reported only as <strong>total_touchdowns</strong>.</p>
             </div>
 
-            <!-- Results Panel (hidden until terminal finishes) -->
-            <div id="results-panel" class="results-panel" style="display: none;">
-                <h2 class="section-title">PROJECTION RESULTS</h2>
-                <div class="results-content" id="results-content">
-                    <!-- Results will be dynamically generated based on position -->
+            <section id="rtf-terminal-section" class="terminal-section">
+                <h2 class="section-title">LIVE TERMINAL</h2>
+                <div id="terminal-container" class="embedded-terminal-container" style="display: none;">
+                    <div class="terminal-output" id="terminalOutput">
+                        <div class="terminal-line-wrapper">
+                            <span class="terminal-cursor" id="terminalCursor">_</span>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            </section>
+
+            <section id="rtf-stats-section" class="stats-section" style="display: none;">
+                <h2 class="section-title">STAT PERCENTILES</h2>
+                <div id="stats-table-container"></div>
+            </section>
+
+            <section id="rtf-distributions-section" class="distributions-section" style="display: none;">
+                <h2 class="section-title">DISTRIBUTIONS</h2>
+                <div id="distributions-container" class="distribution-grid"></div>
+            </section>
         </section>
     </main>
 
@@ -159,6 +189,7 @@
         </nav>
     </footer>
 
-    <script src="js/app.js"></script>
+    <script src="js/app.js?v=20260124_1439"></script>
+    <script type="module" src="js/cursor_football.js?v=20260124_1439"></script>
 </body>
 </html>

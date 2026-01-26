@@ -293,30 +293,54 @@ simulate_qb_game <- function(feature_row,
 
 compute_qb_percentiles <- function(draws) {
   stats <- c(
-    "target_pass_attempts_qb",
-    "target_completions_qb",
-    "target_pass_yards_qb",
-    "target_pass_tds_qb",
-    "target_interceptions_qb_thrown",
-    "target_sacks_qb_taken",
-    "target_qb_rush_attempts",
-    "target_qb_rush_yards",
-    "target_qb_rush_tds"
+    "passing_attempts",
+    "passing_completions",
+    "passing_yards",
+    "passing_tds",
+    "interceptions_thrown",
+    "qb_sacks_taken",
+    "qb_rush_attempts",
+    "qb_rush_yards",
+    "qb_rush_tds"
+  )
+  aliases <- list(
+    passing_attempts = c("passing_attempts", "target_pass_attempts_qb", "pass_attempts"),
+    passing_completions = c("passing_completions", "target_completions_qb", "completions"),
+    passing_yards = c("passing_yards", "target_pass_yards_qb", "pass_yards"),
+    passing_tds = c("passing_tds", "target_pass_tds_qb", "pass_tds"),
+    interceptions_thrown = c("interceptions_thrown", "target_interceptions_qb_thrown", "interceptions"),
+    qb_sacks_taken = c("qb_sacks_taken", "target_sacks_qb_taken", "sacks_taken"),
+    qb_rush_attempts = c("qb_rush_attempts", "target_qb_rush_attempts", "rush_attempts"),
+    qb_rush_yards = c("qb_rush_yards", "target_qb_rush_yards", "rush_yards"),
+    qb_rush_tds = c("qb_rush_tds", "target_qb_rush_tds", "rush_tds")
   )
   result <- data.frame(
     stat = stats,
+    p10 = NA_real_,
     p25 = NA_real_,
+    p40 = NA_real_,
     p50 = NA_real_,
+    p60 = NA_real_,
     p75 = NA_real_,
+    p90 = NA_real_,
     stringsAsFactors = FALSE
   )
+  probs <- c(0.10, 0.25, 0.40, 0.50, 0.60, 0.75, 0.90)
   for (i in seq_along(stats)) {
     stat <- stats[i]
-    if (stat %in% names(draws)) {
-      vals <- draws[[stat]]
-      result$p25[i] <- quantile(vals, 0.25, na.rm = TRUE)
-      result$p50[i] <- quantile(vals, 0.50, na.rm = TRUE)
-      result$p75[i] <- quantile(vals, 0.75, na.rm = TRUE)
+    candidates <- aliases[[stat]]
+    vals <- NULL
+    if (!is.null(candidates)) {
+      for (candidate in candidates) {
+        if (candidate %in% names(draws)) {
+          vals <- draws[[candidate]]
+          break
+        }
+      }
+    }
+    if (!is.null(vals)) {
+      q <- quantile(vals, probs, na.rm = TRUE)
+      result[i, c("p10", "p25", "p40", "p50", "p60", "p75", "p90")] <- as.numeric(q)
     }
   }
   result

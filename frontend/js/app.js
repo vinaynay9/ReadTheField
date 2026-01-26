@@ -1,8 +1,10 @@
 const API_BASE_URL = window.RTF_API_URL || 'http://localhost:8000';
 const NICKNAMES_URL = 'data/nicknames.json';
 console.info(`[RTF] API_BASE=${API_BASE_URL}`);
-const DEFAULT_N_SIMS = 1000;
+const DEFAULT_N_SIMS = 10000;
 const DEFAULT_SEED = 4242;
+const RTF_BUILD_ID = 'frontend-appjs-' + new Date().toISOString();
+console.info('[RTF] app.js build', RTF_BUILD_ID);
 
 // State
 let simulationMode = 'this-week'; // 'historical', 'this-week', 'hypothetical'
@@ -26,6 +28,12 @@ const opponentCache = new Map();
 let currentOpponentSet = null;
 let nicknameMap = new Map();
 let nicknameReverseMap = new Map();
+let simulationInFlight = false;
+let simulationRunCounter = 0;
+let terminalQueue = [];
+let terminalFlushActive = false;
+let terminalRunToken = 0;
+let terminalRng = null;
 
 function buildApiUrl(path) {
     if (!path) return API_BASE_URL;
@@ -37,9 +45,22 @@ function buildApiUrl(path) {
 async function fetchJson(path, options = {}) {
     const url = buildApiUrl(path);
     const response = await fetch(url, options);
+    const DEBUG_API = (window.RTF_DEBUG === true) || (String(window.RTF_DEBUG) === '1');
     let data = null;
+    let rawText = '';
     try {
-        data = await response.json();
+        rawText = await response.text();
+        if (DEBUG_API) {
+            console.debug('[RTF] fetchJson response', { url, status: response.status });
+            console.debug('[RTF] fetchJson raw text', { url, rawText: rawText.slice(0, 300) });
+        }
+        data = rawText ? JSON.parse(rawText) : null;
+        if (DEBUG_API) {
+            console.debug('[RTF] fetchJson parsed JSON keys', {
+                url,
+                keys: data && typeof data === 'object' ? Object.keys(data) : null
+            });
+        }
     } catch (err) {
         data = null;
     }
@@ -56,7 +77,19 @@ async function fetchJson(path, options = {}) {
         console.error('[RTF] API error', { url, status: response.status, errorCode, message, data: serialized || data });
         throw new Error(message);
     }
-    return data && Object.prototype.hasOwnProperty.call(data, 'data') ? data.data : data;
+    // Canonical API envelope unwrapping
+    let payload = data;
+    if (data && typeof data === 'object') {
+        if (Object.prototype.hasOwnProperty.call(data, 'result')) payload = data.result;
+        else if (Object.prototype.hasOwnProperty.call(data, 'data')) payload = data.data;
+    }
+    if (DEBUG_API) {
+        console.debug('[RTF] fetchJson payload keys', {
+            url,
+            keys: payload && typeof payload === 'object' ? Object.keys(payload) : null
+        });
+    }
+    return payload;
 }
 
 function normalizeSearchToken(value) {
@@ -67,6 +100,225 @@ function normalizeSearchToken(value) {
         .replace(/[^a-z0-9\s]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
+}
+
+function getSeedOverride() {
+    const override = window.RTF_SEED;
+    if (override === null || typeof override === 'undefined') return null;
+    const parsed = Number(override);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function generateSeed() {
+    if (window.crypto && window.crypto.getRandomValues) {
+        const buf = new Uint32Array(1);
+        window.crypto.getRandomValues(buf);
+        return buf[0];
+    }
+    return Number(Date.now() % 4294967295);
+}
+
+const TERMINAL_PHASES = [
+    'initialization',
+    'context_build',
+    'model_setup',
+    'monte_carlo',
+    'aggregation',
+    'finalize'
+];
+
+const TERMINAL_TEMPLATES = {
+    initialization: [
+        'Initializing simulation context for {player_name}...',
+        'Booting simulation pipeline for {player_name} ({position})...',
+        'Preparing simulation session for {player_name}...'
+    ],
+    context_build: [
+        'Loading recent usage windows for {player_name}...',
+        'Aggregating historical context for {player_name}...',
+        'Evaluating {position} trends and efficiency signals...'
+    ],
+    model_setup: [
+        'Resolving opponent profile ({opponent})...',
+        'Combining matchup context with {position} priors...',
+        'Configuring model inputs for {mode} scenario...'
+    ],
+    monte_carlo: [
+        'Running Monte Carlo (n={n_sims})... seed={seed}',
+        'Sampling outcome space across {n_sims} games... seed={seed}',
+        'Generating distribution draws for {player_name}... seed={seed}'
+    ],
+    aggregation: [
+        'Aggregating simulation draws into percentiles...',
+        'Computing upside/downside ranges and medians...',
+        'Summarizing expected outcomes for {player_name}...'
+    ],
+    finalize: [
+        'Finalizing report artifacts...',
+        'Preparing distributions and summary tables...',
+        'Simulation complete. Proceed to results \u2193'
+    ]
+};
+
+function makeSeededRng(seed) {
+    let t = (Number(seed) || 0) >>> 0;
+    return function rng() {
+        t += 0x6D2B79F5;
+        let r = Math.imul(t ^ (t >>> 15), 1 | t);
+        r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+        return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function interpolateTemplate(template, context) {
+    return template.replace(/\{(\w+)\}/g, (_, key) => {
+        const value = context && Object.prototype.hasOwnProperty.call(context, key) ? context[key] : '';
+        return value == null ? '' : String(value);
+    });
+}
+
+function pickTemplate(phase, rng) {
+    const list = TERMINAL_TEMPLATES[phase] || [];
+    if (list.length === 0) return '';
+    const idx = Math.floor(rng() * list.length);
+    return list[Math.min(idx, list.length - 1)];
+}
+
+function buildTerminalContext(payload) {
+    const playerName = payload && payload.player_name ? payload.player_name : 'Unknown Player';
+    const position = payload && payload.position ? payload.position : (selectedPlayer ? selectedPlayer.position : '');
+    const opponent = payload && payload.schedule_opponent
+        ? getTeamName(payload.schedule_opponent)
+        : (selectedTeam ? getTeamName(selectedTeam) : '--');
+    const mode = payload && payload.mode ? payload.mode : (simulationMode || '');
+    return {
+        player_name: playerName,
+        position: normalizePosition(position) || '',
+        opponent: opponent || '--',
+        n_sims: payload && payload.n_sims ? payload.n_sims : DEFAULT_N_SIMS,
+        seed: payload && payload.seed ? payload.seed : DEFAULT_SEED,
+        mode: mode || ''
+    };
+}
+
+function appendTerminalLine(text, className = 'info', prefix = '') {
+    const terminalOutput = document.getElementById('terminalOutput');
+    if (!terminalOutput) return;
+    const line = document.createElement('div');
+    line.className = `terminal-line ${className}`;
+    line.textContent = `${prefix}${text}`;
+    const cursorWrapper = terminalOutput.querySelector('.terminal-line-wrapper');
+    if (cursorWrapper && cursorWrapper.parentNode === terminalOutput) {
+        terminalOutput.insertBefore(line, cursorWrapper);
+    } else {
+        terminalOutput.appendChild(line);
+    }
+    terminalOutput.scrollTop = terminalOutput.scrollHeight;
+}
+
+function clearTerminal() {
+    const terminalOutput = document.getElementById('terminalOutput');
+    if (!terminalOutput) return;
+    terminalOutput.innerHTML = '<div class="terminal-line-wrapper"><span class="terminal-cursor" id="terminalCursor">_</span></div>';
+}
+
+function emitPhaseMessages(phase, rng, context, allowSecond = false) {
+    const template = pickTemplate(phase, rng);
+    if (template) {
+        enqueueTerminalLine(interpolateTemplate(template, context), 'info');
+    }
+    if (allowSecond && rng && (TERMINAL_TEMPLATES[phase] || []).length > 1) {
+        const template2 = pickTemplate(phase, rng);
+        if (template2 && template2 !== template) {
+            enqueueTerminalLine(interpolateTemplate(template2, context), 'info');
+        }
+    }
+}
+
+function enqueueTerminalLine(text, className = 'info', prefix = '') {
+    terminalQueue.push({ text: text || '', className, prefix });
+}
+
+function getTerminalRng() {
+    return terminalRng || (() => 0.5);
+}
+
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function typeText(element, text, runToken) {
+    if (!text) return;
+    const rng = getTerminalRng();
+    const charDelay = 4 + Math.floor(rng() * 7);
+    for (let i = 0; i < text.length; i++) {
+        if (runToken !== terminalRunToken) return;
+        element.textContent += text[i];
+        await delay(charDelay);
+    }
+}
+
+async function renderTerminalLine(line, runToken) {
+    const terminalOutput = document.getElementById('terminalOutput');
+    if (!terminalOutput || runToken !== terminalRunToken) return;
+    const rng = getTerminalRng();
+    const lineElement = document.createElement('div');
+    lineElement.className = `terminal-line ${line.className || 'info'}`;
+    lineElement.textContent = '';
+    const cursorWrapper = terminalOutput.querySelector('.terminal-line-wrapper');
+    if (cursorWrapper && cursorWrapper.parentNode === terminalOutput) {
+        terminalOutput.insertBefore(lineElement, cursorWrapper);
+    } else {
+        terminalOutput.appendChild(lineElement);
+    }
+    terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    const lineDelay = 40 + Math.floor(rng() * 50);
+    await delay(lineDelay);
+    const prefix = line.prefix || '';
+    if (prefix) {
+        lineElement.textContent = prefix;
+    }
+    await typeText(lineElement, line.text || '', runToken);
+    terminalOutput.scrollTop = terminalOutput.scrollHeight;
+}
+
+async function flushTerminalQueue(runToken) {
+    if (terminalFlushActive) return;
+    terminalFlushActive = true;
+    while (terminalQueue.length > 0 && runToken === terminalRunToken) {
+        const line = terminalQueue.shift();
+        await renderTerminalLine(line, runToken);
+    }
+    terminalFlushActive = false;
+}
+
+function scrollToTerminal() {
+    const terminalSection = document.getElementById('rtf-terminal-section');
+    if (!terminalSection) return;
+    terminalSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function normalizePosition(pos) {
+    const DEBUG_API = (window.RTF_DEBUG === true) || (String(window.RTF_DEBUG) === '1');
+    if (pos == null) return '';
+    if (typeof pos === 'string') return pos.trim().toUpperCase();
+    if (Array.isArray(pos) && pos.length > 0) {
+        if (DEBUG_API) console.debug('[RTF] normalizePosition non-string array', { value: pos });
+        return String(pos[0]).trim().toUpperCase();
+    }
+    if (typeof pos === 'object') {
+        if (typeof pos.position === 'string') return pos.position.trim().toUpperCase();
+        if (typeof pos.code === 'string') return pos.code.trim().toUpperCase();
+        if (DEBUG_API) {
+            console.debug('[RTF] normalizePosition non-string object', {
+                keys: Object.keys(pos),
+                value: pos
+            });
+        }
+    } else if (DEBUG_API) {
+        console.debug('[RTF] normalizePosition non-string value', { type: typeof pos, value: pos });
+    }
+    return String(pos).trim().toUpperCase();
 }
 
 function buildNicknameMaps(payload) {
@@ -148,23 +400,74 @@ function getPlayerInitials(name) {
 
 async function loadInitialData() {
     try {
+        const DEBUG_API = (window.RTF_DEBUG === true) || (String(window.RTF_DEBUG) === '1');
+        console.info('[RTF] loadInitialData start', RTF_BUILD_ID);
         await loadNicknames();
         const [playersResp, teamsResp, seasonsResp] = await Promise.all([
             fetchJson('/players'),
             fetchJson('/teams'),
             fetchJson('/seasons')
         ]);
-        const playersPayload = playersResp && playersResp.result ? playersResp.result : playersResp;
-        const teamsPayload = teamsResp && teamsResp.result ? teamsResp.result : teamsResp;
-        const seasonsPayload = seasonsResp && seasonsResp.result ? seasonsResp.result : seasonsResp;
-        players = (playersPayload && playersPayload.players) || [];
-        teams = (teamsPayload && teamsPayload.teams) || [];
-        availableSeasons = (seasonsPayload && seasonsPayload.seasons) || [];
+        const playersPayload = playersResp;
+        const teamsPayload = teamsResp;
+        const seasonsPayload = seasonsResp;
+        players = Array.isArray(playersPayload)
+            ? playersPayload
+            : (playersPayload?.players ?? []);
+        teams = Array.isArray(teamsPayload)
+            ? teamsPayload
+            : (teamsPayload?.teams ?? []);
+        availableSeasons = Array.isArray(seasonsPayload)
+            ? seasonsPayload
+            : (seasonsPayload?.seasons ?? []);
         if (!Array.isArray(players) || players.length === 0) {
-            console.warn('[RTF] Player list empty after load');
+            console.error('[RTF] Player load failed', {
+                endpoint: '/players',
+                rawResponseType: typeof playersResp,
+                rawKeys: playersResp && typeof playersResp === 'object'
+                    ? Object.keys(playersResp)
+                    : null,
+                rawSample: JSON.stringify(playersResp).slice(0, 400)
+            });
+            throw new Error('[RTF] Player payload invalid');
+        }
+        if (!Array.isArray(teams) || teams.length === 0) {
+            console.error('[RTF] Team load failed', {
+                endpoint: '/teams',
+                rawResponseType: typeof teamsResp,
+                rawKeys: teamsResp && typeof teamsResp === 'object'
+                    ? Object.keys(teamsResp)
+                    : null,
+                rawSample: JSON.stringify(teamsResp).slice(0, 400)
+            });
+            throw new Error('[RTF] Team payload invalid');
+        }
+        if (!Array.isArray(availableSeasons) || availableSeasons.length === 0) {
+            console.error('[RTF] Seasons load failed', {
+                endpoint: '/seasons',
+                rawResponseType: typeof seasonsResp,
+                rawKeys: seasonsResp && typeof seasonsResp === 'object'
+                    ? Object.keys(seasonsResp)
+                    : null,
+                rawSample: JSON.stringify(seasonsResp).slice(0, 400)
+            });
+            throw new Error('[RTF] Seasons payload invalid');
+        }
+        if (DEBUG_API) {
+            console.info('[RTF] First player sample', players[0]);
         }
         buildTeamNameMap();
         buildPlayerSearchIndex();
+        if (!players[0] || !Array.isArray(players[0].search_tokens) || players[0].search_tokens.length === 0) {
+            const sample = players[0] || null;
+            const reason = !sample
+                ? 'missing player sample'
+                : `missing search tokens (player_name=${sample.player_name}, team=${sample.team}, position=${sample.position})`;
+            throw new Error(`[RTF] Search index build failed: ${reason}`);
+        }
+        if (DEBUG_API) {
+            console.debug('[RTF] verify players length', players.length, 'teams length', teams.length);
+        }
         populateSeasonWeekSelects();
         initializeTeamSelection();
         console.info(`[RTF] Loaded players=${players.length}, teams=${teams.length}`);
@@ -212,6 +515,7 @@ function populateSeasonWeekSelects() {
 
 // Initialize on DOM load
 document.addEventListener('DOMContentLoaded', () => {
+    console.info('[RTF] DOMContentLoaded', RTF_BUILD_ID);
     initializeModeToggle();
     initializePlayerSearch();
     initializeHomeAwayToggle();
@@ -718,15 +1022,12 @@ function updateHistoricalDates() {
         option.dataset.homeAway = game.home_away;
         option.dataset.gameDate = game.game_date;
 
-        const dateObj = game.game_date ? new Date(game.game_date) : null;
-        const formattedDate = dateObj && !isNaN(dateObj.getTime())
-            ? dateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-            : null;
+        const formattedDate = formatGameDateLabel(game.game_date);
         const opponentName = getTeamName(game.opponent);
         const location = game.home_away === 'AWAY' ? '@' : 'vs';
         option.textContent = formattedDate
             ? `${game.season} Week ${game.week} ${location} ${opponentName} (${formattedDate})`
-            : `${game.season} Week ${game.week} ${location} ${opponentName}`;
+            : `${game.season} Week ${game.week} ${location} ${opponentName} (Unknown date)`;
         dateSelect.appendChild(option);
         if (idx == 0) {
             dateSelect.value = option.value;
@@ -743,6 +1044,25 @@ function updateHistoricalDates() {
         }
     });
     updateCalculateButton();
+}
+
+function formatGameDateLabel(rawDate) {
+    if (rawDate == null || rawDate === '' || rawDate === 0 || rawDate === '0') return null;
+    if (typeof rawDate === 'string') {
+        const trimmed = rawDate.trim();
+        if (!trimmed) return null;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+        const parsed = new Date(trimmed);
+        if (!Number.isNaN(parsed.getTime())) {
+            return parsed.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+        return trimmed;
+    }
+    const parsed = new Date(rawDate);
+    if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    return null;
 }
 
 // Home/Away Toggle Functionality
@@ -820,6 +1140,8 @@ function resolvePayload() {
         }
     }
 
+    const seedOverride = getSeedOverride();
+    const resolvedSeed = seedOverride != null ? seedOverride : generateSeed();
     return {
         valid: true,
         payload: {
@@ -828,7 +1150,7 @@ function resolvePayload() {
             season: season,
             week: week,
             n_sims: DEFAULT_N_SIMS,
-            seed: DEFAULT_SEED,
+            seed: resolvedSeed,
             availability_policy: availabilityPolicy,
             schema_version: 'v1',
             mode: mode,
@@ -851,7 +1173,7 @@ function findSummaryValue(summary, names) {
 }
 
 function buildRunStats(position, summary) {
-    const pos = (position || '').toUpperCase();
+    const pos = normalizePosition(position);
     const stats = {};
     stats.fantasy_points = findSummaryValue(summary, ['fantasy_points', 'fantasy_ppr', 'ppr_points']);
 
@@ -866,8 +1188,7 @@ function buildRunStats(position, summary) {
     } else if (pos === 'RB' || pos === 'WR' || pos === 'TE') {
         stats.rushing_yards = findSummaryValue(summary, 'rushing_yards');
         stats.receiving_yards = findSummaryValue(summary, 'receiving_yards');
-        stats.rushing_tds = findSummaryValue(summary, 'rushing_tds');
-        stats.receiving_tds = findSummaryValue(summary, 'receiving_tds');
+        stats.total_touchdowns = findSummaryValue(summary, ['total_touchdowns']);
         stats.targets = findSummaryValue(summary, 'targets');
         stats.receptions = findSummaryValue(summary, 'receptions');
         stats.carries = findSummaryValue(summary, ['rush_attempts', 'carries']);
@@ -880,27 +1201,335 @@ function buildRunStats(position, summary) {
     return stats;
 }
 
+function normalizeStatKey(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function getSummaryTables(report) {
+    if (!report) return [];
+    if (Array.isArray(report.summary_tables)) return report.summary_tables;
+    if (Array.isArray(report.summary)) return report.summary;
+    return [];
+}
+
+function getRowValue(row, key) {
+    if (!row || typeof row !== 'object') return null;
+    const target = normalizeStatKey(key);
+    for (const [k, v] of Object.entries(row)) {
+        if (normalizeStatKey(k) === target) return v;
+    }
+    return null;
+}
+
+function getStatRow(summaryTables, names) {
+    const list = Array.isArray(names) ? names : [names];
+    const candidates = list.map(name => normalizeStatKey(name));
+    return summaryTables.find(row => candidates.includes(normalizeStatKey(row.stat || row.name)));
+}
+
+function formatStatValue(value) {
+    if (value == null || Number.isNaN(value)) return '—';
+    if (typeof value !== 'number') return String(value);
+    const rounded = Math.round(value * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function orderSummaryRows(rows, position) {
+    const pos = normalizePosition(position);
+    const orderSpec = [];
+    if (pos === 'QB') {
+        orderSpec.push(
+            ['passing_completions', 'completions'],
+            ['passing_attempts', 'attempts'],
+            ['passing_yards'],
+            ['qb_rush_attempts', 'rushing_attempts', 'rush_attempts'],
+            ['qb_rush_yards', 'rushing_yards'],
+            ['interceptions_thrown', 'interceptions'],
+            ['qb_sacks_taken', 'sacks_taken'],
+            ['passing_tds', 'pass_tds'],
+            ['qb_rush_tds'],
+            ['fantasy_ppr', 'fantasy_points', 'ppr_points']
+        );
+    } else if (pos === 'RB') {
+        orderSpec.push(
+            ['targets'],
+            ['receptions'],
+            ['rushing_attempts', 'carries', 'rush_attempts'],
+            ['rushing_yards'],
+            ['receiving_yards'],
+            ['total_touchdowns'],
+            ['fantasy_ppr', 'fantasy_points', 'ppr_points']
+        );
+    } else if (pos === 'WR' || pos === 'TE') {
+        orderSpec.push(
+            ['targets'],
+            ['receptions'],
+            ['receiving_yards'],
+            ['total_touchdowns'],
+            ['fantasy_ppr', 'fantasy_points', 'ppr_points']
+        );
+    } else if (pos === 'K') {
+        orderSpec.push(
+            ['fg_made', 'field_goals_made'],
+            ['fg_attempts', 'field_goal_attempts'],
+            ['xp_made', 'pat_made', 'extra_points_made'],
+            ['xp_attempts', 'pat_attempts', 'extra_point_attempts'],
+            ['fantasy_ppr', 'fantasy_points', 'ppr_points']
+        );
+    }
+
+    const remaining = rows.slice();
+    const ordered = [];
+    orderSpec.forEach((aliases) => {
+        const aliasKeys = aliases.map(normalizeStatKey);
+        const idx = remaining.findIndex((row) => aliasKeys.includes(normalizeStatKey(row.stat || row.name)));
+        if (idx >= 0) {
+            ordered.push(remaining.splice(idx, 1)[0]);
+        }
+    });
+
+    const tail = remaining.sort((a, b) => String(a.stat || a.name).localeCompare(String(b.stat || b.name)));
+    return ordered.concat(tail);
+}
+
+function enqueueTerminalSummary(report, context) {
+    const summaryTables = getSummaryTables(report);
+    if (!summaryTables.length) return;
+    enqueueTerminalLine('RESULTS SUMMARY', 'highlight');
+    const ordered = orderSummaryRows(summaryTables, context && context.position);
+    ordered.forEach((row) => {
+        const statLabel = row.stat || row.name || 'stat';
+        const p10 = getRowValue(row, 'p10');
+        const p25 = getRowValue(row, 'p25');
+        const p50 = getRowValue(row, 'p50');
+        const p75 = getRowValue(row, 'p75');
+        const p90 = getRowValue(row, 'p90');
+        const parts = [];
+        if (p10 != null) parts.push(`p10=${formatStatValue(p10)}`);
+        if (p25 != null) parts.push(`p25=${formatStatValue(p25)}`);
+        if (p50 != null) parts.push(`p50=${formatStatValue(p50)}`);
+        if (p75 != null) parts.push(`p75=${formatStatValue(p75)}`);
+        if (p90 != null) parts.push(`p90=${formatStatValue(p90)}`);
+        if (parts.length > 0) {
+            enqueueTerminalLine(`${statLabel}: ${parts.join(', ')}`, 'info');
+        }
+    });
+    const narrative = buildNarrativeLine(summaryTables, context);
+    if (narrative) {
+        enqueueTerminalLine(narrative, 'info');
+    }
+}
+
+function buildNarrativeLine(summaryTables, context) {
+    const position = normalizePosition(context && context.position);
+    const playerName = context && context.player_name ? context.player_name : 'This player';
+    const getP50 = (names) => {
+        const row = getStatRow(summaryTables, names);
+        const value = row ? getRowValue(row, 'p50') : null;
+        return value == null ? null : formatStatValue(value);
+    };
+    if (position === 'QB') {
+        const completions = getP50(['passing_completions', 'completions']);
+        const attempts = getP50(['passing_attempts', 'attempts']);
+        const passYards = getP50(['passing_yards']);
+        const passTDs = getP50(['passing_tds', 'pass_tds']);
+        const rushYards = getP50(['qb_rush_yards', 'rushing_yards']);
+        const parts = [];
+        if (completions && attempts) parts.push(`~${completions} completions on ${attempts} attempts`);
+        if (passYards) parts.push(`${passYards} passing yards`);
+        if (passTDs) parts.push(`${passTDs} passing TDs`);
+        if (rushYards) parts.push(`${rushYards} rush yards`);
+        if (parts.length === 0) return '';
+        return `The simulator projects ${playerName} for ${joinClauses(parts)}.`;
+    }
+    if (position === 'RB') {
+        const rushYards = getP50(['rushing_yards', 'rush_yards']);
+        const receptions = getP50(['receptions']);
+        const recYards = getP50(['receiving_yards']);
+        const tds = getP50(['total_touchdowns']);
+        const parts = [];
+        if (rushYards) parts.push(`${rushYards} rush yards`);
+        if (receptions && recYards) parts.push(`${receptions} receptions for ${recYards} yards`);
+        if (tds) parts.push(`${tds} total TDs`);
+        if (parts.length === 0) return '';
+        return `The simulator projects ${playerName} for ${joinClauses(parts)}.`;
+    }
+    if (position === 'WR' || position === 'TE') {
+        const targets = getP50(['targets']);
+        const receptions = getP50(['receptions']);
+        const recYards = getP50(['receiving_yards']);
+        const recTDs = getP50(['total_touchdowns']);
+        const parts = [];
+        if (receptions && targets) parts.push(`~${receptions} catches on ${targets} targets`);
+        if (recYards) parts.push(`${recYards} receiving yards`);
+        if (recTDs) parts.push(`${recTDs} total TDs`);
+        if (parts.length === 0) return '';
+        return `The simulator projects ${playerName} for ${joinClauses(parts)}.`;
+    }
+    if (position === 'K') {
+        const fgMade = getP50(['fg_made', 'field_goals_made']);
+        const xpMade = getP50(['pat_made', 'extra_points_made']);
+        const parts = [];
+        if (fgMade) parts.push(`${fgMade} field goals`);
+        if (xpMade) parts.push(`${xpMade} extra points`);
+        if (parts.length === 0) return '';
+        return `The simulator projects ${playerName} for ${joinClauses(parts)}.`;
+    }
+    return '';
+}
+
+function joinClauses(parts) {
+    if (parts.length === 1) return parts[0];
+    if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+    return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+}
+
+function enqueueTerminalDiagnostics(report, context) {
+    const metadata = report && report.metadata ? report.metadata : {};
+    const lines = [];
+    const nSims = metadata.n_sims || context.n_sims;
+    const seed = metadata.seed || context.seed;
+    const mode = metadata.mode || context.mode;
+    if (nSims != null || seed != null || mode) {
+        lines.push(`Run diagnostics: n_sims=${nSims ?? '—'}, seed=${seed ?? '—'}, mode=${mode || '—'}`);
+    }
+    const opponent = metadata.opponent || context.opponent;
+    const homeAway = metadata.home_away || metadata.schedule_home_away || '';
+    if (opponent) {
+        lines.push(`Opponent context: ${homeAway ? `${homeAway} ` : ''}${opponent}`);
+    }
+    const trainingRows = metadata.training_rows || metadata.training_row_count || metadata.training_rows_count;
+    if (trainingRows != null) {
+        lines.push(`Training rows: ${trainingRows}`);
+    }
+    if (lines.length > 0) {
+        enqueueTerminalLine('RUN DIAGNOSTICS', 'highlight');
+        lines.forEach((line) => enqueueTerminalLine(line, 'info'));
+    }
+}
+
+function trimChartPayload(chart, maxPoints) {
+    if (!chart || typeof chart !== 'object') return chart;
+    const trimmed = Array.isArray(chart) ? chart.slice(0, maxPoints) : { ...chart };
+    if (Array.isArray(trimmed.points)) trimmed.points = trimmed.points.slice(0, maxPoints);
+    if (Array.isArray(trimmed.bins)) trimmed.bins = trimmed.bins.slice(0, maxPoints);
+    if (Array.isArray(trimmed.values)) trimmed.values = trimmed.values.slice(0, maxPoints);
+    if (Array.isArray(trimmed.x)) trimmed.x = trimmed.x.slice(0, maxPoints);
+    if (Array.isArray(trimmed.y)) trimmed.y = trimmed.y.slice(0, maxPoints);
+    if (Array.isArray(trimmed.series)) {
+        trimmed.series = trimmed.series.map(series => trimChartPayload(series, maxPoints));
+    }
+    return trimmed;
+}
+
+function compactCharts(charts, maxPoints = 120) {
+    if (!charts) return null;
+    if (Array.isArray(charts)) return charts.map(chart => trimChartPayload(chart, maxPoints));
+    if (typeof charts === 'object') {
+        const out = {};
+        Object.entries(charts).forEach(([key, chart]) => {
+            out[key] = trimChartPayload(chart, maxPoints);
+        });
+        return out;
+    }
+    return null;
+}
+
 function saveRunToStorage(payload, report) {
     if (!report || !report.metadata) return;
-    const stats = buildRunStats(report.metadata.position, report.summary);
-    const runId = `run_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const entry = {
+    const runId = `run_${Date.now()}_${simulationRunCounter}`;
+    const summaryTables = getSummaryTables(report);
+    const charts = compactCharts(report.charts);
+    const record = {
         run_id: runId,
         run_date: new Date().toISOString(),
-        player_name: report.metadata.player_name || payload.player_name || '',
-        player_id: report.metadata.player_id || payload.player_id || '',
-        position: report.metadata.position || '',
-        opponent: report.metadata.opponent || payload.schedule_opponent || '',
-        season: report.metadata.season || payload.season,
-        week: report.metadata.week || payload.week,
-        mode: payload.mode,
-        stats: stats,
-        fantasy_points: stats.fantasy_points || null
+        request: {
+            player_id: payload.player_id || null,
+            player_name: payload.player_name || null,
+            season: payload.season || null,
+            week: payload.week || null,
+            mode: payload.mode || null,
+            opponent: payload.schedule_opponent || null,
+            n_sims: payload.n_sims || null,
+            seed: payload.seed || null
+        },
+        metadata: {
+            player_id: report.metadata.player_id || payload.player_id || null,
+            player_name: report.metadata.player_name || payload.player_name || null,
+            position: report.metadata.position || null,
+            opponent: report.metadata.opponent || payload.schedule_opponent || null,
+            home_away: report.metadata.home_away || payload.schedule_home_away || null,
+            season: report.metadata.season || payload.season || null,
+            week: report.metadata.week || payload.week || null,
+            mode: report.metadata.mode || payload.mode || null,
+            n_sims: report.metadata.n_sims || payload.n_sims || null,
+            seed: report.metadata.seed || payload.seed || null
+        },
+        summary_tables: summaryTables,
+        charts: charts
     };
-    const existing = JSON.parse(localStorage.getItem('rtf_runs_v1') || '[]');
-    existing.unshift(entry);
-    localStorage.setItem('rtf_runs_v1', JSON.stringify(existing.slice(0, 200)));
-    localStorage.setItem(`rtf_run_${runId}`, JSON.stringify(report));
+
+    const MAX_RECORD_BYTES = 200 * 1024;
+    let serialized = JSON.stringify(record);
+    if (serialized.length > MAX_RECORD_BYTES) {
+        record.charts = null;
+        serialized = JSON.stringify(record);
+    }
+    if (serialized.length > MAX_RECORD_BYTES) {
+        record.summary_tables = [];
+        record.note = 'results too large to cache locally';
+        serialized = JSON.stringify(record);
+    }
+
+    const RUN_INDEX_KEY = 'rtf_run_index_v1';
+    const RUN_RECORD_PREFIX = 'rtf_run_';
+    const MAX_RUNS = 10;
+    const RUNS_KEY = 'rtf_runs_v1';
+
+    const existingIndex = JSON.parse(localStorage.getItem(RUN_INDEX_KEY) || '[]')
+        .filter((id) => typeof id === 'string' && id.startsWith('run_'));
+    const nextIndex = [runId, ...existingIndex.filter((id) => id !== runId)].slice(0, MAX_RUNS);
+
+    const persist = () => {
+        const stats = buildRunStats(record.metadata.position, summaryTables);
+        const listEntry = {
+            run_id: runId,
+            run_date: record.run_date,
+            player_name: record.metadata.player_name || '',
+            player_id: record.metadata.player_id || '',
+            position: record.metadata.position || '',
+            opponent: record.metadata.opponent || '',
+            season: record.metadata.season || record.request.season,
+            week: record.metadata.week || record.request.week,
+            mode: record.metadata.mode || record.request.mode,
+            stats: stats,
+            fantasy_points: stats.fantasy_points || null
+        };
+        const existingRuns = JSON.parse(localStorage.getItem(RUNS_KEY) || '[]');
+        existingRuns.unshift(listEntry);
+        localStorage.setItem(RUNS_KEY, JSON.stringify(existingRuns.slice(0, MAX_RUNS)));
+        localStorage.setItem(RUN_INDEX_KEY, JSON.stringify(nextIndex));
+        localStorage.setItem(`${RUN_RECORD_PREFIX}${runId}`, serialized);
+        existingIndex.filter((oldId) => !nextIndex.includes(oldId)).forEach((oldId) => {
+            localStorage.removeItem(`${RUN_RECORD_PREFIX}${oldId}`);
+        });
+        console.info('[RTF] cached run', { runId, bytes: serialized.length });
+    };
+
+    try {
+        persist();
+    } catch (err) {
+        existingIndex.forEach((oldId) => {
+            localStorage.removeItem(`${RUN_RECORD_PREFIX}${oldId}`);
+        });
+        try {
+            localStorage.setItem(RUN_INDEX_KEY, JSON.stringify([runId]));
+            localStorage.setItem(`${RUN_RECORD_PREFIX}${runId}`, serialized);
+            console.info('[RTF] cached run after prune', { runId, bytes: serialized.length });
+        } catch (retryErr) {
+            console.warn('[RTF] localStorage disabled for runs', retryErr);
+        }
+    }
 }
 
 function loadRunFromStorage(runId) {
@@ -908,9 +1537,7 @@ function loadRunFromStorage(runId) {
     if (!reportRaw) return;
     try {
         const report = JSON.parse(reportRaw);
-        if (report && report.summary && report.metadata) {
-            const resultsPanel = document.getElementById('results-panel');
-            if (resultsPanel) resultsPanel.style.display = 'block';
+        if (report && report.metadata) {
             renderResults(report);
         }
     } catch (err) {
@@ -940,15 +1567,16 @@ function initializeSimulationButton() {
         }
 
         // Hide previous results
-        const resultsPanel = document.getElementById('results-panel');
-        if (resultsPanel) {
-            resultsPanel.style.display = 'none';
-        }
+        const statsSection = document.getElementById('rtf-stats-section');
+        const distributionsSection = document.getElementById('rtf-distributions-section');
+        if (statsSection) statsSection.style.display = 'none';
+        if (distributionsSection) distributionsSection.style.display = 'none';
 
         // Show and start terminal
         const terminalContainer = document.getElementById('terminal-container');
         if (terminalContainer) {
             terminalContainer.style.display = 'block';
+            scrollToTerminal();
             runSimulationRequest();
         }
     };
@@ -973,7 +1601,13 @@ async function runSimulationRequest() {
     const simulationButton = document.getElementById('simulation-button');
 
     if (!terminalOutput) return;
-    terminalOutput.innerHTML = '<div class="terminal-line">Running simulation...</div>';
+    if (simulationInFlight) return;
+    simulationInFlight = true;
+    simulationRunCounter += 1;
+    terminalRunToken = simulationRunCounter;
+    terminalQueue = [];
+    terminalFlushActive = false;
+    clearTerminal();
     if (simulationButton) {
         simulationButton.disabled = true;
         simulationButton.textContent = 'RUNNING...';
@@ -981,95 +1615,340 @@ async function runSimulationRequest() {
 
     const resolved = resolvePayload();
     if (!resolved.valid) {
-        renderError(resolved.message || 'Missing required inputs.');
+        enqueueTerminalLine(`ERROR: ${resolved.message || 'Missing required inputs.'}`, 'error');
+        flushTerminalQueue(terminalRunToken);
         if (simulationButton) {
             simulationButton.disabled = false;
             simulationButton.textContent = 'RUN SIMULATION';
         }
+        simulationInFlight = false;
         return;
     }
 
     try {
         console.info('[RTF] simulate payload', resolved.payload);
         window.lastSimulationPayload = resolved.payload;
-        const payload = await fetchJson('/simulate', {
+        const context = buildTerminalContext(resolved.payload);
+        const rng = makeSeededRng(context.seed);
+        terminalRng = rng;
+        emitPhaseMessages('initialization', rng, context);
+        emitPhaseMessages('context_build', rng, context);
+        emitPhaseMessages('model_setup', rng, context);
+        flushTerminalQueue(terminalRunToken);
+        const requestPromise = fetchJson('/simulate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(resolved.payload)
         });
+        emitPhaseMessages('monte_carlo', rng, context, true);
+        flushTerminalQueue(terminalRunToken);
+        const payload = await requestPromise;
         saveRunToStorage(resolved.payload, payload);
+        emitPhaseMessages('aggregation', rng, context);
+        enqueueTerminalLine('Simulation response received.', 'success');
+        enqueueTerminalSummary(payload, context);
+        enqueueTerminalDiagnostics(payload, context);
         renderResults(payload);
+        emitPhaseMessages('finalize', rng, context);
+        const events = payload && payload.diagnostics && payload.diagnostics.terminal_events;
+        if (Array.isArray(events)) {
+            events.forEach((evt) => {
+                if (!evt) return;
+                const msg = evt.message || evt.text || evt.code || 'event';
+                enqueueTerminalLine(msg, 'muted', '\u21b3 ');
+            });
+        }
+        flushTerminalQueue(terminalRunToken);
     } catch (err) {
-        renderError(err && err.message ? err.message : 'Unable to reach the simulation service.');
+        enqueueTerminalLine(
+            `ERROR: ${err && err.message ? err.message : 'Unable to reach the simulation service.'}`,
+            'error'
+        );
+        flushTerminalQueue(terminalRunToken);
     } finally {
         if (simulationButton) {
             simulationButton.disabled = false;
             simulationButton.textContent = 'RUN SIMULATION';
         }
+        simulationInFlight = false;
     }
 }
 
 function renderError(message) {
-    const terminalOutput = document.getElementById('terminalOutput');
-    const resultsPanel = document.getElementById('results-panel');
-    const resultsContent = document.getElementById('results-content');
-    if (terminalOutput) {
-        terminalOutput.innerHTML = `<div class="terminal-line error">ERROR: ${message}</div>`;
+    const statsSection = document.getElementById('rtf-stats-section');
+    const statsContainer = document.getElementById('stats-table-container');
+    const distributionsSection = document.getElementById('rtf-distributions-section');
+    if (statsSection && statsContainer) {
+        statsSection.style.display = 'block';
+        statsContainer.innerHTML = `<div class="result-row error">${message}</div>`;
     }
-    if (resultsPanel && resultsContent) {
-        resultsPanel.style.display = 'block';
-        resultsContent.innerHTML = `<div class="result-row error">${message}</div>`;
+    if (distributionsSection) {
+        distributionsSection.style.display = 'none';
     }
 }
 
 function renderResults(result) {
-    const terminalOutput = document.getElementById('terminalOutput');
-    const resultsPanel = document.getElementById('results-panel');
-    const resultsContent = document.getElementById('results-content');
-    if (!resultsPanel || !resultsContent) return;
+    const statsSection = document.getElementById('rtf-stats-section');
+    const statsContainer = document.getElementById('stats-table-container');
+    const distributionsSection = document.getElementById('rtf-distributions-section');
+    const distributionsContainer = document.getElementById('distributions-container');
+    if (!statsSection || !statsContainer) return;
 
-    if (terminalOutput) {
-        terminalOutput.innerHTML = '<div class="terminal-line success">Simulation complete.</div>';
-    }
-
-    const summary = result.summary || [];
-    const meta = result.metadata || {};
-    if (!summary || summary.length === 0) {
-        renderError('Simulation returned no summary.');
+    const summaryTables = getSummaryTables(result);
+    const metadata = result && result.metadata ? result.metadata : {};
+    if (!summaryTables || summaryTables.length === 0) {
+        renderError('Simulation returned no summary tables.');
         return;
     }
+
+    statsContainer.innerHTML = '';
     const header = document.createElement('div');
     header.className = 'result-row';
-    header.innerHTML = `<strong>${meta.player_name || selectedPlayer.player_name}</strong> | ${meta.season} Week ${meta.week}`;
-    resultsContent.innerHTML = '';
-    resultsContent.appendChild(header);
+    header.innerHTML = `<strong>${metadata.player_name || (selectedPlayer ? selectedPlayer.player_name : 'Player')}</strong> | ${metadata.season || ''} Week ${metadata.week || ''}`;
+    statsContainer.appendChild(header);
+    statsContainer.appendChild(buildStatsTable(summaryTables, metadata.position || (selectedPlayer ? selectedPlayer.position : '')));
+    statsSection.style.display = 'block';
 
+    const quantileLookup = buildQuantileLookup(summaryTables);
+    if (distributionsSection && distributionsContainer) {
+        const charts = normalizeChartsPayload(result.charts);
+        distributionsContainer.innerHTML = '';
+        if (charts.length === 0) {
+            distributionsSection.style.display = 'none';
+        } else {
+            charts.forEach((chart) => {
+                const card = document.createElement('div');
+                card.className = 'distribution-card';
+                const title = document.createElement('h4');
+                title.textContent = chart.stat || chart.name || 'Distribution';
+                card.appendChild(title);
+                const statKey = normalizeStatKey(chart.stat || chart.name || '');
+                const quantiles = quantileLookup.get(statKey) || null;
+                const svg = renderChartSVG(chart, quantiles);
+                if (svg) {
+                    card.appendChild(svg);
+                }
+                const caption = document.createElement('div');
+                caption.className = 'distribution-caption';
+                caption.textContent = 'Distribution of simulated outcomes';
+                card.appendChild(caption);
+                distributionsContainer.appendChild(card);
+            });
+            distributionsSection.style.display = 'block';
+        }
+    }
+}
+
+function buildStatsTable(summaryTables, position) {
+    const percentiles = ['p10', 'p25', 'p40', 'p50', 'p60', 'p75', 'p90'];
     const table = document.createElement('table');
-    table.className = 'results-table';
+    table.className = 'stats-table';
     table.innerHTML = `
         <thead>
             <tr>
                 <th>Stat</th>
-                <th>P25</th>
-                <th>P50</th>
-                <th>P75</th>
+                ${percentiles.map(p => `<th>${p.toUpperCase()}</th>`).join('')}
             </tr>
         </thead>
         <tbody></tbody>
     `;
     const tbody = table.querySelector('tbody');
-    summary.forEach((row) => {
+    const ordered = orderSummaryRows(summaryTables, position || (selectedPlayer ? selectedPlayer.position : ''));
+    ordered.forEach((row) => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${row.stat}</td>
-            <td>${Math.round(row.p25)}</td>
-            <td>${Math.round(row.p50)}</td>
-            <td>${Math.round(row.p75)}</td>
-        `;
+        const statLabel = row.stat || row.name || 'stat';
+        const cells = percentiles.map((p) => {
+            const value = getRowValue(row, p);
+            return `<td>${value == null ? '—' : formatStatValue(value)}</td>`;
+        });
+        tr.innerHTML = `<td>${statLabel}</td>${cells.join('')}`;
         tbody.appendChild(tr);
     });
-    resultsContent.appendChild(table);
-    resultsPanel.style.display = 'block';
+    return table;
+}
+
+function buildQuantileLookup(summaryTables) {
+    const lookup = new Map();
+    summaryTables.forEach((row) => {
+        const key = normalizeStatKey(row.stat || row.name || '');
+        if (!key) return;
+        lookup.set(key, {
+            p10: getRowValue(row, 'p10'),
+            p25: getRowValue(row, 'p25'),
+            p40: getRowValue(row, 'p40'),
+            p50: getRowValue(row, 'p50'),
+            p60: getRowValue(row, 'p60'),
+            p75: getRowValue(row, 'p75'),
+            p90: getRowValue(row, 'p90')
+        });
+    });
+    return lookup;
+}
+
+function normalizeChartsPayload(charts) {
+    if (!charts) return [];
+    if (Array.isArray(charts)) return charts;
+    if (typeof charts === 'object') {
+        return Object.entries(charts).map(([key, value]) => {
+            if (value && typeof value === 'object') {
+                return { stat: value.stat || value.name || key, ...value };
+            }
+            return { stat: key, value };
+        });
+    }
+    return [];
+}
+
+function extractChartPoints(chart) {
+    if (!chart || typeof chart !== 'object') return null;
+    if (Array.isArray(chart.points)) return chart.points;
+    if (Array.isArray(chart.density)) return chart.density;
+    if (Array.isArray(chart.series) && chart.series.length > 0) {
+        if (Array.isArray(chart.series[0].points)) return chart.series[0].points;
+        if (Array.isArray(chart.series[0].x) && Array.isArray(chart.series[0].y)) {
+            return chart.series[0].x.map((x, idx) => ({ x, y: chart.series[0].y[idx] }));
+        }
+    }
+    if (Array.isArray(chart.x) && Array.isArray(chart.y)) {
+        return chart.x.map((x, idx) => ({ x, y: chart.y[idx] }));
+    }
+    return null;
+}
+
+function extractHistogramBins(chart) {
+    if (!chart || typeof chart !== 'object') return null;
+    if (Array.isArray(chart.bins)) return chart.bins;
+    if (Array.isArray(chart.histogram)) return chart.histogram;
+    return null;
+}
+
+function estimatePercentile(x, quantiles) {
+    if (!quantiles) return null;
+    const points = [
+        { p: 0.10, x: quantiles.p10 },
+        { p: 0.25, x: quantiles.p25 },
+        { p: 0.40, x: quantiles.p40 },
+        { p: 0.50, x: quantiles.p50 },
+        { p: 0.60, x: quantiles.p60 },
+        { p: 0.75, x: quantiles.p75 },
+        { p: 0.90, x: quantiles.p90 }
+    ].filter((pt) => typeof pt.x === 'number' && !Number.isNaN(pt.x));
+    if (points.length < 2) return null;
+    points.sort((a, b) => a.x - b.x);
+    if (x <= points[0].x) return points[0].p;
+    if (x >= points[points.length - 1].x) return points[points.length - 1].p;
+    for (let i = 0; i < points.length - 1; i++) {
+        const left = points[i];
+        const right = points[i + 1];
+        if (x >= left.x && x <= right.x) {
+            const span = right.x - left.x || 1;
+            const t = (x - left.x) / span;
+            return left.p + t * (right.p - left.p);
+        }
+    }
+    return null;
+}
+
+function renderChartSVG(chart, quantiles) {
+    const width = 260;
+    const height = 120;
+    const padding = 10;
+    const wrapper = document.createElement('div');
+    wrapper.style.position = 'relative';
+    const tooltip = document.createElement('div');
+    tooltip.style.position = 'absolute';
+    tooltip.style.pointerEvents = 'none';
+    tooltip.style.background = '#111';
+    tooltip.style.color = '#cfe6cf';
+    tooltip.style.border = '1px solid #2f3a2f';
+    tooltip.style.padding = '2px 6px';
+    tooltip.style.fontSize = '0.5rem';
+    tooltip.style.opacity = '0';
+    tooltip.style.transition = 'opacity 120ms ease';
+    tooltip.style.whiteSpace = 'nowrap';
+    wrapper.appendChild(tooltip);
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('width', width);
+    svg.setAttribute('height', height);
+    svg.style.cursor = 'crosshair';
+
+    const bins = extractHistogramBins(chart);
+    if (bins && bins.length > 0) {
+        const values = bins.map((bin) => {
+            if (typeof bin === 'number') return bin;
+            return bin.count ?? bin.y ?? bin.value ?? 0;
+        });
+        const maxValue = Math.max(...values, 1);
+        const barWidth = (width - padding * 2) / bins.length;
+        bins.forEach((bin, idx) => {
+            const value = values[idx];
+            const barHeight = (value / maxValue) * (height - padding * 2);
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', padding + idx * barWidth);
+            rect.setAttribute('y', height - padding - barHeight);
+            rect.setAttribute('width', Math.max(1, barWidth - 1));
+            rect.setAttribute('height', barHeight);
+            rect.setAttribute('fill', '#7cb342');
+            svg.appendChild(rect);
+        });
+        wrapper.appendChild(svg);
+        return wrapper;
+    }
+
+    const points = extractChartPoints(chart);
+    if (!points || points.length === 0) return null;
+    const xs = points.map((p) => p.x ?? p[0]).filter((v) => typeof v === 'number');
+    const ys = points.map((p) => p.y ?? p[1]).filter((v) => typeof v === 'number');
+    const minX = Math.min(...xs, 0);
+    const maxX = Math.max(...xs, 1);
+    const minY = Math.min(...ys, 0);
+    const maxY = Math.max(...ys, 1);
+    const scaleX = (x) => padding + ((x - minX) / (maxX - minX || 1)) * (width - padding * 2);
+    const scaleY = (y) => height - padding - ((y - minY) / (maxY - minY || 1)) * (height - padding * 2);
+    const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    const linePoints = points.map((p, idx) => {
+        const xVal = p.x ?? p[0] ?? xs[idx] ?? 0;
+        const yVal = p.y ?? p[1] ?? ys[idx] ?? 0;
+        return `${scaleX(xVal)},${scaleY(yVal)}`;
+    });
+    polyline.setAttribute('points', linePoints.join(' '));
+    polyline.setAttribute('fill', 'none');
+    polyline.setAttribute('stroke', '#7cb342');
+    polyline.setAttribute('stroke-width', '2');
+    svg.appendChild(polyline);
+    const guide = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    guide.setAttribute('y1', padding);
+    guide.setAttribute('y2', height - padding);
+    guide.setAttribute('stroke', '#f5d76e');
+    guide.setAttribute('stroke-width', '1');
+    guide.setAttribute('opacity', '0');
+    svg.appendChild(guide);
+
+    svg.addEventListener('mousemove', (event) => {
+        const rect = svg.getBoundingClientRect();
+        const xPix = event.clientX - rect.left;
+        const xValue = minX + ((xPix / rect.width) * (maxX - minX));
+        const percentile = estimatePercentile(xValue, quantiles);
+        const xSvg = Math.max(padding, Math.min(width - padding, xPix * (width / rect.width)));
+        guide.setAttribute('x1', xSvg);
+        guide.setAttribute('x2', xSvg);
+        guide.setAttribute('opacity', '0.9');
+        const pctLabel = percentile == null ? '—' : `P${Math.round(percentile * 100)}`;
+        tooltip.textContent = `value ≈ ${formatStatValue(xValue)} | percentile ≈ ${pctLabel}`;
+        tooltip.style.left = `${Math.min(xPix + 8, rect.width - 120)}px`;
+        tooltip.style.top = '6px';
+        tooltip.style.opacity = '1';
+    });
+
+    svg.addEventListener('mouseleave', () => {
+        guide.setAttribute('opacity', '0');
+        tooltip.style.opacity = '0';
+    });
+
+    wrapper.appendChild(svg);
+    return wrapper;
 }
 
 // Terminal Animation

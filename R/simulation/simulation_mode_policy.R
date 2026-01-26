@@ -124,6 +124,69 @@ simulation_mode_policy <- function(mode = c("upcoming_game", "hypothetical_match
   )
 }
 
+#' Resolve upcoming postseason fallback to regular-season context
+#'
+#' If an upcoming game is postseason (week > 18), return a safe fallback
+#' to the latest regular-season week in the same or prior season.
+#' This avoids hard errors in simulation paths that only support weeks 1-18.
+resolve_postseason_fallback <- function(mode,
+                                        target_season,
+                                        target_week,
+                                        schedules = NULL) {
+  mode <- as.character(mode)
+  if (!mode %in% c("upcoming_game", "hypothetical_matchup")) {
+    return(list(apply = FALSE))
+  }
+  target_season <- as.integer(target_season)
+  target_week <- as.integer(target_week)
+  if (!is.finite(target_season) || !is.finite(target_week)) {
+    return(list(apply = FALSE))
+  }
+  if (target_week <= 18) {
+    return(list(apply = FALSE))
+  }
+
+  effective_season <- target_season
+  effective_week <- NA_integer_
+
+  extract_max_regular_week <- function(season_val, sched) {
+    if (is.null(sched) || nrow(sched) == 0) return(NA_integer_)
+    wk <- suppressWarnings(as.integer(sched$week[sched$season == season_val & sched$week <= 18]))
+    wk <- wk[!is.na(wk)]
+    if (length(wk) == 0) return(NA_integer_)
+    max(wk)
+  }
+
+  if (is.null(schedules) && exists("load_schedules")) {
+    schedules <- tryCatch(
+      load_schedules(seasons = unique(c(target_season, target_season - 1L)), cache_only = TRUE),
+      error = function(e) NULL
+    )
+  }
+
+  effective_week <- extract_max_regular_week(target_season, schedules)
+  if (!is.finite(effective_week)) {
+    prior_season <- target_season - 1L
+    prior_week <- extract_max_regular_week(prior_season, schedules)
+    if (is.finite(prior_week)) {
+      effective_season <- prior_season
+      effective_week <- prior_week
+    }
+  }
+  if (!is.finite(effective_week)) {
+    effective_week <- 18L
+  }
+
+  list(
+    apply = TRUE,
+    requested_season = target_season,
+    requested_week = target_week,
+    effective_season = effective_season,
+    effective_week = as.integer(effective_week),
+    reason = "postseason_upcoming_fallback"
+  )
+}
+
 #' Detect in-progress season using schedule completeness
 #'
 #' Returns the latest season if schedule weeks are incomplete; otherwise NA.

@@ -10,8 +10,8 @@ get_report_required_draws_v1 <- function(position) {
   switch(
     toupper(position),
     RB = c("carries", "rushing_yards", "receptions", "receiving_yards", "total_touchdowns", "total_yards", "fantasy_ppr"),
-    WR = c("targets", "receptions", "receiving_yards", "receiving_tds", "total_touchdowns", "total_yards", "fantasy_ppr"),
-    TE = c("targets", "receptions", "receiving_yards", "receiving_tds", "total_touchdowns", "total_yards", "fantasy_ppr"),
+    WR = c("targets", "receptions", "receiving_yards", "total_touchdowns", "total_yards", "fantasy_ppr"),
+    TE = c("targets", "receptions", "receiving_yards", "total_touchdowns", "total_yards", "fantasy_ppr"),
     QB = c("passing_attempts", "passing_yards", "passing_tds", "interceptions_thrown",
            "qb_sacks_taken", "qb_rush_attempts", "qb_rush_yards", "qb_rush_tds"),
     K = c("fg_attempts", "fg_made", "pat_made", "fantasy_ppr"),
@@ -23,8 +23,8 @@ get_report_required_summary_v1 <- function(position) {
   switch(
     toupper(position),
     RB = c("carries", "rushing_yards", "receptions", "receiving_yards", "total_touchdowns", "fantasy_ppr"),
-    WR = c("targets", "receptions", "receiving_yards", "receiving_tds", "total_touchdowns", "fantasy_ppr"),
-    TE = c("targets", "receptions", "receiving_yards", "receiving_tds", "total_touchdowns", "fantasy_ppr"),
+    WR = c("targets", "receptions", "receiving_yards", "total_touchdowns", "fantasy_ppr"),
+    TE = c("targets", "receptions", "receiving_yards", "total_touchdowns", "fantasy_ppr"),
     QB = c("passing_attempts", "passing_yards", "passing_tds", "interceptions_thrown",
            "qb_sacks_taken", "qb_rush_attempts", "qb_rush_yards", "qb_rush_tds"),
     K = c("fg_attempts", "fg_made", "pat_made", "fantasy_ppr"),
@@ -83,7 +83,7 @@ validate_report_schema_v1 <- function(result) {
   if (is.null(summary) || !is.data.frame(summary) || nrow(summary) == 0) {
     stop("Report schema v1: summary must be a non-empty data.frame.", call. = FALSE)
   }
-  required_summary_cols <- c("stat", "p25", "p50", "p75")
+  required_summary_cols <- c("stat", "p10", "p25", "p40", "p50", "p60", "p75", "p90")
   missing_summary_cols <- setdiff(required_summary_cols, names(summary))
   if (length(missing_summary_cols) > 0) {
     stop("Report schema v1: summary missing required columns: ",
@@ -94,7 +94,7 @@ validate_report_schema_v1 <- function(result) {
   if (length(missing_stats) > 0) {
     stop("Report schema v1: summary missing required stats: ", paste(missing_stats, collapse = ", "), call. = FALSE)
   }
-  for (col in c("p25", "p50", "p75")) {
+  for (col in c("p10", "p25", "p40", "p50", "p60", "p75", "p90")) {
     if (!is.numeric(summary[[col]])) {
       stop("Report schema v1: summary column '", col, "' must be numeric.", call. = FALSE)
     }

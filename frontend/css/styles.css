@@ -103,6 +103,117 @@ body {
     gap: 2rem;
 }
 
+.home-intro {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.intro-grid {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.intro-card {
+    flex: 1 1 240px;
+    background: var(--card-bg);
+    border: 2px solid var(--border-color);
+    padding: 1.25rem 1.5rem;
+    font-size: 1.1rem;
+    line-height: 1.6;
+    min-height: 180px;
+}
+
+.intro-card h3 {
+    font-size: 1.4rem;
+    color: var(--accent-gold);
+    margin-bottom: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.intro-card p {
+    font-size: 1.1rem;
+    line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+    .intro-card {
+        flex: 1 1 100%;
+    }
+}
+
+.section-block {
+    background: var(--card-bg);
+    border: 2px solid var(--border-color);
+    padding: 1.25rem 1.5rem;
+}
+
+.instructions-panel {
+    font-size: 0.6rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+}
+
+.terminal-section,
+.stats-section,
+.distributions-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.stats-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--dark-bg);
+    border: 2px solid var(--border-color);
+}
+
+.stats-table th,
+.stats-table td {
+    padding: 0.6rem;
+    border-bottom: 1px solid var(--border-color);
+    text-align: center;
+    font-size: 0.6rem;
+}
+
+.stats-table th:first-child,
+.stats-table td:first-child {
+    text-align: left;
+}
+
+.stats-table th {
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.distribution-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+}
+
+.distribution-card {
+    background: var(--dark-bg);
+    border: 2px solid var(--border-color);
+    padding: 0.75rem;
+}
+
+.distribution-card h4 {
+    font-size: 0.6rem;
+    color: var(--accent-gold);
+    margin-bottom: 0.5rem;
+}
+
+.distribution-caption {
+    font-size: 0.5rem;
+    color: var(--text-secondary);
+    margin-top: 0.4rem;
+}
+
 /* Simulation Header */
 .simulation-header {
     text-align: center;
@@ -992,6 +1103,10 @@ body {
 
 .terminal-line.success {
     color: #8bc34a;
+}
+
+.terminal-line.muted {
+    color: #6f7b6f;
 }
 
 .terminal-line.warning {

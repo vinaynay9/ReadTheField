@@ -583,13 +583,20 @@ run_te_simulation <- function(gsis_id,
   }
 
   if (nrow(result$summary) > 0 && !"fantasy_ppr" %in% result$summary$stat) {
+    q <- stats::quantile(result$draws$fantasy_ppr,
+                         c(0.10, 0.25, 0.40, 0.50, 0.60, 0.75, 0.90),
+                         na.rm = TRUE)
     result$summary <- rbind(
       result$summary,
       data.frame(
         stat = "fantasy_ppr",
-        p25 = stats::quantile(result$draws$fantasy_ppr, 0.25, na.rm = TRUE),
-        p50 = stats::quantile(result$draws$fantasy_ppr, 0.50, na.rm = TRUE),
-        p75 = stats::quantile(result$draws$fantasy_ppr, 0.75, na.rm = TRUE),
+        p10 = as.numeric(q[1]),
+        p25 = as.numeric(q[2]),
+        p40 = as.numeric(q[3]),
+        p50 = as.numeric(q[4]),
+        p60 = as.numeric(q[5]),
+        p75 = as.numeric(q[6]),
+        p90 = as.numeric(q[7]),
         stringsAsFactors = FALSE
       )
     )

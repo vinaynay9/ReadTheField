@@ -112,3 +112,10 @@ The current release focuses on:
 
 The fantasy layer is a natural extension, not missing functionality. Deferring
 it keeps v1 simple, reliable, and ready for public demo use.
+
+## 10. Future Plans (Operational Enhancements)
+
+- Postseason support: add explicit postseason schedule integration and rolling context policies
+  (e.g., playoff-week baselines, safe fallbacks when postseason stats are unavailable).
+- Injuries integration (optional): gated nflreadr::load_injuries() availability checks with a
+  clear availability policy and calibration notes, without changing model math.

@@ -9,6 +9,8 @@ normalize_summary_stats_v1 <- function(summary_df, position, draws = NULL) {
   }
   summary_df$stat <- trimws(as.character(summary_df$stat))
   position <- toupper(as.character(position))
+  target_percentiles <- c(0.10, 0.25, 0.40, 0.50, 0.60, 0.75, 0.90)
+  target_cols <- c("p10", "p25", "p40", "p50", "p60", "p75", "p90")
   rename_map <- list()
   if (position %in% c("RB", "WR", "TE")) {
     rename_map <- c(
@@ -49,38 +51,89 @@ normalize_summary_stats_v1 <- function(summary_df, position, draws = NULL) {
     summary_df$stat[summary_df$stat == nm] <- rename_map[[nm]]
   }
 
-  if (position %in% c("WR", "TE")) {
-    if (!"total_touchdowns" %in% summary_df$stat && "receiving_tds" %in% summary_df$stat) {
-      td_rows <- summary_df[summary_df$stat == "receiving_tds", , drop = FALSE]
-      if (nrow(td_rows) > 0) {
+  for (col in target_cols) {
+    if (!col %in% names(summary_df)) {
+      summary_df[[col]] <- NA_real_
+    }
+  }
+  if (!is.null(draws) && is.data.frame(draws)) {
+    for (i in seq_len(nrow(summary_df))) {
+      stat_name <- summary_df$stat[i]
+      if (stat_name %in% names(draws)) {
+        vals <- draws[[stat_name]]
+        q <- stats::quantile(vals, target_percentiles, na.rm = TRUE)
+        for (j in seq_along(target_cols)) {
+          col <- target_cols[j]
+          if (is.na(summary_df[[col]][i])) {
+            summary_df[[col]][i] <- as.numeric(q[j])
+          }
+        }
+      }
+    }
+  }
+
+  if (position == "RB") {
+    if (!"total_touchdowns" %in% summary_df$stat && !is.null(draws)) {
+      td_vec <- NULL
+      if ("total_touchdowns" %in% names(draws)) {
+        td_vec <- draws$total_touchdowns
+      } else if (all(c("rush_tds", "rec_tds") %in% names(draws))) {
+        td_vec <- draws$rush_tds + draws$rec_tds
+      } else if (all(c("rushing_tds", "receiving_tds") %in% names(draws))) {
+        td_vec <- draws$rushing_tds + draws$receiving_tds
+      }
+      if (!is.null(td_vec)) {
+        q <- stats::quantile(td_vec, target_percentiles, na.rm = TRUE)
         summary_df <- rbind(
           summary_df,
           data.frame(
             stat = "total_touchdowns",
-            p25 = td_rows$p25[1],
-            p50 = td_rows$p50[1],
-            p75 = td_rows$p75[1]
+            p10 = as.numeric(q[1]),
+            p25 = as.numeric(q[2]),
+            p40 = as.numeric(q[3]),
+            p50 = as.numeric(q[4]),
+            p60 = as.numeric(q[5]),
+            p75 = as.numeric(q[6]),
+            p90 = as.numeric(q[7]),
+            stringsAsFactors = FALSE
           )
         )
       }
     }
   }
 
-  if (position == "RB") {
-    if (!"total_touchdowns" %in% summary_df$stat &&
-        all(c("rushing_tds", "receiving_tds") %in% summary_df$stat) &&
-        !is.null(draws)) {
-      td_vec <- draws$rush_tds + draws$rec_tds
-      summary_df <- rbind(
-        summary_df,
-        data.frame(
-          stat = "total_touchdowns",
-          p25 = stats::quantile(td_vec, 0.25, na.rm = TRUE),
-          p50 = stats::quantile(td_vec, 0.50, na.rm = TRUE),
-          p75 = stats::quantile(td_vec, 0.75, na.rm = TRUE)
+  if (position %in% c("WR", "TE")) {
+    if (!"total_touchdowns" %in% summary_df$stat && !is.null(draws)) {
+      td_vec <- NULL
+      if ("total_touchdowns" %in% names(draws)) {
+        td_vec <- draws$total_touchdowns
+      } else if ("receiving_tds" %in% names(draws)) {
+        td_vec <- draws$receiving_tds
+      } else if ("rec_tds" %in% names(draws)) {
+        td_vec <- draws$rec_tds
+      }
+      if (!is.null(td_vec)) {
+        q <- stats::quantile(td_vec, target_percentiles, na.rm = TRUE)
+        summary_df <- rbind(
+          summary_df,
+          data.frame(
+            stat = "total_touchdowns",
+            p10 = as.numeric(q[1]),
+            p25 = as.numeric(q[2]),
+            p40 = as.numeric(q[3]),
+            p50 = as.numeric(q[4]),
+            p60 = as.numeric(q[5]),
+            p75 = as.numeric(q[6]),
+            p90 = as.numeric(q[7]),
+            stringsAsFactors = FALSE
+          )
         )
-      )
+      }
     }
+  }
+
+  if (position %in% c("RB", "WR", "TE")) {
+    summary_df <- summary_df[!summary_df$stat %in% c("rushing_tds", "receiving_tds", "rush_tds", "rec_tds"), , drop = FALSE]
   }
 
   summary_df
@@ -445,6 +498,30 @@ simulate_player_game_v1 <- function(player_id,
     result$metadata$error_code <- NA_character_
 
     result$summary <- normalize_summary_stats_v1(result$summary, result$metadata$position, result$draws)
+    if (position %in% c("RB", "WR", "TE")) {
+      has_total_summary <- "total_touchdowns" %in% result$summary$stat
+      draws_df <- result$draws
+      has_total_draws <- !is.null(draws_df) && "total_touchdowns" %in% names(draws_df)
+      has_components <- !is.null(draws_df) && (
+        all(c("rush_tds", "rec_tds") %in% names(draws_df)) ||
+          all(c("rushing_tds", "receiving_tds") %in% names(draws_df)) ||
+          "receiving_tds" %in% names(draws_df) ||
+          "rec_tds" %in% names(draws_df)
+      )
+      if (!has_total_summary && !has_total_draws && !has_components) {
+        if (is.null(result$diagnostics) || !is.list(result$diagnostics)) {
+          result$diagnostics <- list()
+        }
+        events <- result$diagnostics$terminal_events
+        if (is.null(events) || !is.list(events)) events <- list()
+        events <- c(events, list(list(
+          code = "total_touchdowns_missing_components",
+          message = "Total touchdowns unavailable; TD components missing from draws.",
+          position = position
+        )))
+        result$diagnostics$terminal_events <- events
+      }
+    }
 
     if (is.null(result$metadata) || length(result$metadata) == 0) {
       return(make_error_v1("internal_error", "metadata_missing",
